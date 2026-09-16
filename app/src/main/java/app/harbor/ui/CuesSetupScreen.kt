@@ -332,13 +332,13 @@ fun CuesSetupScreen(
                             "else changes. If you change your mind, Android may " +
                             "not ask again — you can grant it from system settings.",
                     )
-                    TextLink("Open system settings") { openAppSettings(context) }
+                    TextLink("Open system settings", onClick = { openAppSettings(context) })
                     // Rechecking on resume would need a lifecycle observer whose
                     // API has moved around between Compose versions. A link the
                     // user presses is duller and cannot break.
-                    TextLink("I have granted it — check again") {
+                    TextLink("I have granted it — check again", onClick = {
                         hasPermission = ActivityTransitions.hasPermission(context)
-                    }
+                    })
                 }
             }
 

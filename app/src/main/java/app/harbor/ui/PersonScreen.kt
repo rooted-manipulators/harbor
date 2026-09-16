@@ -136,9 +136,9 @@ fun PersonScreen(
             // dialer places the call, and whatever they already use carries
             // the line.
             if (person.phoneE164 != null) {
-                TextLink("Call " + person.label) {
+            TextLink("Call " + person.label, onClick = {
                     Dialer.handOff(context, store, scope, person)
-                }
+                })
             }
             TextLink("Leave a line", onLeaveLine)
 
