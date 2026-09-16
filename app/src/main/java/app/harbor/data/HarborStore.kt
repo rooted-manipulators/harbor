@@ -181,8 +181,14 @@ class HarborStore(context: Context) : HarborRepository {
                     it.firedDate == date && it.triggerSource != TriggerSource.MANUAL
                 },
                 // Across every day, not just today: the cooldown has to
-                // survive midnight.
-                lastCueAt = cues.maxOfOrNull { it.firedAt },
+                // survive midnight. Manual cues are left out for the same
+                // reason they are left out of the cap — onboarding's preview
+                // is one, so counting it started a two-hour cooldown on the
+                // way out of the flow, and the first real walk after setting
+                // Harbor up could never produce anything.
+                lastCueAt = cues
+                    .filter { it.triggerSource != TriggerSource.MANUAL }
+                    .maxOfOrNull { it.firedAt },
                 // Also across every day: a plan made on Tuesday for Friday is
                 // still a plan.
                 hasPendingReminder = ledger.any {

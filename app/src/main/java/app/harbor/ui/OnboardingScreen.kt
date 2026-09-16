@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
@@ -37,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -64,6 +66,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.harbor.cue.CueNotifier
 import app.harbor.data.HarborRepository
 import app.harbor.domain.Contact
 import app.harbor.domain.Moment
@@ -739,8 +746,36 @@ private fun AskPermission(
     // to be seen, not long enough to need a tap.
     var justEnabled by remember { mutableStateOf(false) }
 
-    LaunchedEffect(justEnabled) {
-        if (justEnabled) {
+    // Granting the permission is only the first of three things a reminder
+    // needs, and the other two fail in silence -- the same pair the cues
+    // settings screen has to surface. Asked here as well because somebody who
+    // finishes onboarding believing reminders are on, and then walks, is the
+    // exact person the study loses. Re-read on resume: both can only be fixed
+    // by a trip to system settings and back.
+    var canNotify by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                canTakeScreen = CueNotifier.canTakeTheScreen(context)
+                granted = ActivityTransitions.hasPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val wouldReach = canNotify && canTakeScreen
+
+    // Only move on by itself when there is nothing left to fix. With a gap
+    // open the step waits, shows what it is, and keeps a Continue under it --
+    // fixing either one is a trip out of the app, and coming back to find the
+    // flow had walked on without you is worse than the gap.
+    LaunchedEffect(justEnabled, wouldReach) {
+        if (justEnabled && wouldReach) {
             delay(900)
             onNext()
         }
@@ -811,6 +846,43 @@ private fun AskPermission(
         when {
             Sensing.isActive(context, store) -> {
                 Notice("Reminders are on. Harbor will wait for a real walk.")
+                if (!wouldReach) {
+                    Spacer(Modifier.height(18.dp))
+                    Surface {
+                        SectionHeading("One more thing, or you will not see it")
+                        if (!canNotify) {
+                            SmallCopy(
+                                "Notifications are off for Harbor. A reminder is " +
+                                    "posted as one, so with these off it is thrown " +
+                                    "away the moment it is made and nothing appears.",
+                                size = 14,
+                            )
+                            FlowPill("Allow notifications") {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(
+                                            Settings.EXTRA_APP_PACKAGE,
+                                            context.packageName,
+                                        ),
+                                )
+                            }
+                        }
+                        if (!canTakeScreen) {
+                            SmallCopy(
+                                "Android only lets an app take over the screen if " +
+                                    "you allow it by hand. Without it a reminder " +
+                                    "arrives as a banner that fades on its own, so " +
+                                    "in your pocket you would miss it.",
+                                size = 14,
+                            )
+                            CueNotifier.fullScreenSettings(context)?.let { intent ->
+                                FlowPill("Let a reminder open the screen") {
+                                    context.startActivity(intent)
+                                }
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 FlowPill("Continue", onClick = onNext)
             }
@@ -823,10 +895,10 @@ private fun AskPermission(
                         "again, so from here it would have to be system settings.",
                 )
                 Spacer(Modifier.height(14.dp))
-                TextLink("I have granted it — check again") {
+                TextLink("I have granted it — check again", onClick = {
                     granted = ActivityTransitions.hasPermission(context)
                     if (granted) ask()
-                }
+                })
                 Spacer(Modifier.height(10.dp))
                 FlowPill("Continue without reminders", onClick = onNext)
             }

@@ -33,8 +33,12 @@ import java.util.UUID
 class TransitionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (!ActivityTransitionResult.hasResult(intent)) return
-        val result = ActivityTransitionResult.extractResult(intent) ?: return
+        // Two ways in: a batch of transitions from Play services, or our own
+        // alarm coming back to ask about a stop that was too fresh the first
+        // time. See [SettleAlarm].
+        val settled = SettleAlarm.signalOf(intent)
+        val result = if (settled != null) null else ActivityTransitionResult.extractResult(intent)
+        if (settled == null && result == null) return
 
         val app = context.applicationContext
         val pending = goAsync()
@@ -44,7 +48,7 @@ class TransitionReceiver : BroadcastReceiver() {
         // anything slow here.
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                handle(app, result)
+                if (settled != null) settle(app, settled) else handle(app, result!!)
             } catch (e: Throwable) {
                 // A crash here would be invisible to the user and would take
                 // sensing down until the next reboot. Losing one transition is
@@ -84,6 +88,17 @@ class TransitionReceiver : BroadcastReceiver() {
         }
     }
 
+    /**
+     * The stop we held is now as old as the settle window. Ask again.
+     *
+     * Unless a walk has opened since — that stop is stale, and the new one
+     * will be considered on its own terms when it ends.
+     */
+    private suspend fun settle(context: Context, signal: CuePolicy.Signal) {
+        if (SensingStore(context).state.walkingSince != null) return
+        considerCue(context, HarborStore(context), signal)
+    }
+
     private suspend fun considerCue(
         context: Context,
         store: HarborStore,
@@ -100,6 +115,12 @@ class TransitionReceiver : BroadcastReceiver() {
         )
 
         if (decision is CuePolicy.Decision.Hold) {
+            // The one reason that is not a refusal: the stop is real and only
+            // too recent, and the moment it is waiting for is in the future.
+            // Every other reason means no, and no alarm is set for a no.
+            if (decision.reason == CuePolicy.Reason.TRANSITION_UNSETTLED) {
+                SettleAlarm.arm(context, signal)
+            }
             // Held cues are not written anywhere. They are not events in the
             // user's life, and a ledger full of near-misses would make the
             // study's numbers mean something other than what they say.
