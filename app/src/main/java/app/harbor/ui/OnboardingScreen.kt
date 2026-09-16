@@ -756,19 +756,21 @@ private fun AskPermission(
         mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
     }
     var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
+    var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
+                canStayAwake = Sensing.isUnrestricted(context)
                 granted = ActivityTransitions.hasPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val wouldReach = canNotify && canTakeScreen
+    val wouldReach = canNotify && canTakeScreen && canStayAwake
 
     // Only move on by itself when there is nothing left to fix. With a gap
     // open the step waits, shows what it is, and keeps a Continue under it --
@@ -849,7 +851,19 @@ private fun AskPermission(
                 if (!wouldReach) {
                     Spacer(Modifier.height(18.dp))
                     Surface {
-                        SectionHeading("One more thing, or you will not see it")
+                        SectionHeading("A reminder would not reach you yet")
+                        if (!canStayAwake) {
+                            SmallCopy(
+                                "Your phone can put Harbor to sleep to save " +
+                                    "battery. Asleep, it never hears that your walk " +
+                                    "ended — the reminder is not late, it never " +
+                                    "happens. This is the one that matters most.",
+                                size = 14,
+                            )
+                            FlowPill("Let Harbor keep listening") {
+                                context.startActivity(Sensing.unrestrictedRequest(context))
+                            }
+                        }
                         if (!canNotify) {
                             SmallCopy(
                                 "Notifications are off for Harbor. A reminder is " +

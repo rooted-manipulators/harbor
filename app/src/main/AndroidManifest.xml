@@ -40,6 +40,26 @@
     -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!--
+      Harbor has no foreground service (ADR-008): it waits as a cached process
+      for Play services to wake it with a transition. OEM power management
+      freezes exactly that kind of process, and a frozen app is never handed
+      the transition — the walk is sensed and nothing runs. Measured on a
+      Galaxy S24+ (One UI, Android 16) on 2026-09-17: frozen roughly two
+      minutes after being backgrounded, three real walks lost, no error
+      anywhere for the app to report.
+
+      Declared so onboarding can offer the system's own one-tap dialog instead
+      of sending somebody hunting through Settings. It is asked for, never
+      assumed, and a refusal leaves Harbor working exactly as it does today.
+
+      The cost: Play policy restricts this permission to apps whose core
+      function genuinely requires it, so a store listing would have to justify
+      it. Harbor is built for a one-week study and is not listed. Revisit if
+      that ever changes.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -1,6 +1,10 @@
 package app.harbor.sensing
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import java.time.Instant
 import app.harbor.data.HarborRepository
 
@@ -66,4 +70,37 @@ object Sensing {
 
     fun isActive(context: Context, store: HarborRepository): Boolean =
         store.settings.value.cuesEnabled && ActivityTransitions.hasPermission(context)
+
+    /**
+     * Whether the OS is allowed to put Harbor to sleep in the background.
+     *
+     * The quietest of the silent failures, and on some phones the most
+     * complete. Harbor has no service of its own (ADR-008) — it lives as a
+     * cached process waiting for Play services to wake it — and a cached
+     * process that the OEM freezes never receives the transition at all. The
+     * walk is sensed, the batch is delivered, nothing runs.
+     *
+     * Measured on a Galaxy S24+ (One UI, Android 16) on 2026-09-17: the
+     * process was frozen roughly two minutes after being backgrounded
+     * (`FreecessController: FZ ... reason: LEV`), and every transition across
+     * three real walks was lost. The only ones that ever arrived came while
+     * the app happened to be on screen. Nothing inside the app can tell that
+     * from a week of never walking, which is why it has to be asked for
+     * rather than hoped for.
+     */
+    fun isUnrestricted(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java)
+            .isIgnoringBatteryOptimizations(context.packageName)
+
+    /**
+     * The system's own dialog for granting it — one tap, in place, rather
+     * than sending somebody hunting through Settings.
+     *
+     * Needs `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in the manifest to be
+     * offered this way. See the note there about what that costs.
+     */
+    fun unrestrictedRequest(context: Context): Intent = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.fromParts("package", context.packageName, null),
+    )
 }
