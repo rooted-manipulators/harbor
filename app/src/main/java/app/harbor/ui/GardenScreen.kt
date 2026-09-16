@@ -111,7 +111,10 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         .sortedByDescending { it.occurredAt }
 
     Column(modifier.fillMaxSize()) {
-        FieldCanvas(store, Modifier.fillMaxWidth().weight(1f))
+        // Standing at the newest flower rather than out at the overview:
+        // this screen is opened right after growing one, and that is what
+        // somebody has come to look at.
+        FieldCanvas(store, Modifier.fillMaxWidth().weight(1f), standClose = true)
 
         Column(
             Modifier

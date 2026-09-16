@@ -899,7 +899,8 @@ private fun minutesToTime(total: Int): LocalTime {
 private fun clockLabel(hour: Int): String =
     (hour % 24).toString().padStart(2, '0') + ":00"
 
-private fun timeLabel(at: LocalTime): String {
+/** "8pm", "12:30pm" -- the way the week's labels say a time. */
+internal fun timeLabel(at: LocalTime): String {
     val display = if (at.hour % 12 == 0) 12 else at.hour % 12
     val suffix = if (at.hour < 12) "am" else "pm"
     return if (at.minute == 0) {
