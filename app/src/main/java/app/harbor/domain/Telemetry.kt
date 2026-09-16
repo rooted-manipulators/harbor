@@ -57,6 +57,17 @@ enum class Moment {
     CUE_RESOLVED,
 
     /**
+     * A plan somebody made by tapping "later" was closed. `detail` is how, as
+     * a [Reminders.Closed] — reached them, said they already had, let it go.
+     *
+     * Question 2 asks what happens to a cue, and "later" was the one answer
+     * whose ending the study could never see: the row went in and nothing ever
+     * came back to say whether the plan was kept. A proposed-later row with no
+     * beat against it is a plan that quietly lapsed, which is itself a finding.
+     */
+    REMINDER_CLOSED,
+
+    /**
      * A call was placed. `detail` says from where — the cue, home, a person's
      * page, the window on the schedule.
      *
