@@ -71,7 +71,7 @@
 
       What it buys is exactly one thing so far: asking somebody if you may see
       when they are free, and being told. What it must never buy is the cue
-      path -- sensing, the policy, the ledger and the reminder surface all still
+      path. Sensing, the policy, the ledger and the reminder surface all still
       have to work with the radio off, on a train, with no signal. That was
       ADR-003's real argument and it survives the reversal as a constraint.
     -->
