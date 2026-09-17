@@ -187,20 +187,20 @@ fun CuesSetupScreen(
                 )
 
                 SectionHeading("What you keep control of")
-                // "You choose those numbers" was true of both until the gap
-                // between reminders stopped being editable -- see the note in
-                // SettingsScreen where its stepper used to be. The claim now
-                // names only the one somebody can actually change, because a
-                // screen whose whole job is being believed cannot offer a
+                // "You choose those numbers" is a claim about both, and for a
+                // while it was only true of one: the gap between reminders was
+                // enforced with its stepper removed from settings. The stepper
+                // is back, so the sentence is honest again -- but it is the
+                // kind of sentence to re-read whenever a control moves, since
+                // a screen whose whole job is being believed cannot offer a
                 // choice that is not there.
                 SmallCopy(
                     "Every reminder can be dismissed, and dismissing costs nothing — " +
                         "there is no streak to break. At most " +
-                        "${settings.thresholds.dailyCap} a day — your number, and " +
-                        "yours to change — with at least " +
+                        "${settings.thresholds.dailyCap} a day, with at least " +
                         "${settings.thresholds.cooldownMinutes} minutes between " +
-                        "them so two never land together. You can turn this off " +
-                        "whenever you like.",
+                        "them. You choose those numbers, and you can turn this " +
+                        "off whenever you like.",
                 )
             }
 
