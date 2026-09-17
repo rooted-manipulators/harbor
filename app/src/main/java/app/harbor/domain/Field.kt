@@ -5,6 +5,7 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * The garden as a place you can be in.
@@ -65,6 +66,115 @@ object Field {
 
     /** Cell radius in pixels is this times its size, times the projected scale. */
     const val DOT_SCALE = 3.3
+
+    /**
+     * Drawn radius at which a bloom stops being drawn and becomes the artwork.
+     *
+     * The third and last rung of the ladder [FLOWER_AT] starts: a planted cell
+     * is a coloured dot, then petals walked around a centre, then the flower
+     * itself. Thirteen pixels is about where the drawn one runs out of things
+     * to say -- below that a petal is a few pixels across and the artwork
+     * would only be a smudge with more steps in it.
+     *
+     * Raw pixels, like [FLOWER_AT] and [DOT_SCALE], not dp. The field is
+     * measured in projected pixels throughout because pixels are what decide
+     * whether there is anything to see; a denser screen showing more detail
+     * from the same camera is the right answer, not a bug.
+     */
+    const val ARTWORK_AT = 13.0
+
+    /**
+     * How far past [ARTWORK_AT] the drawn flower fades out under the artwork.
+     *
+     * Both are drawn through this band, which costs one extra flower's worth
+     * of fills on the few blooms inside it. It is what stops a patch popping
+     * as you lean in -- and a rung you can see is a rung that failed, because
+     * the whole ladder is meant to read as one flower getting closer.
+     */
+    const val ARTWORK_FADE = 4.0
+
+    /**
+     * Drawn radius at which ground stops being a dot and grows blades.
+     *
+     * The same idea one level down. Far off a tuft of grass is a dot, because
+     * at that distance a tuft of grass *is* a dot. Close to, it is a dot with
+     * grass coming out of it: the dot stays, shrinking, as the root of the
+     * clump, so nothing has to appear out of nothing.
+     */
+    const val GRASS_AT = 2.2
+
+    /**
+     * How many tufts one frame will grow before the rest stay dots.
+     *
+     * Zooming in shrinks how much ground is on screen, so the count falls away
+     * on its own and this is almost never reached. It is here for the band on
+     * the way in where the ground is both close enough to sprout and still
+     * wide enough to fill the view -- the one framing that could otherwise put
+     * tens of thousands of blades in a single frame.
+     */
+    const val GRASS_BUDGET = 1400
+
+    /**
+     * How far the view has to have tipped before ground grows blades.
+     *
+     * A blade is drawn as a sliver rising up the screen, which is a thing seen
+     * from the side. In plan view you are directly above the ground and there
+     * is no "up the screen" for grass to go, so drawing it there is not a
+     * coarse version of the truth, it is a different picture.
+     *
+     * It also fixed the louder half of the same bug. Flat, every cell projects
+     * at the same scale, so whether it sprouts comes down to the cell's own
+     * size -- and the high ground at the back of the island carries the bigger
+     * cells. The overview grew grass over most of the map, thickest along the
+     * far edge, which is the one place the eye is not.
+     */
+    const val GRASS_TILT = 0.25
+
+    /**
+     * Where down the screen grass starts, once the view has tipped.
+     *
+     * The horizon sits near the top; ground drawn just under it is a long way
+     * off however far you have zoomed in. Scale alone does not say so -- lean
+     * in far enough and the distant ground is being drawn large too -- so
+     * nearness is read off the screen position, which in a tipped view *is*
+     * depth. Grass thickens toward the bottom of the frame, which is both
+     * where you are standing and how a field actually looks.
+     */
+    const val GRASS_FROM = 0.35
+
+    /**
+     * How much a tuft stands up: nought is a plain dot, one is full grass.
+     *
+     * Kept here rather than in the renderer because it is the rule about when
+     * the ground has grass at all, and that is worth being able to test
+     * without a screen.
+     */
+    fun grassStand(tilt: Double, screenY: Double, height: Double): Double {
+        if (height <= 0.0) return 0.0
+        val tipped = ((tilt - GRASS_TILT) / (1.0 - GRASS_TILT)).coerceIn(0.0, 1.0)
+        if (tipped <= 0.0) return 0.0
+        val near = ((screenY / height - GRASS_FROM) / (1.0 - GRASS_FROM)).coerceIn(0.0, 1.0)
+        return tipped * near
+    }
+
+    /**
+     * A stable scrap of randomness for one cell's nth blade.
+     *
+     * Pure, and a function of the cell's own tone, so a tuft is the same tuft
+     * every frame. Grass built from a running random would crawl as you panned
+     * across it, which reads as the ground being alive in a way nothing else
+     * in this app is.
+     *
+     * Hashed through a sine rather than the obvious `frac(tone * n * k)`. That
+     * cheaper version steps by a constant as `n` goes up, so the values inside
+     * one tuft march in a straight line instead of scattering: every blade
+     * leaned a little further than the last and a field of grass came out as
+     * a field of identical diagonal combs.
+     */
+    fun wisp(tone: Double, n: Int): Double {
+        val v = sin((tone + 1.0) * 127.1 + n * 311.7) * 43758.5453
+        return v - floor(v)
+    }
 
     // --- paint palette ----------------------------------------------------
     //

@@ -407,4 +407,100 @@ class FieldTest {
     fun `a zero sized viewport does not divide by it`() {
         assertEquals(0.2, Field.overviewZoom(0.0, 0.0), 1e-9)
     }
+
+    // --- the grass ----------------------------------------------------------
+
+    @Test
+    fun `a tuft is the same tuft every time it is drawn`() {
+        // Grass is rebuilt from scratch on every frame. If it were not a pure
+        // function of the cell it stands on, it would crawl as you panned.
+        for (n in 0 until 6) {
+            assertEquals(Field.wisp(0.42, n), Field.wisp(0.42, n), 0.0)
+        }
+        assertTrue(Field.wisp(0.42, 0) != Field.wisp(0.43, 0))
+    }
+
+    @Test
+    fun `a blade's randomness stays inside the unit it is scaled by`() {
+        // Every use multiplies this by a length. Outside nought-to-one a blade
+        // grows backwards or off into the next patch.
+        for (tone in listOf(0.0, 0.17, 0.5, 0.83, 1.0)) {
+            for (n in 0 until 12) {
+                val w = Field.wisp(tone, n)
+                assertTrue("wisp($tone, $n) = $w", w >= 0.0 && w < 1.0)
+            }
+        }
+    }
+
+    @Test
+    fun `blades in one tuft do not march in step`() {
+        // The obvious cheap hash -- frac(tone * n * k) -- steps by a constant
+        // as n goes up, so the blades of a tuft lean progressively further and
+        // a whole field of grass comes out as identical diagonal combs. It
+        // passes every other test here, and it is only wrong to look at.
+        for (tone in listOf(0.07, 0.31, 0.5, 0.86)) {
+            val steps = (0 until 7).map { n ->
+                val d = Field.wisp(tone, n + 1) - Field.wisp(tone, n)
+                d - kotlin.math.floor(d)
+            }
+            val spread = steps.max() - steps.min()
+            assertTrue("tone $tone steps evenly: $steps", spread > 0.2)
+        }
+    }
+
+    @Test
+    fun `looking straight down at the ground grows no grass`() {
+        // A blade is drawn as a sliver going up the screen, which is a side
+        // view of a thing. In plan there is no up for it to go, and the first
+        // version grew grass over the whole overview -- thickest along the far
+        // edge, because the high ground at the back carries the bigger cells.
+        val h = 2000.0
+        for (y in listOf(0.0, 500.0, 1200.0, 1999.0)) {
+            assertEquals(0.0, Field.grassStand(0.0, y, h), 1e-9)
+            assertEquals(0.0, Field.grassStand(Field.GRASS_TILT, y, h), 1e-9)
+        }
+    }
+
+    @Test
+    fun `grass thickens toward the near edge of a tipped view`() {
+        val h = 2000.0
+        val far = Field.grassStand(1.0, h * 0.20, h)
+        val mid = Field.grassStand(1.0, h * 0.60, h)
+        val near = Field.grassStand(1.0, h * 0.98, h)
+        assertEquals("ground up by the horizon is a long way off", 0.0, far, 1e-9)
+        assertTrue("grass should thicken toward the viewer", mid < near)
+        assertTrue(near <= 1.0)
+    }
+
+    @Test
+    fun `grass comes up as the view tips, rather than arriving`() {
+        // Any step here is a line of grass switching on across the whole
+        // screen at one zoom, which is the pop the whole ladder exists to
+        // avoid. Monotonic and continuous from the gate to full tilt.
+        val h = 2000.0
+        var last = -1.0
+        var t = Field.GRASS_TILT
+        while (t <= 1.0001) {
+            val now = Field.grassStand(t, h * 0.9, h)
+            assertTrue("stand went backwards at tilt $t", now >= last - 1e-9)
+            assertTrue("stand jumped at tilt $t", last < 0 || now - last < 0.08)
+            last = now
+            t += 0.02
+        }
+        assertTrue("full tilt near the viewer should be full grass", last > 0.8)
+    }
+
+    @Test
+    fun `a viewport with no height does not divide by it`() {
+        assertEquals(0.0, Field.grassStand(1.0, 100.0, 0.0), 1e-9)
+    }
+
+    @Test
+    fun `the detail ladder only ever goes up`() {
+        // Dot, then drawn flower, then the artwork. Each rung has to sit above
+        // the one under it or a bloom would reach a rung it can never leave.
+        assertTrue(Field.GRASS_AT < Field.FLOWER_AT)
+        assertTrue(Field.FLOWER_AT < Field.ARTWORK_AT)
+        assertTrue(Field.ARTWORK_FADE > 0.0)
+    }
 }
