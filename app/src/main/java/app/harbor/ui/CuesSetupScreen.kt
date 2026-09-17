@@ -194,13 +194,20 @@ fun CuesSetupScreen(
                 // kind of sentence to re-read whenever a control moves, since
                 // a screen whose whole job is being believed cannot offer a
                 // choice that is not there.
+                // The gap can now be nothing, so the sentence has to be able
+                // to say so. Promising "at least 0 minutes between them" is
+                // worse than saying there is no gap.
+                val gap = settings.thresholds.cooldownMinutes
+                val spacing = if (gap > 0) {
+                    ", with at least $gap minutes between them"
+                } else {
+                    ", with no enforced gap between them"
+                }
                 SmallCopy(
                     "Every reminder can be dismissed, and dismissing costs nothing — " +
                         "there is no streak to break. At most " +
-                        "${settings.thresholds.dailyCap} a day, with at least " +
-                        "${settings.thresholds.cooldownMinutes} minutes between " +
-                        "them. You choose those numbers, and you can turn this " +
-                        "off whenever you like.",
+                        "${settings.thresholds.dailyCap} a day$spacing. You choose " +
+                        "those numbers, and you can turn this off whenever you like.",
                 )
             }
 

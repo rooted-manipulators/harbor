@@ -382,6 +382,30 @@ cue writes a `dismissed` ledger entry and nothing else happens.
 
 ---
 
+**Amended 18 Sep 2026: delivered like an alarm, worded like Harbor.**
+
+This ADR is about what the cue *says*. Nothing in it is about how insistently
+Android carries the notification, and the two had been conflated: the cue was
+posted as `CATEGORY_REMINDER`, which is the bucket people learn to swipe past
+unread, and its sound rode the notification volume. A cue that arrives while
+the phone is face-down in a bag and makes no sound has lost the moment it
+exists to catch, however carefully its words were chosen.
+
+So it is now `CATEGORY_ALARM`, with alarm audio usage and a request to be heard
+through Do Not Disturb. An alarm category claims nothing about who is calling.
+
+Not `CATEGORY_CALL`, which is the one that would be a lie, and which on API 31+
+brings `CallStyle` and the answer/decline pair this ADR exists to refuse. The
+words on the surface do not change: no "Mom is calling", no imitation of the
+system call UI, and the line saying the walking stays on the phone.
+
+The DND request is honoured only if Harbor holds notification policy access and
+is ignored otherwise, so a phone inside a Sleep schedule can still swallow the
+cue. That is worth knowing before a silent night is read as a trigger that
+failed.
+
+---
+
 ## ADR-010 — No location, no route tracking
 
 **Status:** accepted (2026-09-10)

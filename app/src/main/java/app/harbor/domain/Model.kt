@@ -234,7 +234,7 @@ data class Thresholds(
     val sessionMinutes: Int,
     /** Hard ceiling on cues per day. */
     val dailyCap: Int,
-    /** Minimum gap between two cues. */
+    /** Minimum gap between two cues. Zero turns the gap off entirely. */
     val cooldownMinutes: Int,
 ) {
     init {
@@ -244,7 +244,12 @@ data class Thresholds(
         require(walkingMinutes in 1..120) { "walkingMinutes out of range: $walkingMinutes" }
         require(sessionMinutes in 1..180) { "sessionMinutes out of range: $sessionMinutes" }
         require(dailyCap in 1..10) { "dailyCap out of range: $dailyCap" }
-        require(cooldownMinutes in 1..1440) { "cooldownMinutes out of range: $cooldownMinutes" }
+        // Zero is a real setting, not a missing one: no enforced gap, with
+        // the daily cap left as the only limit. 0001_init.sql's CHECK was
+        // `between 1 and 1440` and would have rejected it, so 0012 widens it
+        // -- this comment's promise that one layer never rejects what another
+        // accepts is only kept if both move together.
+        require(cooldownMinutes in 0..1440) { "cooldownMinutes out of range: $cooldownMinutes" }
     }
 
     companion object {
@@ -259,7 +264,12 @@ data class Thresholds(
             walkingMinutes = 10,
             sessionMinutes = 20,
             dailyCap = 2,
-            cooldownMinutes = 120,
+            // No enforced gap. It was two hours, which is a long time to be
+            // unable to see the feature work and, as a suggestion nobody could
+            // reach, was closer to a rule than a suggestion. The daily cap is
+            // the limit that remains, and this one is now on the settings
+            // screen for anybody who wants the quiet back.
+            cooldownMinutes = 0,
         )
     }
 }

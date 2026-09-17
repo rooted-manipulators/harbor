@@ -213,6 +213,7 @@ fun SettingsScreen(
  * minutes are the unit people think in; above it they are not.
  */
 private fun gapPhrase(minutes: Int): String = when {
+    minutes == 0 -> "off"
     minutes < 60 -> "$minutes min"
     minutes % 60 == 0 -> "${minutes / 60} h"
     else -> "${minutes / 60} h ${minutes % 60} min"
@@ -232,7 +233,7 @@ private fun stepGap(minutes: Int, up: Boolean): Int = when {
     up && minutes < 15 -> minutes + 1
     up -> (minutes + 15).coerceAtMost(1440)
     minutes > 15 -> minutes - 15
-    else -> (minutes - 1).coerceAtLeast(1)
+    else -> (minutes - 1).coerceAtLeast(0)
 }
 
 /** `.duration-row` — a label, and a round stepper either side of the value. */
