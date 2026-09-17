@@ -219,12 +219,35 @@ object Field {
     // keeps its silhouette. The two cannot both be strong: the page and the
     // sky are only about 2.5 to 1 apart in the first place, and the land has
     // to live between them.
-    val VEG = listOf(0xFF34432E, 0xFF313F2C, 0xFF2E3B29, 0xFF2A3725, 0xFF263222)
+    // **Lit, 18 Sep 2026, and the argument above is now the wrong one.**
+    //
+    // Everything before this paragraph reasons about a *dusk*: a bright sky
+    // with nearly-black land silhouetted in front of it, and a ladder tuned to
+    // stay readable against a near-black page. The field is a daylight meadow
+    // now (`ui/Meadow.kt`, ported from the web prototype), and in daylight the
+    // land is not a silhouette -- it is the lit thing, and the sky behind it is
+    // paler than it is.
+    //
+    // So the ladder is the prototype's own `field` and `fieldDeep` greens,
+    // lightest first, in the order this list has always been read in. What the
+    // old note gets right and still applies: these have to read against the
+    // page as well as against the sky, and the two cannot both be strong. The
+    // difference is that the page is now the far end of a gradient rather than
+    // the colour immediately under the horizon, which is why the sky gained a
+    // horizon stop in the same change -- the fade carries the seam that the
+    // contrast step used to.
+    //
+    // Unmeasured on a device. The old numbers came with luminance ratios
+    // somebody computed against a render; these come from a drawing made for a
+    // white page. Look at the horizon before trusting them.
+    val VEG = listOf(0xFF9CC77E, 0xFF8ABB6C, 0xFF7BAE60, 0xFF6E9F55, 0xFF5F914B)
 
     // Water carried the same problem and worse -- a river the colour of the
     // page is not a river. Bright enough now to read as water from the
     // overview, which is where the island's shape is doing the work.
-    val WATER = listOf(0xFF27435E, 0xFF1F384F)
+    // Lit with the land. The prototype's `water`, and a step under it, so a
+    // river still reads as water rather than as a gap in the field.
+    val WATER = listOf(0xFFB7DCE8, 0xFF9CC6D6)
 
     /**
      * Sparse ground, drawn faintly.
@@ -235,7 +258,7 @@ object Field {
      * mock with four fixed people; in Harbor the ground would change colour
      * when a contact is added. This is the constant that was meant.
      */
-    const val BARE = 0xFF39332B
+    const val BARE = 0xFFBFAE8C
 
     /**
      * Where the petal colours start in the palette. Two per flower kind:
