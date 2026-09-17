@@ -4,7 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,15 +41,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
-import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +74,7 @@ import app.harbor.ui.theme.Flow
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.SmallCopy
 import app.harbor.ui.theme.pageContent
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalTime
@@ -369,6 +376,14 @@ private fun WeekEditor(
     var selected by remember { mutableStateOf<WeekBlock?>(null) }
     var planting by remember { mutableStateOf(BlockKind.BUSY) }
 
+    // One being carried off the palette, and where the finger is in root
+    // coordinates. Null the rest of the time. The grid turns the position into
+    // a day and an hour, because it is the only thing that knows how wide a
+    // column is.
+    var carrying by remember { mutableStateOf<BlockKind?>(null) }
+    var carryAt by remember { mutableStateOf(Offset.Zero) }
+    var dropped by remember { mutableStateOf<Pair<BlockKind, Offset>?>(null) }
+
     val blocks = draft ?: saved
 
     fun commit(next: List<WeekBlock>) {
@@ -403,6 +418,11 @@ private fun WeekEditor(
                     selected = planting == BlockKind.BUSY,
                     tile = skin.tile,
                     ink = skin.ink,
+                    onCarry = { carryAt = it; carrying = BlockKind.BUSY },
+                    onDrop = {
+                        carrying = null
+                        if (it.isSpecified) dropped = BlockKind.BUSY to it
+                    },
                 ) { planting = BlockKind.BUSY }
                 PaletteChip(
                     kind = BlockKind.FREE,
@@ -410,6 +430,11 @@ private fun WeekEditor(
                     selected = planting == BlockKind.FREE,
                     tile = skin.tile,
                     ink = skin.ink,
+                    onCarry = { carryAt = it; carrying = BlockKind.FREE },
+                    onDrop = {
+                        carrying = null
+                        if (it.isSpecified) dropped = BlockKind.FREE to it
+                    },
                 ) { planting = BlockKind.FREE }
             }
 
@@ -418,6 +443,10 @@ private fun WeekEditor(
                 planting = planting,
                 selected = selected,
                 skin = skin,
+                carrying = carrying,
+                carryAt = carryAt,
+                dropped = dropped,
+                onPlanted = { dropped = null },
                 onSelect = { selected = it },
                 onPreview = { draft = it },
                 onCommit = { next, landed ->
@@ -460,10 +489,12 @@ private fun WeekEditor(
             } else {
                 SmallCopy(
                     if (blocks.isEmpty()) {
-                        "Nothing yet. Double tap the week to plant your first one."
+                        "Nothing yet. Drag one down from above, or double tap the " +
+                            "week to plant your first."
                     } else {
-                        "Double tap to plant one. Drag its bottom edge to make it " +
-                            "longer, or drag it down into the bin."
+                        "Drag one down from above, or double tap the week. Drag a " +
+                            "block's bottom edge to make it longer, or drag it " +
+                            "down into the bin."
                     },
                     size = 13,
                 )
@@ -498,14 +529,42 @@ private val DAYS = listOf(
 private enum class Grab { Move, ResizeEnd }
 
 /**
- * The system long-press timeout (usually ~500ms) with everything but its
- * length left alone. `detectDragGesturesAfterLongPress` has no parameter for
- * this -- it reads `ViewConfiguration.longPressTimeoutMillis` off whatever
- * is ambient -- so shortening it means providing a different one for this
- * subtree rather than writing a custom gesture detector.
+ * How long a finger has to rest on empty ground before it starts planting.
+ *
+ * Only empty ground waits at all. Something already on the week moves the
+ * instant you push it -- see [heldStill] for why the two are not the same
+ * question.
+ *
+ * Short enough to feel like no wait, long enough that a tap is still a tap.
+ * The floor here is a deliberate tap, which runs about 60-100ms: go under
+ * that and every tap on an empty hour plants half an hour nobody asked for.
+ *
+ * This used to be done by handing the subtree a whole [androidx.compose.ui.platform.ViewConfiguration]
+ * with a shorter `longPressTimeoutMillis`, so that `detectDragGesturesAfterLongPress`
+ * would pick it up. That worked, but it put the number somewhere nobody would
+ * look for it and applied it to every gesture in the subtree rather than the
+ * one that wanted it.
  */
-private class QuickLongPress(base: ViewConfiguration) : ViewConfiguration by base {
-    override val longPressTimeoutMillis: Long = 120L
+private const val PLANT_HOLD_MS = 90L
+
+/**
+ * Whether the finger stayed put long enough to mean "plant one here".
+ *
+ * Returns as soon as it knows: lifting or moving first is an answer, and only
+ * running out of time is a hold. Moving first has to fall through untouched,
+ * because a drag down empty ground is how the page is scrolled -- this grid is
+ * twenty-four hours tall and lives inside a scrolling column.
+ */
+private suspend fun AwaitPointerEventScope.heldStill(down: PointerInputChange): Boolean {
+    val slop = viewConfiguration.touchSlop
+    val answered = withTimeoutOrNull(PLANT_HOLD_MS) {
+        while (true) {
+            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+            if (change == null || !change.pressed) break
+            if ((change.position - down.position).getDistance() > slop) break
+        }
+    }
+    return answered == null
 }
 
 /**
@@ -525,6 +584,13 @@ private fun WeekGrid(
     planting: BlockKind,
     selected: WeekBlock?,
     skin: WeekSkin,
+    /** A kind being carried in from the palette, or null. */
+    carrying: BlockKind?,
+    /** Where that finger is, in root coordinates. */
+    carryAt: Offset,
+    /** One let go of, and where. Cleared through [onPlanted] once dealt with. */
+    dropped: Pair<BlockKind, Offset>?,
+    onPlanted: () -> Unit,
     onSelect: (WeekBlock?) -> Unit,
     onPreview: (List<WeekBlock>) -> Unit,
     /** The second argument is null when the block was dropped in the bin. */
@@ -537,6 +603,10 @@ private fun WeekGrid(
     // sits directly under it, so dragging something off the bottom of your
     // week is the gesture, and the pointer stays captured once a drag starts.
     var overBin by remember { mutableStateOf(false) }
+
+    // Declared out here rather than inside the constraints scope, because the
+    // modifier that measures it is on the box that opens that scope.
+    var gridOrigin by remember { mutableStateOf(Offset.Zero) }
 
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth()) {
@@ -558,7 +628,8 @@ private fun WeekGrid(
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(HOUR_HEIGHT * hours),
+                .height(HOUR_HEIGHT * hours)
+                .onGloballyPositioned { gridOrigin = it.positionInRoot() },
         ) {
             val columnWidth = (maxWidth - GUTTER) / DAYS.size
             val colPx = with(density) { columnWidth.toPx() }
@@ -618,6 +689,48 @@ private fun WeekGrid(
                 return null
             }
 
+            // Where this grid sits on the screen, so a finger that started
+            // its journey on the palette can be found in the week.
+            val origin = gridOrigin
+
+            /**
+             * What an hour let go of at this point would be, or null if the
+             * point is not over the week.
+             *
+             * Shared by the ghost under the finger and by the drop itself, so
+             * what you are shown while you carry it is by construction what
+             * you get when you let go.
+             */
+            fun blockAt(root: Offset, kind: BlockKind): WeekBlock? {
+                if (!root.isSpecified) return null
+                val local = root - gridOrigin
+                val right = gutterPx + colPx * DAYS.size
+                if (local.x < gutterPx || local.x > right) return null
+                if (local.y < -slackPx || local.y > hourPx * hours + slackPx) return null
+                val start = minuteAt(local.y)
+                val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
+                if (end <= start) return null
+                return WeekBlock(
+                    day = dayAt(local.x),
+                    start = minutesToTime(start),
+                    end = minutesToTime(end),
+                    kind = kind,
+                )
+            }
+
+            val ghost = carrying?.let { blockAt(carryAt, it) }
+
+            // Let go. An hour lands wherever the finger was over the week, and
+            // nothing happens if it was let go anywhere else -- the palette is
+            // somewhere to pick one up from, not a bin.
+            LaunchedEffect(dropped) {
+                val drop = dropped ?: return@LaunchedEffect
+                blockAt(drop.second, drop.first)?.let {
+                    onCommit(Windows.place(latest, it), it)
+                }
+                onPlanted()
+            }
+
             var carried by remember { mutableStateOf<WeekBlock?>(null) }
             var rest by remember { mutableStateOf<List<WeekBlock>>(emptyList()) }
             var grab by remember { mutableStateOf(Grab.Move) }
@@ -657,6 +770,21 @@ private fun WeekGrid(
                     }
                 }
 
+                ghost?.let { g ->
+                    val box = boxOf(g)
+                    when (g.kind) {
+                        BlockKind.BUSY -> drawThorn(box)
+                        BlockKind.FREE -> drawFlowerBlock(box)
+                    }
+                    drawRoundRect(
+                        color = skin.ink,
+                        topLeft = Offset(box.left - 3f, box.top - 3f),
+                        size = Size(box.width + 6f, box.height + 6f),
+                        cornerRadius = CornerRadius(box.width * 0.3f),
+                        style = Stroke(width = 2f),
+                    )
+                }
+
                 selected?.takeIf { it in blocks }?.let { b ->
                     val box = boxOf(b)
                     drawRoundRect(
@@ -684,13 +812,6 @@ private fun WeekGrid(
                 )
             }
 
-            // A shorter long-press than the system default (usually ~500ms).
-            // Press-and-drag still exists so a vertical swipe can scroll the
-            // page instead of dragging a block -- see the class doc -- but
-            // usability testing found the system timeout read as the grid
-            // simply not responding to a drag at all. This keeps the
-            // scroll/drag split and just makes the drag side of it quick.
-            CompositionLocalProvider(LocalViewConfiguration provides QuickLongPress(LocalViewConfiguration.current)) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -718,96 +839,116 @@ private fun WeekGrid(
                             },
                         )
                     }
+                    // Picking something up and planting something are two
+                    // different gestures, and used to be one.
+                    //
+                    // Both went through `detectDragGesturesAfterLongPress`, so
+                    // moving a block you could already see meant holding it
+                    // first -- and once the hold was shortened to make planting
+                    // feel quick, an ordinary tap on empty ground outlasted it
+                    // and put down half an hour on the way past. Every tap
+                    // planted something, and nothing could be moved without
+                    // waiting for a timer first.
+                    //
+                    // Split in two. A block that already exists moves as soon
+                    // as the finger moves, because there is nothing ambiguous
+                    // about pushing something that is already there. Only empty
+                    // ground waits, and only long enough to tell planting from
+                    // scrolling the page.
                     .pointerInput(colPx, hourPx) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { at ->
-                                cursor = at
-                                val hit = hitTest(at)
-                                if (hit == null) {
-                                    // Plant one and start sizing it at once,
-                                    // so a single press-and-drag both puts it
-                                    // down and sets how long it runs.
-                                    val start = minuteAt(at.y)
-                                    val end = (start + SNAP_MINUTES)
-                                        .coerceAtMost(LAST_HOUR * 60)
-                                    if (end > start) {
-                                        rest = latest
-                                        carried = WeekBlock(
-                                            day = dayAt(at.x),
-                                            start = minutesToTime(start),
-                                            end = minutesToTime(end),
-                                            kind = nowPlanting,
-                                        )
-                                        grab = Grab.ResizeEnd
-                                        grabOffset = 0
-                                    }
-                                } else {
-                                    rest = latest.filterNot { it == hit.first }
-                                    carried = hit.first
-                                    grab = hit.second
-                                    grabOffset = minuteAt(at.y) - hit.first.start.toMinutes()
-                                }
-                                carried?.let {
-                                    onSelect(it)
-                                    onPreview(rest + it)
-                                }
-                            },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                val held = carried
-                                if (held != null) {
-                                    cursor += amount
-                                    overBin = cursor.y > size.height
-                                    val next = when (grab) {
-                                        Grab.Move -> {
-                                            val length =
-                                                held.end.toMinutes() - held.start.toMinutes()
-                                            val start = (minuteAt(cursor.y) - grabOffset)
-                                                .coerceIn(
-                                                    FIRST_HOUR * 60,
-                                                    LAST_HOUR * 60 - length,
-                                                )
-                                            held.copy(
-                                                day = dayAt(cursor.x),
-                                                start = minutesToTime(start),
-                                                end = minutesToTime(start + length),
-                                            )
-                                        }
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val hit = hitTest(down.position)
 
-                                        Grab.ResizeEnd -> {
-                                            val end = minuteAt(cursor.y).coerceIn(
-                                                held.start.toMinutes() + SNAP_MINUTES,
-                                                LAST_HOUR * 60,
+                            val begin = if (hit != null) {
+                                awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                                    change.consume()
+                                } != null
+                            } else {
+                                heldStill(down)
+                            }
+                            if (!begin) return@awaitEachGesture
+
+                            cursor = down.position
+                            if (hit == null) {
+                                // Plant one and start sizing it at once, so a
+                                // single press-and-drag both puts it down and
+                                // sets how long it runs.
+                                val start = minuteAt(down.position.y)
+                                val end = (start + SNAP_MINUTES).coerceAtMost(LAST_HOUR * 60)
+                                if (end <= start) return@awaitEachGesture
+                                rest = latest
+                                carried = WeekBlock(
+                                    day = dayAt(down.position.x),
+                                    start = minutesToTime(start),
+                                    end = minutesToTime(end),
+                                    kind = nowPlanting,
+                                )
+                                grab = Grab.ResizeEnd
+                                grabOffset = 0
+                            } else {
+                                rest = latest.filterNot { it == hit.first }
+                                carried = hit.first
+                                grab = hit.second
+                                grabOffset =
+                                    minuteAt(down.position.y) - hit.first.start.toMinutes()
+                            }
+                            carried?.let {
+                                onSelect(it)
+                                onPreview(rest + it)
+                            }
+
+                            // Absolute positions rather than accumulated
+                            // deltas, so what is under the finger stays under
+                            // the finger however long the drag runs.
+                            val finished = drag(down.id) { change ->
+                                change.consume()
+                                val held = carried ?: return@drag
+                                cursor = change.position
+                                overBin = cursor.y > size.height
+                                val next = when (grab) {
+                                    Grab.Move -> {
+                                        val length =
+                                            held.end.toMinutes() - held.start.toMinutes()
+                                        val start = (minuteAt(cursor.y) - grabOffset)
+                                            .coerceIn(
+                                                FIRST_HOUR * 60,
+                                                LAST_HOUR * 60 - length,
                                             )
-                                            held.copy(end = minutesToTime(end))
-                                        }
+                                        held.copy(
+                                            day = dayAt(cursor.x),
+                                            start = minutesToTime(start),
+                                            end = minutesToTime(start + length),
+                                        )
                                     }
-                                    carried = next
-                                    onSelect(next)
-                                    onPreview(rest + next)
+
+                                    Grab.ResizeEnd -> {
+                                        val end = minuteAt(cursor.y).coerceIn(
+                                            held.start.toMinutes() + SNAP_MINUTES,
+                                            LAST_HOUR * 60,
+                                        )
+                                        held.copy(end = minutesToTime(end))
+                                    }
                                 }
-                            },
-                            onDragEnd = {
-                                carried?.let {
-                                    // Dropped past the foot of the week: the
-                                    // bin takes it, and nothing is placed.
-                                    if (overBin) onCommit(rest, null)
-                                    // Placing is also erasing: whatever this
-                                    // landed on gets cut back out of the week.
-                                    else onCommit(Windows.place(rest, it), it)
-                                }
-                                carried = null
-                                overBin = false
-                            },
-                            onDragCancel = {
-                                carried?.let { onCommit(Windows.place(rest, it), it) }
-                                carried = null
-                                overBin = false
-                            },
-                        )
+                                carried = next
+                                onSelect(next)
+                                onPreview(rest + next)
+                            }
+
+                            carried?.let {
+                                // Dropped past the foot of the week: the bin
+                                // takes it and nothing is planted. A gesture
+                                // the system cancelled keeps its block instead,
+                                // because losing work to a stray notification
+                                // is worse than an unwanted half hour.
+                                if (finished && overBin) onCommit(rest, null)
+                                else onCommit(Windows.place(rest, it), it)
+                            }
+                            carried = null
+                            overBin = false
+                        }
                     },
             )
-            }
         }
 
         // The bin, directly under the foot of the week.
