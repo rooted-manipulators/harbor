@@ -92,8 +92,11 @@ internal class SensingStore(context: Context) {
     /**
      * A walk the tracker closed.
      *
-     * [outcome] is a [CuePolicy.Reason] name, or null when the walk became a
-     * reminder — the absence of a reason being the one good answer.
+     * [outcome] is null when the walk became a reminder — the absence of a
+     * reason being the one good answer — and otherwise a [CuePolicy.Reason]
+     * name or one of the two tokens below. Those two are not policy verdicts:
+     * the policy was never asked a second time, because the deferred stop had
+     * stopped being a stop worth asking about.
      */
     data class Recorded(
         val startedAt: Instant,
@@ -101,6 +104,7 @@ internal class SensingStore(context: Context) {
         val minutes: Int,
         val outcome: String?,
     )
+
 
     /**
      * The last time the system told us anything at all.
@@ -165,17 +169,23 @@ internal class SensingStore(context: Context) {
             }.commit()
         }
 
-    private companion object {
-        const val KEY_WALKING_SINCE = "walking_since"
-        const val KEY_WALKED_UNTIL = "walked_until"
-        const val KEY_BOUT_STARTED = "bout_started_at"
-        const val KEY_BOUT_ENDED = "bout_ended_at"
-        const val KEY_BOUT_MINUTES = "bout_minutes"
-        const val KEY_BOUT_OUTCOME = "bout_outcome"
-        const val KEY_LAST_TRANSITION = "last_transition_at"
-        const val KEY_PENDING_STILL_SINCE = "pending_still_since"
-        const val KEY_PENDING_SOURCE = "pending_source"
-        const val KEY_PENDING_MINUTES = "pending_active_minutes"
-        const val ABSENT = -1L
+    companion object {
+        /** Set off again before the settle window was up. */
+        const val WALKING_RESUMED = "WALKING_RESUMED"
+
+        /** The re-ask arrived so late the moment had gone. */
+        const val SETTLE_EXPIRED = "SETTLE_EXPIRED"
+
+        private const val KEY_WALKING_SINCE = "walking_since"
+        private const val KEY_WALKED_UNTIL = "walked_until"
+        private const val KEY_BOUT_STARTED = "bout_started_at"
+        private const val KEY_BOUT_ENDED = "bout_ended_at"
+        private const val KEY_BOUT_MINUTES = "bout_minutes"
+        private const val KEY_BOUT_OUTCOME = "bout_outcome"
+        private const val KEY_LAST_TRANSITION = "last_transition_at"
+        private const val KEY_PENDING_STILL_SINCE = "pending_still_since"
+        private const val KEY_PENDING_SOURCE = "pending_source"
+        private const val KEY_PENDING_MINUTES = "pending_active_minutes"
+        private const val ABSENT = -1L
     }
 }

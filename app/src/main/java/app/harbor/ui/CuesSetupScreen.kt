@@ -459,6 +459,10 @@ private fun lastWalkPhrase(
             "No reminder — reminders were off at the time."
         CuePolicy.Reason.TRANSITION_UNSETTLED.name ->
             "Waiting to see whether you stay still."
+        app.harbor.sensing.SensingStore.WALKING_RESUMED ->
+            "No reminder \u2014 you set off again before it was sure you had stopped."
+        app.harbor.sensing.SensingStore.SETTLE_EXPIRED ->
+            "No reminder \u2014 your phone woke Harbor too late, and the moment had passed."
         // A reason added later and not given words here. Better than dropping
         // the line: the walk was still measured, and that is most of the
         // answer.

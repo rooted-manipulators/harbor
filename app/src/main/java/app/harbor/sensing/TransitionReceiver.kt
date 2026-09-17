@@ -95,8 +95,35 @@ class TransitionReceiver : BroadcastReceiver() {
      * will be considered on its own terms when it ends.
      */
     private suspend fun settle(context: Context, signal: CuePolicy.Signal) {
-        if (SensingStore(context).state.walkingSince != null) return
-        considerCue(context, HarborStore(context), signal, bout = null)
+        val sensing = SensingStore(context)
+
+        // Walking again. The stop this alarm was armed for is over and the
+        // moment with it; the new walk will be judged on its own terms when it
+        // ends. Dropped, but not in silence -- this is the one that catches
+        // people testing, who walk, stop, and set off again before the ninety
+        // seconds are up, and who would otherwise see a walk sitting there
+        // waiting for a verdict that had already been decided against it.
+        if (sensing.state.walkingSince != null) {
+            sensing.lastBout = sensing.lastBout?.copy(outcome = SensingStore.WALKING_RESUMED)
+            return
+        }
+
+        // The alarm is inexact and Doze can hold it for minutes. A reminder
+        // for a stop that finished half an hour ago is a reminder at the wrong
+        // moment, which is the thing the policy exists to prevent, so a
+        // deferred signal past its window is thrown away rather than fired.
+        //
+        // ADR-008's amendment and docs/08 both say this happens. Until now it
+        // only happened in SettleReceiver, which nothing wakes -- SettleAlarm
+        // carries the signal in the intent and comes back here.
+        val now = Instant.now()
+        if (CuePolicy.settleExpired(signal.stillSince, now)) {
+            Log.i(TAG, "settle re-ask too late, dropped")
+            sensing.lastBout = sensing.lastBout?.copy(outcome = SensingStore.SETTLE_EXPIRED)
+            return
+        }
+
+        considerCue(context, HarborStore(context), signal, bout = null, now = now)
     }
 
     private suspend fun considerCue(
@@ -104,8 +131,8 @@ class TransitionReceiver : BroadcastReceiver() {
         store: HarborStore,
         signal: CuePolicy.Signal,
         bout: BoutTracker.Bout?,
+        now: Instant = Instant.now(),
     ) {
-        val now = Instant.now()
         val today = now.atZone(ZoneId.systemDefault()).toLocalDate()
 
         val decision = CuePolicy.decide(
