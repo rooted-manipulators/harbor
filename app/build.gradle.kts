@@ -21,6 +21,29 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Where the backend is, or nothing.
+        //
+        // Both come from gradle.properties or the environment, and both
+        // default to empty. An empty URL is not a broken build: it is sync
+        // switched off, and Harbor behaves exactly as it did before it had a
+        // server -- see Backend.configured. That is what lets a study build
+        // ship without the backend while the backend is still being decided,
+        // and it is the honest default for a feature nothing yet depends on.
+        //
+        // The anon key is public by design; Supabase protects rows with RLS,
+        // not with this. It is still read from properties rather than pasted
+        // here, so a project can be pointed somewhere else without a commit.
+        buildConfigField(
+            "String",
+            "SUPABASE_URL",
+            "\"" + (project.findProperty("harbor.supabaseUrl") as String? ?: "") + "\"",
+        )
+        buildConfigField(
+            "String",
+            "SUPABASE_ANON_KEY",
+            "\"" + (project.findProperty("harbor.supabaseAnonKey") as String? ?: "") + "\"",
+        )
     }
 
     // One debug signature for every machine that builds Harbor.
@@ -66,6 +89,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
@@ -81,6 +105,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.play.services.location)
     testImplementation(libs.junit)
+    // Android ships org.json as stubs that throw at runtime, so any unit test
+    // touching a wire format needs a real implementation on its own classpath.
+    // Only the tests: the app uses the platform's.
+    testImplementation(libs.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

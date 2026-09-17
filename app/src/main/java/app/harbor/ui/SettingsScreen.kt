@@ -56,6 +56,8 @@ fun SettingsScreen(
     store: HarborRepository,
     onEditSchedule: () -> Unit,
     onOpenCues: () -> Unit,
+    /** The account, which only matters for sharing a week with somebody. */
+    onOpenAccount: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -159,6 +161,10 @@ fun SettingsScreen(
 
             TextLink("When you are busy", onEditSchedule)
             TextLink("Set up a daily reminder", onOpenCues)
+            // Last of the three, because it is the only one that is optional.
+            // Harbor works signed out; an account is what lets you ask
+            // somebody whether you may see when they are free.
+            TextLink("Your account", onOpenAccount)
             TextLink("Back", onDone)
         }
     }
