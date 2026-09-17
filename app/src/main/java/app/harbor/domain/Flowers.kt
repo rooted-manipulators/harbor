@@ -9,10 +9,13 @@ import kotlin.math.sqrt
  * The flower library, and how a call becomes one.
  *
  * The colours, petal counts and names are measured off the flower sheet,
- * which is the authority on them now. The sheet also supplies each bloom's
- * actual outline, traced into `FlowerArt`; what lives here is the summary of a
- * flower that the field, the garden marks and the glow need -- one light, one
- * deep, one heart.
+ * which is the authority on them now.
+ *
+ * What a flower *looks* like is no longer here or anywhere in code: it is the
+ * artwork in `res/drawable-nodpi`, one file per flower (see `FlowerMark`). The
+ * three colours are still the flower's colour for the things that need one
+ * rather than a picture -- the field's cells and the garden's dots, both of
+ * which draw a flower a few pixels wide.
  *
  * Twenty flowers, and each of them is a specific post-call feeling rather than
  * a species or a mood in general. What a flower is *called* is the biggest

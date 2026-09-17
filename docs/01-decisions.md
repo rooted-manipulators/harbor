@@ -439,3 +439,58 @@ costs almost nothing.
 
 Someone sitting in a lecture who asks for the prompt is making their own
 decision. Consistent with every other gate `MANUAL` bypasses.
+
+---
+
+## ADR-012 — The flowers are artwork, not drawn geometry
+
+**17 Sep 2026. Reverses, for the flowers only, the rule in
+`docs/05-changing-the-ui.md` that every mark in the app is drawn on a canvas.**
+
+### What changed
+
+The twenty flowers ship as image files — `res/drawable-nodpi/flower_*.webp`,
+two cuts of each, made by `tools/cut_flowers.py` from the twenty source PNGs in
+`tools/flower-source`. Nothing draws a flower's shape in code any more.
+
+### Why
+
+Three separate attempts were made to draw them, in order: one petal function
+for all twenty, then a silhouette per flower, then the illustration vectorised
+and its Bézier outlines ported into Compose paths. Each one produced a
+recognisable flower. None produced *the* flower. The artwork carries soft light
+inside the petals and a glow through the throat that a fill cannot reach, and
+the gap was still obvious at the third attempt, which was tracing the real
+outlines rather than approximating them.
+
+At that point continuing to draw them is a preference for a rule over a result.
+The flowers are the reward surface of the whole product — they are what a week
+of calling looks like — and they are the one place in the app where the picture
+being right matters more than the picture being cheap.
+
+### What it costs, accepted knowingly
+
+- **They no longer restyle with the palette.** This was the reason for the
+  original rule and it is a real loss: a future skin changes every other mark
+  for free and cannot touch these. `Flowers.kt` still holds three colours per
+  flower, off the same sheet, for the things that need a colour rather than a
+  picture.
+- **About 1MB of APK**, and heap while they are on screen — a decoded bitmap is
+  width × height × 4 bytes.
+- **They do not scale past their own size.** The cuts are sized for the largest
+  place each is used; going bigger will go soft.
+
+### What is still drawn
+
+The two top-down views — the field's cells and the garden's dots — draw a
+flower a few pixels across, hundreds at a time. There is no shape to recognise
+at that size, only a hue, and the artwork would mean decoding every kind the
+garden holds. Those keep the cheap petals-around-a-centre mark, and the rule in
+`docs/05-changing-the-ui.md` is unchanged for every other icon in the app.
+
+### If this is ever reversed
+
+The last drawn version is the traced one, in the history of
+`ui/FlowerMark.kt` and the deleted `ui/FlowerArt.kt`. It is the closest a
+drawn flower got, and it is the thing to start from rather than starting over.
+

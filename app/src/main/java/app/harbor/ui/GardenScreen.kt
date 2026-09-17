@@ -330,7 +330,7 @@ private fun DrawScope.drawPlot(
             flowers.forEachIndexed { index, kind ->
                 val spot = Garden.flowerSpot(plot.seed, index, plot.radius)
                 translate(spot.x.toFloat(), spot.y.toFloat()) {
-                    drawFlower(Flowers.spec(kind), radius = 11f)
+                    drawFlowerDot(Flowers.spec(kind), radius = 11f)
                 }
             }
         } else {
@@ -338,7 +338,7 @@ private fun DrawScope.drawPlot(
             // garden turns to mush at a distance.
             val dominant = flowers.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
             if (dominant != null) {
-                drawFlower(Flowers.spec(dominant), radius = 18f)
+                drawFlowerDot(Flowers.spec(dominant), radius = 18f)
             }
         }
     }
