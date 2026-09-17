@@ -31,6 +31,34 @@ object CuePolicy {
     val SETTLE: Duration = Duration.ofSeconds(90)
 
     /**
+     * How late a deferred signal may still fire, measured from [SETTLE].
+     *
+     * A walk that ended is held for [SETTLE] and re-asked afterwards, because
+     * the transition arrives the instant stillness is detected and nothing
+     * else will wake the pipeline later — see `sensing/SettleAlarm`. That
+     * re-ask is scheduled with an inexact alarm, so it can land late: Doze
+     * holds `setAndAllowWhileIdle` until a maintenance window, which is
+     * minutes rather than seconds.
+     *
+     * Landing late is fine. Landing *much* later is not: a cue for a stop that
+     * finished half an hour ago is a cue at the wrong moment, which this file
+     * exists to prevent. So a deferred signal past this window is dropped
+     * rather than fired.
+     */
+    val SETTLE_WINDOW: Duration = Duration.ofMinutes(15)
+
+    /**
+     * Whether a deferred signal has aged out — the stop it belongs to is over
+     * and the moment with it.
+     *
+     * Pure, and separate from [decide], because the deferral path has no
+     * signal to hand [decide] once it has expired: there is nothing to weigh,
+     * only something to throw away.
+     */
+    fun settleExpired(stillSince: Instant, now: Instant): Boolean =
+        Duration.between(stillSince, now) > SETTLE.plus(SETTLE_WINDOW)
+
+    /**
      * A transition the sensing layer has observed. [activeMinutes] is the
      * length of the bout that just ended — the walk, or the app session.
      */
@@ -49,8 +77,11 @@ object CuePolicy {
      * user swiped away without answering still spent one of their two.
      * [lastCueAt] is not derived from today either, because the cooldown has
      * to survive midnight — a cue at 23:55 must still suppress one at 00:05.
-     * And [hasPendingReminder] spans every day, since a plan made on Tuesday
-     * for Friday is still a plan.
+     * And [hasPendingReminder] spans every day, since a plan made this
+     * evening for tomorrow is still a plan in the morning. It is bounded at
+     * the far end rather than open — a plan whose time has been and gone stops
+     * holding reminders back, closed or not — but that bound is the caller's
+     * to apply, not this policy's. See [Reminders.holding].
      */
     data class DayState(
         val entriesToday: List<LedgerEntry>,
@@ -95,7 +126,7 @@ object CuePolicy {
         /** Too soon after the last cue. */
         IN_COOLDOWN,
 
-        /** They planned a later time and it hasn't been dealt with yet. */
+        /** They planned a later time, and that time is still ahead of them. */
         REMINDER_PENDING,
 
         /** Stopped, but not for long enough to be sure they've settled. */
@@ -157,7 +188,11 @@ object CuePolicy {
         if (day.hasPendingReminder) {
             return Decision.Hold(Reason.REMINDER_PENDING)
         }
-        if (day.lastCueAt != null) {
+        // Zero is off, said out loud rather than left to the arithmetic. A
+        // zero-length comparison would happen to work for a clock that only
+        // moves forwards, and would hold a cue for ever on one that had just
+        // been corrected backwards.
+        if (thresholds.cooldownMinutes > 0 && day.lastCueAt != null) {
             val elapsed = Duration.between(day.lastCueAt, now)
             if (elapsed < Duration.ofMinutes(thresholds.cooldownMinutes.toLong())) {
                 return Decision.Hold(Reason.IN_COOLDOWN)

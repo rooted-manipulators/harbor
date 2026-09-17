@@ -33,8 +33,12 @@ import java.util.UUID
 class TransitionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (!ActivityTransitionResult.hasResult(intent)) return
-        val result = ActivityTransitionResult.extractResult(intent) ?: return
+        // Two ways in: a batch of transitions from Play services, or our own
+        // alarm coming back to ask about a stop that was too fresh the first
+        // time. See [SettleAlarm].
+        val settled = SettleAlarm.signalOf(intent)
+        val result = if (settled != null) null else ActivityTransitionResult.extractResult(intent)
+        if (settled == null && result == null) return
 
         val app = context.applicationContext
         val pending = goAsync()
@@ -44,7 +48,7 @@ class TransitionReceiver : BroadcastReceiver() {
         // anything slow here.
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                handle(app, result)
+                if (settled != null) settle(app, settled) else handle(app, result!!)
             } catch (e: Throwable) {
                 // A crash here would be invisible to the user and would take
                 // sensing down until the next reboot. Losing one transition is
@@ -80,16 +84,55 @@ class TransitionReceiver : BroadcastReceiver() {
             sensing.state = step.state
 
             val signal = step.signal ?: continue
-            considerCue(context, store, signal)
+            considerCue(context, store, signal, step.bout)
         }
+    }
+
+    /**
+     * The stop we held is now as old as the settle window. Ask again.
+     *
+     * Unless a walk has opened since — that stop is stale, and the new one
+     * will be considered on its own terms when it ends.
+     */
+    private suspend fun settle(context: Context, signal: CuePolicy.Signal) {
+        val sensing = SensingStore(context)
+
+        // Walking again. The stop this alarm was armed for is over and the
+        // moment with it; the new walk will be judged on its own terms when it
+        // ends. Dropped, but not in silence -- this is the one that catches
+        // people testing, who walk, stop, and set off again before the ninety
+        // seconds are up, and who would otherwise see a walk sitting there
+        // waiting for a verdict that had already been decided against it.
+        if (sensing.state.walkingSince != null) {
+            sensing.lastBout = sensing.lastBout?.copy(outcome = SensingStore.WALKING_RESUMED)
+            return
+        }
+
+        // The alarm is inexact and Doze can hold it for minutes. A reminder
+        // for a stop that finished half an hour ago is a reminder at the wrong
+        // moment, which is the thing the policy exists to prevent, so a
+        // deferred signal past its window is thrown away rather than fired.
+        //
+        // ADR-008's amendment and docs/08 both say this happens. Until now it
+        // only happened in SettleReceiver, which nothing wakes -- SettleAlarm
+        // carries the signal in the intent and comes back here.
+        val now = Instant.now()
+        if (CuePolicy.settleExpired(signal.stillSince, now)) {
+            Log.i(TAG, "settle re-ask too late, dropped")
+            sensing.lastBout = sensing.lastBout?.copy(outcome = SensingStore.SETTLE_EXPIRED)
+            return
+        }
+
+        considerCue(context, HarborStore(context), signal, bout = null, now = now)
     }
 
     private suspend fun considerCue(
         context: Context,
         store: HarborStore,
         signal: CuePolicy.Signal,
+        bout: BoutTracker.Bout?,
+        now: Instant = Instant.now(),
     ) {
-        val now = Instant.now()
         val today = now.atZone(ZoneId.systemDefault()).toLocalDate()
 
         val decision = CuePolicy.decide(
@@ -99,7 +142,20 @@ class TransitionReceiver : BroadcastReceiver() {
             now = now,
         )
 
+        // Written whatever the answer is, and before the answer is acted on.
+        // A walk that was refused is the case somebody is trying to understand
+        // when they go looking, so it is the one that most needs recording --
+        // and on the settle re-ask there is no bout to write, only a verdict
+        // to correct, which is why the outcome is updated separately below.
+        remember(context, signal, bout, decision)
+
         if (decision is CuePolicy.Decision.Hold) {
+            // The one reason that is not a refusal: the stop is real and only
+            // too recent, and the moment it is waiting for is in the future.
+            // Every other reason means no, and no alarm is set for a no.
+            if (decision.reason == CuePolicy.Reason.TRANSITION_UNSETTLED) {
+                SettleAlarm.arm(context, signal)
+            }
             // Held cues are not written anywhere. They are not events in the
             // user's life, and a ledger full of near-misses would make the
             // study's numbers mean something other than what they say.
@@ -120,6 +176,36 @@ class TransitionReceiver : BroadcastReceiver() {
 
         CueNotifier.post(context, cue, store.contacts.value.firstOrNull())
         Log.i(TAG, "cue fired: ${cue.id} after ${signal.activeMinutes} min")
+    }
+
+    /**
+     * Keep what this walk measured and what became of it, for the screen that
+     * has to explain why nothing arrived.
+     *
+     * On the first pass there is a [bout] and the record is written whole. On
+     * the settle re-ask there is not — the bout closed minutes ago and the
+     * tracker has long since reset — so only the verdict is corrected, leaving
+     * the measured window as it was. Without that second write every deferred
+     * walk would sit there reading "held: TRANSITION_UNSETTLED" for ever, which
+     * is the one verdict that is never the final one.
+     */
+    private fun remember(
+        context: Context,
+        signal: CuePolicy.Signal,
+        bout: BoutTracker.Bout?,
+        decision: CuePolicy.Decision,
+    ) {
+        val outcome = (decision as? CuePolicy.Decision.Hold)?.reason?.name
+        val sensing = SensingStore(context)
+        sensing.lastBout = when {
+            bout != null -> SensingStore.Recorded(
+                startedAt = bout.startedAt,
+                endedAt = bout.endedAt,
+                minutes = signal.activeMinutes,
+                outcome = outcome,
+            )
+            else -> sensing.lastBout?.copy(outcome = outcome) ?: return
+        }
     }
 
     private fun activityOf(type: Int): BoutTracker.Activity = when (type) {

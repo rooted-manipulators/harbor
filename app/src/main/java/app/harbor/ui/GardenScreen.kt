@@ -111,7 +111,10 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         .sortedByDescending { it.occurredAt }
 
     Column(modifier.fillMaxSize()) {
-        FieldCanvas(store, Modifier.fillMaxWidth().weight(1f))
+        // Standing at the newest flower rather than out at the overview:
+        // this screen is opened right after growing one, and that is what
+        // somebody has come to look at.
+        FieldCanvas(store, Modifier.fillMaxWidth().weight(1f), standClose = true)
 
         Column(
             Modifier
@@ -327,7 +330,7 @@ private fun DrawScope.drawPlot(
             flowers.forEachIndexed { index, kind ->
                 val spot = Garden.flowerSpot(plot.seed, index, plot.radius)
                 translate(spot.x.toFloat(), spot.y.toFloat()) {
-                    drawFlower(Flowers.spec(kind), radius = 11f)
+                    drawFlowerDot(Flowers.spec(kind), radius = 11f)
                 }
             }
         } else {
@@ -335,7 +338,7 @@ private fun DrawScope.drawPlot(
             // garden turns to mush at a distance.
             val dominant = flowers.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
             if (dominant != null) {
-                drawFlower(Flowers.spec(dominant), radius = 18f)
+                drawFlowerDot(Flowers.spec(dominant), radius = 18f)
             }
         }
     }

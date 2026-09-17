@@ -29,12 +29,8 @@ class FieldTest {
 
     // --- what is growing, and what is not ------------------------------------
 
-    private fun flowersIn(calls: Int): Int {
-        val patches = Field.patches(people(calls))
-        val ids = patches.indices.map { Field.PATCH_PAINT_FROM + it * 2 }
-            .flatMap { listOf(it, it + 1) }.toSet()
-        return Field.cells(patches).count { it.paint in ids }
-    }
+    private fun flowersIn(calls: Int): Int =
+        Field.cells(Field.patches(people(calls))).count { it.kind == Field.Kind.FLOWER }
 
     @Test
     fun `a patch nobody has called has nothing growing in it`() {
@@ -45,11 +41,44 @@ class FieldTest {
     }
 
     @Test
-    fun `flowers arrive roughly one to a call`() {
-        // Scattered by a hash, so the count is approximate by design -- what
-        // matters is that it tracks the calls rather than the patch size.
-        val few = flowersIn(4)
-        assertTrue("4 calls grew $few flowers", few in 1..12)
+    fun `one call grows one flower, exactly`() {
+        // This used to be a probability per cell that averaged out right and
+        // got individual cases wrong: a patch of one call had rather worse
+        // than even odds of growing anything at all. Scattered, still, but
+        // counted rather than rolled.
+        assertEquals(1, flowersIn(1))
+        assertEquals(2, flowersIn(2))
+        assertEquals(4, flowersIn(4))
+    }
+
+    @Test
+    fun `a flower keeps its place as the patch grows around it`() {
+        // Planting order is a rank, not a clock, so the sixth flower is the
+        // next cell down a list the first five already sat at the top of. A
+        // flower that moved when the next one arrived would make the field a
+        // picture of the count rather than a record of the calls.
+        fun placed(calls: Int) = Field.cells(Field.patches(people(calls)))
+            .filter { it.kind == Field.Kind.FLOWER }
+            .sortedBy { it.bloom }
+            .map { it.x to it.y }
+        assertEquals(placed(5), placed(6).take(5))
+    }
+
+    @Test
+    fun `the newest flower is a place the camera can go`() {
+        // What the field flies to after somebody grows one. The patch centre
+        // is not it: at standing zoom a well-planted patch is wider than the
+        // screen, so its middle can have the new bloom off the edge.
+        val patches = Field.patches(people(9))
+        val cells = Field.cells(patches)
+        val newest = Field.newestBloom(cells, 0)
+        assertEquals(8, newest?.bloom)
+        assertTrue("the newest flower grew outside its patch", newest!!.patch == 0)
+        assertTrue(
+            "the newest flower is not on its patch's ground",
+            Terrain.inRing(patches[0].ring, newest.x, newest.y),
+        )
+        assertEquals(null, Field.newestBloom(Field.cells(Field.patches(people(0))), 0))
     }
 
     @Test
@@ -65,10 +94,8 @@ class FieldTest {
         // flowers at all.
         val patches = Field.patches(people(100_000))
         val cells = Field.cells(patches)
-        val ids = patches.indices.map { Field.PATCH_PAINT_FROM + it * 2 }
-            .flatMap { listOf(it, it + 1) }.toSet()
         val inside = cells.count { Field.patchAt(patches, it.x, it.y) >= 0 }
-        val bloomed = cells.count { it.paint in ids }
+        val bloomed = cells.count { it.kind == Field.Kind.FLOWER }
         assertTrue("$bloomed of $inside cells bloomed", bloomed < inside)
     }
 
@@ -200,13 +227,61 @@ class FieldTest {
     }
 
     @Test
-    fun `the palette has shared colours first and two per patch after`() {
-        val patches = Field.patches(people(4, 4))
-        val palette = Field.palette(patches)
-        assertEquals(Field.PATCH_PAINT_FROM + 4, palette.size)
-        assertEquals(Flowers.spec(patches[0].flower).petalDeep, palette[Field.PATCH_PAINT_FROM])
-        assertEquals(Flowers.spec(patches[0].flower).petal, palette[Field.PATCH_PAINT_FROM + 1])
+    fun `the palette has shared colours first and two per flower kind after`() {
+        // A bucket per kind, not per patch. A patch owning its own two
+        // buckets is what made every bloom on it the same colour however
+        // differently the picker had been answered.
+        val palette = Field.palette()
+        assertEquals(Field.PATCH_PAINT_FROM + FlowerKind.entries.size * 2, palette.size)
+        FlowerKind.entries.forEach { kind ->
+            val spec = Flowers.spec(kind)
+            assertEquals(spec.petalDeep, palette[Field.paintFor(kind, deep = true)])
+            assertEquals(spec.petal, palette[Field.paintFor(kind, deep = false)])
+        }
         assertTrue("the palette must not leave a colour undefined", palette.all { it != 0L })
+    }
+
+    @Test
+    fun `a bloom is the kind that was chosen on the call that grew it`() {
+        // The whole of the picker: twelve calls answered twelve ways used to
+        // come out as twelve identical flowers.
+        val chosen = listOf(
+            FlowerKind.DREADED_THIS_ONE,
+            FlowerKind.FELT_LOVED,
+            FlowerKind.EASY_SILENCE,
+            FlowerKind.SAID_THE_HARD_THING,
+        )
+        val patches = Field.patches(listOf(
+            Field.Person(mom, "Mom", chosen.size, FlowerKind.FELT_LOVED, chosen),
+        ))
+        val grew = Field.cells(patches)
+            .filter { it.kind == Field.Kind.FLOWER }
+            .sortedBy { it.bloom }
+        assertEquals(chosen, grew.map { Field.kindOf(patches[0], it.bloom) })
+        grew.forEach {
+            val spec = Flowers.spec(Field.kindOf(patches[0], it.bloom))
+            val colour = Field.palette()[it.paint]
+            assertTrue(
+                "a bloom drew in a colour that is not its own kind's",
+                colour == spec.petal || colour == spec.petalDeep,
+            )
+        }
+        assertEquals(4, grew.map { it.paint }.distinct().size)
+    }
+
+    @Test
+    fun `a patch with more calls than answers falls back to its own kind`() {
+        // A long call grows a run of flowers off one answer, and the list can
+        // simply be short. Neither may leave a bloom without a colour.
+        val patches = Field.patches(listOf(
+            Field.Person(mom, "Mom", 6, FlowerKind.STEADIER_NOW, listOf(FlowerKind.LIGHTER_NOW)),
+        ))
+        assertEquals(FlowerKind.LIGHTER_NOW, Field.kindOf(patches[0], 0))
+        assertEquals(FlowerKind.STEADIER_NOW, Field.kindOf(patches[0], 5))
+        val palette = Field.palette()
+        Field.cells(patches).forEach {
+            assertTrue("paint ${it.paint} is past the palette", it.paint in palette.indices)
+        }
     }
 
     @Test
@@ -251,7 +326,7 @@ class FieldTest {
     @Test
     fun `every cell points at a colour the palette actually has`() {
         val patches = Field.patches(people(6, 3))
-        val palette = Field.palette(patches)
+        val palette = Field.palette()
         Field.cells(patches).forEach {
             assertTrue("paint ${it.paint} is past the palette", it.paint in palette.indices)
         }
@@ -331,5 +406,101 @@ class FieldTest {
     @Test
     fun `a zero sized viewport does not divide by it`() {
         assertEquals(0.2, Field.overviewZoom(0.0, 0.0), 1e-9)
+    }
+
+    // --- the grass ----------------------------------------------------------
+
+    @Test
+    fun `a tuft is the same tuft every time it is drawn`() {
+        // Grass is rebuilt from scratch on every frame. If it were not a pure
+        // function of the cell it stands on, it would crawl as you panned.
+        for (n in 0 until 6) {
+            assertEquals(Field.wisp(0.42, n), Field.wisp(0.42, n), 0.0)
+        }
+        assertTrue(Field.wisp(0.42, 0) != Field.wisp(0.43, 0))
+    }
+
+    @Test
+    fun `a blade's randomness stays inside the unit it is scaled by`() {
+        // Every use multiplies this by a length. Outside nought-to-one a blade
+        // grows backwards or off into the next patch.
+        for (tone in listOf(0.0, 0.17, 0.5, 0.83, 1.0)) {
+            for (n in 0 until 12) {
+                val w = Field.wisp(tone, n)
+                assertTrue("wisp($tone, $n) = $w", w >= 0.0 && w < 1.0)
+            }
+        }
+    }
+
+    @Test
+    fun `blades in one tuft do not march in step`() {
+        // The obvious cheap hash -- frac(tone * n * k) -- steps by a constant
+        // as n goes up, so the blades of a tuft lean progressively further and
+        // a whole field of grass comes out as identical diagonal combs. It
+        // passes every other test here, and it is only wrong to look at.
+        for (tone in listOf(0.07, 0.31, 0.5, 0.86)) {
+            val steps = (0 until 7).map { n ->
+                val d = Field.wisp(tone, n + 1) - Field.wisp(tone, n)
+                d - kotlin.math.floor(d)
+            }
+            val spread = steps.max() - steps.min()
+            assertTrue("tone $tone steps evenly: $steps", spread > 0.2)
+        }
+    }
+
+    @Test
+    fun `looking straight down at the ground grows no grass`() {
+        // A blade is drawn as a sliver going up the screen, which is a side
+        // view of a thing. In plan there is no up for it to go, and the first
+        // version grew grass over the whole overview -- thickest along the far
+        // edge, because the high ground at the back carries the bigger cells.
+        val h = 2000.0
+        for (y in listOf(0.0, 500.0, 1200.0, 1999.0)) {
+            assertEquals(0.0, Field.grassStand(0.0, y, h), 1e-9)
+            assertEquals(0.0, Field.grassStand(Field.GRASS_TILT, y, h), 1e-9)
+        }
+    }
+
+    @Test
+    fun `grass thickens toward the near edge of a tipped view`() {
+        val h = 2000.0
+        val far = Field.grassStand(1.0, h * 0.20, h)
+        val mid = Field.grassStand(1.0, h * 0.60, h)
+        val near = Field.grassStand(1.0, h * 0.98, h)
+        assertEquals("ground up by the horizon is a long way off", 0.0, far, 1e-9)
+        assertTrue("grass should thicken toward the viewer", mid < near)
+        assertTrue(near <= 1.0)
+    }
+
+    @Test
+    fun `grass comes up as the view tips, rather than arriving`() {
+        // Any step here is a line of grass switching on across the whole
+        // screen at one zoom, which is the pop the whole ladder exists to
+        // avoid. Monotonic and continuous from the gate to full tilt.
+        val h = 2000.0
+        var last = -1.0
+        var t = Field.GRASS_TILT
+        while (t <= 1.0001) {
+            val now = Field.grassStand(t, h * 0.9, h)
+            assertTrue("stand went backwards at tilt $t", now >= last - 1e-9)
+            assertTrue("stand jumped at tilt $t", last < 0 || now - last < 0.08)
+            last = now
+            t += 0.02
+        }
+        assertTrue("full tilt near the viewer should be full grass", last > 0.8)
+    }
+
+    @Test
+    fun `a viewport with no height does not divide by it`() {
+        assertEquals(0.0, Field.grassStand(1.0, 100.0, 0.0), 1e-9)
+    }
+
+    @Test
+    fun `the detail ladder only ever goes up`() {
+        // Dot, then drawn flower, then the artwork. Each rung has to sit above
+        // the one under it or a bloom would reach a rung it can never leave.
+        assertTrue(Field.GRASS_AT < Field.FLOWER_AT)
+        assertTrue(Field.FLOWER_AT < Field.ARTWORK_AT)
+        assertTrue(Field.ARTWORK_FADE > 0.0)
     }
 }

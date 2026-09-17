@@ -6,6 +6,7 @@ import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Moment
+import app.harbor.domain.Reminders
 import app.harbor.domain.UserSettings
 import app.harbor.domain.WeekBlock
 import kotlinx.coroutines.flow.StateFlow
@@ -92,8 +93,21 @@ interface HarborRepository {
     /** Stage 9. */
     suspend fun append(entry: LedgerEntry)
 
-    /** Marks a proposed-later plan as dealt with, so it stops suppressing. */
-    suspend fun markReminderDone(id: UUID)
+    /**
+     * Marks a plan the user made as closed, and records how it closed.
+     *
+     * [how] is not decoration. A proposed-later row that never gets one of
+     * these is a plan that quietly lapsed, and telling that apart from a plan
+     * somebody kept is the whole reason this method exists. Implementations
+     * write the beat themselves so there is no way to close a plan and forget
+     * to say how — see [app.harbor.domain.Moment.REMINDER_CLOSED].
+     *
+     * Note what this does *not* do: it never writes a call. Somebody tapping
+     * "I already did" is telling us about a call Harbor had no part in, and
+     * inventing a ledger row for it would put a call in the study's data that
+     * nothing ever observed.
+     */
+    suspend fun markReminderDone(id: UUID, how: Reminders.Closed)
 
     /**
      * Whether the first run is behind us.

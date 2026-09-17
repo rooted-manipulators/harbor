@@ -34,9 +34,20 @@ import app.harbor.ui.theme.Paper
  * and what changes with the weather is the top two-thirds.
  *
  * This is the one place in Harbor where the weather the user set is more than
- * a label — a storm actually makes the whole app darker. That is the point of
- * asking: it takes their word for how life is and reflects it back, rather
+ * a label: it changes the light the whole app is seen in. That is the point of
+ * asking — it takes their word for how life is and reflects it back, rather
  * than filing it away for a chart nobody sees.
+ *
+ * **What that reflection looks like changed on 18 Sep 2026.** It used to mean
+ * *darker*: a storm turned the sky navy and washed the screen in blue, on the
+ * argument that a heavy day should feel heavy. The skies are now the web
+ * prototype's, ported in [meadowFor], and its storm is a pale flat overcast
+ * instead — heavy, but light. So the reflection is in the *quality* of the
+ * light rather than the amount of it, and the dimming wash is gone.
+ *
+ * The old argument is written down rather than deleted because it was a real
+ * one, and because whoever next wonders why a storm does not darken the app
+ * deserves to find the answer here.
  */
 @Composable
 fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
@@ -63,8 +74,9 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             // navy and a bright day from washing the text out.
             brush = Brush.verticalGradient(
                 0.00f to sky.top,
-                0.30f to sky.mid,
-                0.66f to Paper,
+                0.26f to sky.mid,
+                0.48f to sky.horizon,
+                0.72f to Paper,
                 1.00f to Paper,
             ),
             size = size,
@@ -156,6 +168,17 @@ private fun DrawScope.drawFieldRain(phase: Float, alpha: Float) {
 private class SkyTint(
     val top: Color,
     val mid: Color,
+    /**
+     * Where the sky meets the land, and the stop the whole fade turns on.
+     *
+     * The old gradient went straight from a dark sky to the page, which two
+     * dark colours can do in one step. A lit sky cannot: without this the
+     * meadow's pale horizon would drop to near-black across a few pixels and
+     * read as a rule drawn across the screen -- the exact seam this file was
+     * written to remove. It is the prototype's third sky stop, which is the
+     * colour its haze fades distance into.
+     */
+    val horizon: Color,
     val sun: Float,
     val cloud: Float,
     val cloudColour: Color,
@@ -163,34 +186,52 @@ private class SkyTint(
     val dim: Float,
 )
 
-private fun fieldTintOf(weather: Weather): SkyTint = when (weather) {
-    // Five grounds for the whole window, not five skies for a panel.
-    //
-    // Each is the colour overhead and the colour it turns on the way down;
-    // the third stop is always [Paper], so every weather arrives at the same
-    // ground and only the journey differs. Storm is the one worth naming: it
-    // is a dark blue falling to black, which is what somebody means when they
-    // move the slider all the way over.
-    Weather.CLEAR -> SkyTint(
-        Color(0xFF2B5C86), Color(0xFF6E4A34),
-        sun = 0.55f, cloud = 0f, cloudColour = Color(0xFFE8D6A8), rain = 0f, dim = 0f,
-    )
-    Weather.BRIGHT -> SkyTint(
-        Color(0xFF2F5A7D), Color(0xFFB4602C),
-        sun = 1f, cloud = 0.5f, cloudColour = Color(0xFFF0C894), rain = 0f, dim = 0f,
-    )
-    Weather.CLOUDY -> SkyTint(
-        Color(0xFF2A3F52), Color(0xFF3A2E30),
-        sun = 0f, cloud = 0.92f, cloudColour = Color(0xFF8FA0AC), rain = 0f, dim = 0.05f,
-    )
-    Weather.RAIN -> SkyTint(
-        Color(0xFF24374A), Color(0xFF2A2A32),
-        sun = 0f, cloud = 0.9f, cloudColour = Color(0xFF7E8A94), rain = 0.7f, dim = 0.10f,
-    )
-    Weather.STORM -> SkyTint(
-        Color(0xFF16212E), Color(0xFF14161C),
-        sun = 0f, cloud = 0.92f, cloudColour = Color(0xFF5E6770), rain = 1f, dim = 0.18f,
+/**
+ * The sky, taken from the prototype's palette rather than written twice.
+ *
+ * These used to be five hand-mixed dark skies. They are now read from
+ * [meadowFor], which is the web prototype's own table ported across, so the
+ * app and the drawing it was drawn from cannot drift apart -- and so a change
+ * to the weather's look is a change in one file rather than two.
+ *
+ * What is still Harbor's rather than the prototype's is the bottom of the
+ * gradient: it hands over to [Paper] before the cards start, because the
+ * meadow is a lit band at the top of a dark app and not the whole page. That
+ * is what keeps the flowers fading into the UI below them.
+ *
+ * **Storm is now the prototype's, on request, and that is a reversal worth
+ * naming.** This file used to argue that a storm should make the whole app
+ * darker -- that taking somebody's word for how life is and reflecting it back
+ * is the point of asking. The prototype's storm is a pale, flat overcast
+ * instead: heavy, but light. It is the sky that was asked for, the dimming
+ * wash is gone with it, and the old argument is recorded here rather than
+ * quietly deleted, because it was a real one.
+ */
+private fun fieldTintOf(weather: Weather): SkyTint {
+    val meadow = meadowFor(weather)
+    return SkyTint(
+        top = meadow.sky.first,
+        mid = meadow.sky.second,
+        horizon = meadow.sky.third,
+        // A sun is only a sun on the two days that have one. On the others the
+        // prototype still names a disc, but it is the overcast's bright patch
+        // and it belongs at a fraction of the strength.
+        sun = when (weather) {
+            Weather.CLEAR -> 0.55f
+            Weather.BRIGHT -> 1f
+            else -> 0.12f
+        },
+        // Straight from the prototype's own count, scaled to the three this
+        // canvas draws.
+        cloud = (meadow.cloudCount / 8f).coerceIn(0f, 1f),
+        cloudColour = meadow.cloud,
+        rain = when (weather) {
+            Weather.RAIN -> 0.7f
+            Weather.STORM -> 1f
+            else -> 0f
+        },
+        // Nothing dims any more. See the note above: the heavy weathers are
+        // pale now, and a wash over a pale sky only makes it muddy.
+        dim = 0f,
     )
 }
-
-

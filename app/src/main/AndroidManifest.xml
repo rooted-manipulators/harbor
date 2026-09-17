@@ -40,6 +40,58 @@
     -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!--
+      Harbor has no foreground service (ADR-008): it waits as a cached process
+      for Play services to wake it with a transition. OEM power management
+      freezes exactly that kind of process, and a frozen app is never handed
+      the transition — the walk is sensed and nothing runs. Measured on a
+      Galaxy S24+ (One UI, Android 16) on 2026-09-17: frozen roughly two
+      minutes after being backgrounded, three real walks lost, no error
+      anywhere for the app to report.
+
+      Declared so onboarding can offer the system's own one-tap dialog instead
+      of sending somebody hunting through Settings. It is asked for, never
+      assumed, and a refusal leaves Harbor working exactly as it does today.
+
+      The cost: Play policy restricts this permission to apps whose core
+      function genuinely requires it, so a store listing would have to justify
+      it. Harbor is built for a one-week study and is not listed. Revisit if
+      that ever changes.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
+      The reversal of ADR-008, recorded there and reasoned about in
+      sensing/SensingService. Short version: a cached process is frozen by
+      every OEM skin this study will meet, and a frozen process is never
+      handed the transition, so the cue could not fire at all. A foreground
+      service is the only thing that reliably stops a process being cached.
+
+      HEALTH is the type that covers activity recognition, and the runtime
+      permission it requires is ACTIVITY_RECOGNITION, which Harbor already
+      holds and already explains. It grants nothing new.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+
+    <!--
+      The network. Added 17 Sep 2026 by ADR-013, and worth pausing over.
+
+      Its absence used to be the strongest privacy guarantee in this app: not a
+      policy but a fact, checkable by reading this file, that nothing it
+      recorded could reach anybody. That guarantee is spent now, because two
+      accounts cannot share a schedule through a preferences file and the other
+      person has the app too.
+
+      What it buys is exactly one thing so far: asking somebody if you may see
+      when they are free, and being told. What it must never buy is the cue
+      path. Sensing, the policy, the ledger and the reminder surface all still
+      have to work with the radio off, on a train, with no signal. That was
+      ADR-003's real argument and it survives the reversal as a constraint.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -54,11 +106,36 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Harbor"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              Where a provider sign-in comes home to.
+
+              Google and Microsoft take the browser, not the app: a password
+              field on a screen the app drew is the exact shape of a phishing
+              page, and both providers refuse to be loaded in a WebView for
+              that reason. So the browser does it and hands back here, with the
+              tokens in the URL fragment.
+
+              singleTask above is what makes that land in the running app
+              through onNewIntent rather than starting a second copy of Harbor
+              on top of the first. The scheme has to match
+              SupabaseClient.REDIRECT exactly; change one and the sign-in ends
+              on a page that says it cannot be found.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="harbor" android:host="auth" />
             </intent-filter>
         </activity>
 
@@ -87,12 +164,62 @@
             android:name=".sensing.TransitionReceiver"
             android:exported="false" />
 
+        <!--
+          Does no work: it exists so the process is not cached, and therefore
+          not frozen, so the receiver above can actually be woken. See
+          sensing/SensingService.
+        -->
+        <service
+            android:name=".sensing.SensingService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
+        <!--
+          The settle timer. A walk that has just ended cannot fire yet — the
+          policy wants ninety seconds of stillness first — and Play services
+          has no further transition to send while somebody stays still, so
+          this is what comes back to ask again. See sensing/SettleAlarm.
+
+          No permission: the alarm is inexact (setAndAllowWhileIdle), which is
+          deliberate — SCHEDULE_EXACT_ALARM is not worth spending on a
+          ninety-second timer.
+        -->
+        <receiver
+            android:name=".sensing.SettleReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".sensing.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
+            <!--
+              A new build breaks sensing exactly as a reboot does, and more
+              quietly. Participants are handed builds mid-week; without this
+              their phone stops noticing walks until somebody opens Harbor by
+              hand. Delivered to the app being replaced, so no data scheme is
+              needed.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          "How is life right now", as a home-screen widget. exported="true":
+          the widget host (the launcher) is a different app and has to be able
+          to bind to this. See widget/WeatherWidget.
+        -->
+        <receiver
+            android:name=".widget.WeatherWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/weather_widget_info" />
         </receiver>
     </application>
 

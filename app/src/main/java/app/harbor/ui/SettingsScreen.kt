@@ -12,13 +12,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,17 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
 import app.harbor.ui.theme.Flow
-import app.harbor.ui.theme.Hairline
-import app.harbor.ui.theme.Gold
-import app.harbor.ui.theme.Ink
-import app.harbor.ui.theme.Muted
 import app.harbor.ui.theme.PageIntro
 import app.harbor.ui.theme.SectionHeader
-import app.harbor.ui.theme.SectionHeading
 import app.harbor.ui.theme.SmallCopy
 import app.harbor.ui.theme.Surface
 import app.harbor.ui.theme.pageContent
-import app.harbor.domain.CueSound
 import app.harbor.domain.Thresholds
 import app.harbor.domain.UserSettings
 import androidx.compose.material3.OutlinedTextField
@@ -64,6 +57,8 @@ fun SettingsScreen(
     store: HarborRepository,
     onEditSchedule: () -> Unit,
     onOpenCues: () -> Unit,
+    /** The account, which only matters for sharing a week with somebody. */
+    onOpenAccount: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -149,70 +144,49 @@ fun SettingsScreen(
                         )
                     },
                 )
-                // The quiet gap between two cues is not here any more.
+                // The quiet gap between two reminders, back after a spell of
+                // being enforced with no way to change it.
                 //
-                // It is still enforced - CuePolicy checks it before anything
-                // else - but it exists to stop two cues landing on top of one
-                // another, which is a rule about how the app behaves rather
-                // than a taste anybody holds. Nobody opened this screen to
-                // decide how many minutes apart their interruptions should be.
-                SmallCopy("Suggested values, always editable.")
-            }
-
-            Surface {
-                SectionHeader("Your gentle sound", "unless someone has their own")
-                SmallCopy("Someone you have chosen a ringtone for overrides this.")
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CueSound.entries.forEach { option ->
-                        Pill(
-                            text = option.label,
-                            selected = option == settings.sound,
-                            modifier = Modifier.weight(1f),
-                        ) { save(settings.copy(sound = option)) }
-                    }
-                }
-            }
-
-            Surface {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        SectionHeading("A little less movement")
-                        SmallCopy(
-                            "Accessibility. Flowers appear rather than bloom, " +
-                                "and a petal arrives rather than drifting off. " +
-                                "Nothing is lost; it simply stops moving.",
+                // The argument for removing it was sound as far as it went --
+                // nobody opens a settings screen wanting to pick the minutes
+                // between their own interruptions. But "thresholds are
+                // user-set, never a locked default" is a guardrail in
+                // CLAUDE.md rather than a preference, and this was a locked
+                // default: two hours, enforced by CuePolicy ahead of
+                // everything else, invisible and unreachable. It also meant
+                // the reminders screen promised a choice that did not exist,
+                // and it made the app untestable -- a day of test walks
+                // produced one reminder every two hours however the daily
+                // number was set, with nothing anywhere saying why.
+                //
+                // Fine steps low down and coarse ones higher up, because the
+                // bottom of this range is where testing lives and the top is
+                // where people do.
+                Stepper(
+                    label = "Quiet gap between reminders",
+                    value = gapPhrase(settings.thresholds.cooldownMinutes),
+                    onDown = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = false,
+                                ),
+                            ),
                         )
-                    }
-                    // Amber, not green.
-                    //
-                    // The light specimen let the interface use exactly one
-                    // colour of its own, and spent it here: a switch that is
-                    // on. The dark design is stricter still -- amber is the
-                    // current tab, the primary action and the selected thing,
-                    // and nothing else gets a colour at all -- so a green
-                    // switch would now be the only green in the whole app and
-                    // would read as a stray rather than as an accent. A switch
-                    // that is on is a selected thing, so it takes the amber.
-                    Switch(
-                        checked = settings.reducedMotion,
-                        onCheckedChange = { save(settings.copy(reducedMotion = it)) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Ink,
-                            checkedTrackColor = Gold,
-                            checkedBorderColor = Gold,
-                            uncheckedThumbColor = Muted,
-                            uncheckedTrackColor = androidx.compose.ui.graphics.Color.Transparent,
-                            uncheckedBorderColor = Hairline,
-                        ),
-                    )
-                }
+                    },
+                    onUp = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = true,
+                                ),
+                            ),
+                        )
+                    },
+                )
+                SmallCopy("Suggested values, always editable.")
             }
 
             // Handing over the week is no longer something the participant
@@ -223,9 +197,44 @@ fun SettingsScreen(
 
             TextLink("When you are busy", onEditSchedule)
             TextLink("Set up a daily reminder", onOpenCues)
+            // Last of the three, because it is the only one that is optional.
+            // Harbor works signed out; an account is what lets you ask
+            // somebody whether you may see when they are free.
+            TextLink("Your account", onOpenAccount)
             TextLink("Back", onDone)
         }
     }
+}
+
+/**
+ * The quiet gap in words: minutes while they are still countable, hours once
+ * they are not.
+ *
+ * "120 min" is the same fact as "2 h" and is harder to hold. Below an hour the
+ * minutes are the unit people think in; above it they are not.
+ */
+private fun gapPhrase(minutes: Int): String = when {
+    minutes == 0 -> "off"
+    minutes < 60 -> "$minutes min"
+    minutes % 60 == 0 -> "${minutes / 60} h"
+    else -> "${minutes / 60} h ${minutes % 60} min"
+}
+
+/**
+ * One press of the gap stepper.
+ *
+ * Quarter-hours from fifteen minutes up, single minutes below it. A stepper
+ * that moved in ones would take a hundred and five presses to get from the
+ * suggested two hours to a quarter of an hour; one that moved in fifteens
+ * could never reach the one-minute setting that makes the trigger testable at
+ * all. The range is [Thresholds]' own, and it validates on construction, so
+ * the bounds here are the same ones or the app crashes on a tap.
+ */
+private fun stepGap(minutes: Int, up: Boolean): Int = when {
+    up && minutes < 15 -> minutes + 1
+    up -> (minutes + 15).coerceAtMost(1440)
+    minutes > 15 -> minutes - 15
+    else -> (minutes - 1).coerceAtLeast(0)
 }
 
 /** `.duration-row` — a label, and a round stepper either side of the value. */
@@ -246,7 +255,12 @@ internal fun Stepper(label: String, value: String, onDown: () -> Unit, onUp: () 
             Text(
                 value,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 10.dp).size(width = 76.dp, height = 20.dp),
+                // Width fixed so the two buttons do not shuffle as the number
+                // changes; height left alone. It was pinned at 20dp, which is
+                // less than a 16sp line once the system font scale is turned
+                // up -- so the one number on this screen that somebody with
+                // large text has come here to read was the one clipped by it.
+                modifier = Modifier.padding(horizontal = 10.dp).width(76.dp),
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
             )
             StepButton("+", onUp)
@@ -254,22 +268,36 @@ internal fun Stepper(label: String, value: String, onDown: () -> Unit, onUp: () 
     }
 }
 
+/**
+ * A round step button: 38dp of circle inside 48dp of target.
+ *
+ * The circle stays the size it was drawn -- 48 would be a heavier mark than
+ * this row wants beside a label -- while the thing you press is the outer box.
+ * Pressing 5dp outside a small circle is the ordinary way a thumb misses, and
+ * these are the controls the study asks people to move.
+ */
 @Composable
 private fun StepButton(glyph: String, onClick: () -> Unit) = Box(
     Modifier
-        .size(38.dp)
-        .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.secondaryContainer)
+        .size(48.dp)
         .clickable(onClick = onClick),
     contentAlignment = Alignment.Center,
 ) {
-    Text(
-        glyph,
-        style = MaterialTheme.typography.titleLarge.copy(
-            fontSize = 17.sp,
-            color = MaterialTheme.colorScheme.primary,
-        ),
-    )
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            glyph,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.primary,
+            ),
+        )
+    }
 }
 
 /** A chip that fills in when chosen, as `.cue-topic` does. */
@@ -306,10 +334,3 @@ internal fun Pill(
         ),
     )
 }
-
-internal val CueSound.label: String
-    get() = when (this) {
-        CueSound.CHIME -> "Little chime"
-        CueSound.SOFT -> "Soft note"
-        CueSound.SILENT -> "Silence"
-    }

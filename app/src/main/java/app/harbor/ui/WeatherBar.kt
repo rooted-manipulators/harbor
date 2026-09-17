@@ -33,13 +33,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.appwidget.updateAll
 import app.harbor.data.HarborRepository
 import app.harbor.domain.DailyQuestion
 import app.harbor.domain.Moment
 import app.harbor.domain.Weather
+import app.harbor.widget.WeatherWidget
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.Ink
 import app.harbor.ui.theme.Chalk
@@ -63,6 +66,7 @@ import kotlin.math.roundToInt
 @Composable
 fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val settings by store.settings.collectAsState()
     val steps = Weather.entries
     val last = steps.size - 1
@@ -95,6 +99,8 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
             scope.launch {
                 store.setSettings(settings.copy(weather = steps[clamped]))
                 store.note(Moment.WEATHER_SET, steps[clamped].name.lowercase())
+                // Same settings the widget's rail reads.
+                WeatherWidget().updateAll(context)
             }
         }
     }

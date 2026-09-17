@@ -1,6 +1,6 @@
 package app.harbor.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,23 +25,16 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.domain.FlowerKind
-import app.harbor.domain.Flowers
 import app.harbor.domain.Tone
 import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Eyebrow
-import app.harbor.ui.theme.Forest
 import app.harbor.ui.theme.Hairline
-import app.harbor.ui.theme.LeafLight
 import app.harbor.ui.theme.SmallCopy
-import app.harbor.ui.theme.Stem
 import app.harbor.ui.theme.mark
 
 /**
@@ -99,7 +92,15 @@ fun Specimen(
                 .border(1.dp, Hairline, ArchShape),
         ) {
             if (flower != null) {
-                Canvas(Modifier.fillMaxSize()) { drawSpecimen(flower) }
+                Image(
+                    painter = painterResource(plantOf(flower)),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    alignment = Alignment.BottomCenter,
+                    contentScale = ContentScale.Fit,
+                )
             }
         }
 
@@ -139,66 +140,11 @@ fun Specimen(
     }
 }
 
-/**
- * One stem, from the foot of the arch to the bloom.
- *
- * Drawn rather than shipped as art for the same reason [FlowerMark] is: the
- * shape is a function of the flower's spec, so adding a flower to the library
- * stays a data change.
+/*
+ * The stem and the two leaves used to be drawn here, under a flower head that
+ * was also drawn. Both are in the artwork now -- each file is a whole plant --
+ * so drawing a second stem under it would have given every specimen two.
  */
-internal fun DrawScope.drawSpecimen(kind: FlowerKind, bloom: Float = 0.30f) {
-    val cx = size.width / 2f
-    val foot = size.height * 0.97f
-    val bloomY = size.height * 0.30f
-    val unit = size.minDimension
-
-    drawPath(
-        Path().apply {
-            moveTo(cx, foot)
-            cubicTo(
-                cx - unit * 0.04f, foot - unit * 0.22f,
-                cx + unit * 0.03f, bloomY + unit * 0.24f,
-                cx, bloomY,
-            )
-        },
-        color = Stem,
-        style = Stroke(width = unit * 0.045f, cap = StrokeCap.Round),
-    )
-
-    // Broader leaves and a bigger bloom, to the sheet's proportions.
-    //
-    // The flower was drawn at 0.17 of the tile with thin leaves, which on a
-    // bone page read as a delicate botanical plate. The sheet's flowers are
-    // the opposite -- a big saturated head on a sturdy stem with two wide
-    // leaves, filling most of the arch -- and at the old size, on this ground,
-    // a specimen read as a bare stalk with a bud on it.
-    drawLeaf(cx, foot - unit * 0.20f, -1f, unit * 0.38f, Forest)
-    drawLeaf(cx, foot - unit * 0.40f, 1f, unit * 0.33f, LeafLight)
-
-    translate(left = cx, top = bloomY) {
-        drawFlower(Flowers.spec(kind), unit * bloom)
-    }
-}
-
-/** A leaf: out from the stem, and back to it. */
-private fun DrawScope.drawLeaf(x: Float, y: Float, dir: Float, len: Float, colour: Color) {
-    drawPath(
-        Path().apply {
-            moveTo(x, y)
-            cubicTo(
-                x + dir * len * 0.50f, y - len * 0.45f,
-                x + dir * len * 0.95f, y - len * 0.30f,
-                x + dir * len, y - len * 0.02f,
-            )
-            cubicTo(
-                x + dir * len * 0.62f, y + len * 0.18f,
-                x + dir * len * 0.22f, y + len * 0.14f,
-                x, y,
-            )
-        },
-        color = colour,
-    )
-}
 
 /** The card's one action, as the sheet draws it: an ink pill. */
 private val ActionPill = RoundedCornerShape(99.dp)
@@ -249,17 +195,17 @@ fun LittleWindow(
             .background(container.takeOrElse { MaterialTheme.colorScheme.surface })
             .border(1.dp, edge.takeOrElse { CardEdge }, WindowShape),
     ) {
-        Canvas(
-            Modifier
+        Image(
+            painter = painterResource(plantOf(flower)),
+            contentDescription = null,
+            modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .size(132.dp)
                 .offset(x = 20.dp, y = 18.dp)
                 .alpha(0.9f),
-        ) {
-            // Larger here than in a patch: this card has one flower in it and
-            // room for it, where a patch has the arch to fill.
-            drawSpecimen(flower, bloom = 0.22f)
-        }
+            alignment = Alignment.BottomCenter,
+            contentScale = ContentScale.Fit,
+        )
 
         Column(
             Modifier

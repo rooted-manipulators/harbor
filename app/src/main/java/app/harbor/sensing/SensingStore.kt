@@ -1,6 +1,8 @@
 package app.harbor.sensing
 
 import android.content.Context
+import app.harbor.domain.CuePolicy
+import app.harbor.domain.TriggerSource
 import java.time.Instant
 
 /**
@@ -18,9 +20,16 @@ internal class SensingStore(context: Context) {
 
     var state: BoutTracker.State
         get() {
-            val millis = prefs.getLong(KEY_WALKING_SINCE, ABSENT)
+            val since = prefs.getLong(KEY_WALKING_SINCE, ABSENT)
+            val until = prefs.getLong(KEY_WALKED_UNTIL, ABSENT)
             return BoutTracker.State(
-                walkingSince = if (millis == ABSENT) null else Instant.ofEpochMilli(millis),
+                walkingSince = if (since == ABSENT) null else Instant.ofEpochMilli(since),
+                // Carried across process death like the start, and for the
+                // same reason: EXIT walking and ENTER still arrive in
+                // different batches, minutes apart, with the receiver dead in
+                // between. Forgetting it would silently put the length of
+                // every walk back to the onset of stillness.
+                walkedUntil = if (until == ABSENT) null else Instant.ofEpochMilli(until),
             )
         }
         set(value) {
@@ -30,8 +39,72 @@ internal class SensingStore(context: Context) {
                 val since = value.walkingSince
                 if (since == null) remove(KEY_WALKING_SINCE)
                 else putLong(KEY_WALKING_SINCE, since.toEpochMilli())
+                val until = value.walkedUntil
+                if (until == null) remove(KEY_WALKED_UNTIL)
+                else putLong(KEY_WALKED_UNTIL, until.toEpochMilli())
             }.commit()
         }
+
+    /**
+     * The last walk that closed, what it measured, and what came of it.
+     *
+     * Kept so the app can show its working. "No reminder arrived" has at least
+     * five causes — no transition at all, a bout shorter than the threshold,
+     * a suppression, a settle that landed too late, a reminder posted and
+     * swallowed by the system — and until this existed they were
+     * indistinguishable from the outside, including to the person testing it
+     * on their own phone. It is also the only way to check the measured length
+     * against the walk somebody actually took.
+     *
+     * One record, overwritten. This is a diagnostic, not a second ledger:
+     * nothing in the study reads it and it never leaves the device.
+     */
+    var lastBout: Recorded?
+        get() {
+            val started = prefs.getLong(KEY_BOUT_STARTED, ABSENT)
+            if (started == ABSENT) return null
+            val ended = prefs.getLong(KEY_BOUT_ENDED, ABSENT)
+            if (ended == ABSENT) return null
+            return Recorded(
+                startedAt = Instant.ofEpochMilli(started),
+                endedAt = Instant.ofEpochMilli(ended),
+                minutes = prefs.getInt(KEY_BOUT_MINUTES, 0),
+                outcome = prefs.getString(KEY_BOUT_OUTCOME, null),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_BOUT_STARTED)
+                    remove(KEY_BOUT_ENDED)
+                    remove(KEY_BOUT_MINUTES)
+                    remove(KEY_BOUT_OUTCOME)
+                } else {
+                    putLong(KEY_BOUT_STARTED, value.startedAt.toEpochMilli())
+                    putLong(KEY_BOUT_ENDED, value.endedAt.toEpochMilli())
+                    putInt(KEY_BOUT_MINUTES, value.minutes)
+                    if (value.outcome == null) remove(KEY_BOUT_OUTCOME)
+                    else putString(KEY_BOUT_OUTCOME, value.outcome)
+                }
+            }.commit()
+        }
+
+    /**
+     * A walk the tracker closed.
+     *
+     * [outcome] is null when the walk became a reminder — the absence of a
+     * reason being the one good answer — and otherwise a [CuePolicy.Reason]
+     * name or one of the two tokens below. Those two are not policy verdicts:
+     * the policy was never asked a second time, because the deferred stop had
+     * stopped being a stop worth asking about.
+     */
+    data class Recorded(
+        val startedAt: Instant,
+        val endedAt: Instant,
+        val minutes: Int,
+        val outcome: String?,
+    )
+
 
     /**
      * The last time the system told us anything at all.
@@ -56,9 +129,63 @@ internal class SensingStore(context: Context) {
             prefs.edit().putLong(KEY_LAST_TRANSITION, value.toEpochMilli()).commit()
         }
 
-    private companion object {
-        const val KEY_WALKING_SINCE = "walking_since"
-        const val KEY_LAST_TRANSITION = "last_transition_at"
-        const val ABSENT = -1L
+    /**
+     * A walk that ended but has not settled yet, waiting for its re-ask.
+     *
+     * The bout is gone from [BoutTracker] the moment it closes — the tracker
+     * emits the signal and resets — so without this the signal existed only
+     * for the length of one receiver call, was refused for being unsettled,
+     * and was then unrecoverable. That was the whole reason no reminder ever
+     * fired: the one thing that could evaluate a walk ran at the only moment
+     * it was guaranteed to be refused.
+     *
+     * Held here rather than in `HarborStore` for the same reason the bout is:
+     * this file is read and written by a receiver that lives for milliseconds.
+     */
+    var pending: CuePolicy.Signal?
+        get() {
+            val stillSince = prefs.getLong(KEY_PENDING_STILL_SINCE, ABSENT)
+            if (stillSince == ABSENT) return null
+            val source = prefs.getString(KEY_PENDING_SOURCE, null)
+                ?.let { name -> runCatching { TriggerSource.valueOf(name) }.getOrNull() }
+                ?: return null
+            return CuePolicy.Signal(
+                source = source,
+                activeMinutes = prefs.getInt(KEY_PENDING_MINUTES, 0),
+                stillSince = Instant.ofEpochMilli(stillSince),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_PENDING_STILL_SINCE)
+                    remove(KEY_PENDING_SOURCE)
+                    remove(KEY_PENDING_MINUTES)
+                } else {
+                    putLong(KEY_PENDING_STILL_SINCE, value.stillSince.toEpochMilli())
+                    putString(KEY_PENDING_SOURCE, value.source.name)
+                    putInt(KEY_PENDING_MINUTES, value.activeMinutes)
+                }
+            }.commit()
+        }
+
+    companion object {
+        /** Set off again before the settle window was up. */
+        const val WALKING_RESUMED = "WALKING_RESUMED"
+
+        /** The re-ask arrived so late the moment had gone. */
+        const val SETTLE_EXPIRED = "SETTLE_EXPIRED"
+
+        private const val KEY_WALKING_SINCE = "walking_since"
+        private const val KEY_WALKED_UNTIL = "walked_until"
+        private const val KEY_BOUT_STARTED = "bout_started_at"
+        private const val KEY_BOUT_ENDED = "bout_ended_at"
+        private const val KEY_BOUT_MINUTES = "bout_minutes"
+        private const val KEY_BOUT_OUTCOME = "bout_outcome"
+        private const val KEY_LAST_TRANSITION = "last_transition_at"
+        private const val KEY_PENDING_STILL_SINCE = "pending_still_since"
+        private const val KEY_PENDING_SOURCE = "pending_source"
+        private const val KEY_PENDING_MINUTES = "pending_active_minutes"
+        private const val ABSENT = -1L
     }
 }

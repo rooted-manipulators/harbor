@@ -1,11 +1,11 @@
 package app.harbor.domain
 
 import java.util.UUID
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * The garden as a place you can be in.
@@ -67,6 +67,115 @@ object Field {
     /** Cell radius in pixels is this times its size, times the projected scale. */
     const val DOT_SCALE = 3.3
 
+    /**
+     * Drawn radius at which a bloom stops being drawn and becomes the artwork.
+     *
+     * The third and last rung of the ladder [FLOWER_AT] starts: a planted cell
+     * is a coloured dot, then petals walked around a centre, then the flower
+     * itself. Thirteen pixels is about where the drawn one runs out of things
+     * to say -- below that a petal is a few pixels across and the artwork
+     * would only be a smudge with more steps in it.
+     *
+     * Raw pixels, like [FLOWER_AT] and [DOT_SCALE], not dp. The field is
+     * measured in projected pixels throughout because pixels are what decide
+     * whether there is anything to see; a denser screen showing more detail
+     * from the same camera is the right answer, not a bug.
+     */
+    const val ARTWORK_AT = 13.0
+
+    /**
+     * How far past [ARTWORK_AT] the drawn flower fades out under the artwork.
+     *
+     * Both are drawn through this band, which costs one extra flower's worth
+     * of fills on the few blooms inside it. It is what stops a patch popping
+     * as you lean in -- and a rung you can see is a rung that failed, because
+     * the whole ladder is meant to read as one flower getting closer.
+     */
+    const val ARTWORK_FADE = 4.0
+
+    /**
+     * Drawn radius at which ground stops being a dot and grows blades.
+     *
+     * The same idea one level down. Far off a tuft of grass is a dot, because
+     * at that distance a tuft of grass *is* a dot. Close to, it is a dot with
+     * grass coming out of it: the dot stays, shrinking, as the root of the
+     * clump, so nothing has to appear out of nothing.
+     */
+    const val GRASS_AT = 2.2
+
+    /**
+     * How many tufts one frame will grow before the rest stay dots.
+     *
+     * Zooming in shrinks how much ground is on screen, so the count falls away
+     * on its own and this is almost never reached. It is here for the band on
+     * the way in where the ground is both close enough to sprout and still
+     * wide enough to fill the view -- the one framing that could otherwise put
+     * tens of thousands of blades in a single frame.
+     */
+    const val GRASS_BUDGET = 1400
+
+    /**
+     * How far the view has to have tipped before ground grows blades.
+     *
+     * A blade is drawn as a sliver rising up the screen, which is a thing seen
+     * from the side. In plan view you are directly above the ground and there
+     * is no "up the screen" for grass to go, so drawing it there is not a
+     * coarse version of the truth, it is a different picture.
+     *
+     * It also fixed the louder half of the same bug. Flat, every cell projects
+     * at the same scale, so whether it sprouts comes down to the cell's own
+     * size -- and the high ground at the back of the island carries the bigger
+     * cells. The overview grew grass over most of the map, thickest along the
+     * far edge, which is the one place the eye is not.
+     */
+    const val GRASS_TILT = 0.25
+
+    /**
+     * Where down the screen grass starts, once the view has tipped.
+     *
+     * The horizon sits near the top; ground drawn just under it is a long way
+     * off however far you have zoomed in. Scale alone does not say so -- lean
+     * in far enough and the distant ground is being drawn large too -- so
+     * nearness is read off the screen position, which in a tipped view *is*
+     * depth. Grass thickens toward the bottom of the frame, which is both
+     * where you are standing and how a field actually looks.
+     */
+    const val GRASS_FROM = 0.35
+
+    /**
+     * How much a tuft stands up: nought is a plain dot, one is full grass.
+     *
+     * Kept here rather than in the renderer because it is the rule about when
+     * the ground has grass at all, and that is worth being able to test
+     * without a screen.
+     */
+    fun grassStand(tilt: Double, screenY: Double, height: Double): Double {
+        if (height <= 0.0) return 0.0
+        val tipped = ((tilt - GRASS_TILT) / (1.0 - GRASS_TILT)).coerceIn(0.0, 1.0)
+        if (tipped <= 0.0) return 0.0
+        val near = ((screenY / height - GRASS_FROM) / (1.0 - GRASS_FROM)).coerceIn(0.0, 1.0)
+        return tipped * near
+    }
+
+    /**
+     * A stable scrap of randomness for one cell's nth blade.
+     *
+     * Pure, and a function of the cell's own tone, so a tuft is the same tuft
+     * every frame. Grass built from a running random would crawl as you panned
+     * across it, which reads as the ground being alive in a way nothing else
+     * in this app is.
+     *
+     * Hashed through a sine rather than the obvious `frac(tone * n * k)`. That
+     * cheaper version steps by a constant as `n` goes up, so the values inside
+     * one tuft march in a straight line instead of scattering: every blade
+     * leaned a little further than the last and a field of grass came out as
+     * a field of identical diagonal combs.
+     */
+    fun wisp(tone: Double, n: Int): Double {
+        val v = sin((tone + 1.0) * 127.1 + n * 311.7) * 43758.5453
+        return v - floor(v)
+    }
+
     // --- paint palette ----------------------------------------------------
     //
     // Colours are bucketed so the whole field draws in about a dozen fills
@@ -96,8 +205,49 @@ object Field {
     // cells is the only way one bloom reads at all.
     //
     // Order is preserved: index 0 is still the lightest step.
-    val VEG = listOf(0xFF2A3626, 0xFF232E20, 0xFF1D271B, 0xFF182016, 0xFF141B13)
-    val WATER = listOf(0xFF1B2C3A, 0xFF16242F)
+    //
+    // Lifted once more, and this time for the *bottom* of the view rather
+    // than the top. The sky gradient hands over to [Paper] two thirds of the
+    // way down, so under the horizon the land was dark green on near-black:
+    // 1.10 to 1.52 luminance contrast against the page, which is to say the
+    // island had no edge at all below the skyline, and the darkest two steps
+    // were not there.
+    //
+    // The ladder is now compressed rather than moved. Every step reads
+    // against the page -- 1.44 at the dark end, 1.83 at the light one -- and
+    // every step still sits under the sky, at 1.35 to 1.72, so the horizon
+    // keeps its silhouette. The two cannot both be strong: the page and the
+    // sky are only about 2.5 to 1 apart in the first place, and the land has
+    // to live between them.
+    // **Lit, 18 Sep 2026, and the argument above is now the wrong one.**
+    //
+    // Everything before this paragraph reasons about a *dusk*: a bright sky
+    // with nearly-black land silhouetted in front of it, and a ladder tuned to
+    // stay readable against a near-black page. The field is a daylight meadow
+    // now (`ui/Meadow.kt`, ported from the web prototype), and in daylight the
+    // land is not a silhouette -- it is the lit thing, and the sky behind it is
+    // paler than it is.
+    //
+    // So the ladder is the prototype's own `field` and `fieldDeep` greens,
+    // lightest first, in the order this list has always been read in. What the
+    // old note gets right and still applies: these have to read against the
+    // page as well as against the sky, and the two cannot both be strong. The
+    // difference is that the page is now the far end of a gradient rather than
+    // the colour immediately under the horizon, which is why the sky gained a
+    // horizon stop in the same change -- the fade carries the seam that the
+    // contrast step used to.
+    //
+    // Unmeasured on a device. The old numbers came with luminance ratios
+    // somebody computed against a render; these come from a drawing made for a
+    // white page. Look at the horizon before trusting them.
+    val VEG = listOf(0xFF9CC77E, 0xFF8ABB6C, 0xFF7BAE60, 0xFF6E9F55, 0xFF5F914B)
+
+    // Water carried the same problem and worse -- a river the colour of the
+    // page is not a river. Bright enough now to read as water from the
+    // overview, which is where the island's shape is doing the work.
+    // Lit with the land. The prototype's `water`, and a step under it, so a
+    // river still reads as water rather than as a gap in the field.
+    val WATER = listOf(0xFFB7DCE8, 0xFF9CC6D6)
 
     /**
      * Sparse ground, drawn faintly.
@@ -108,9 +258,18 @@ object Field {
      * mock with four fixed people; in Harbor the ground would change colour
      * when a contact is added. This is the constant that was meant.
      */
-    const val BARE = 0xFF1A1714
+    const val BARE = 0xFFBFAE8C
 
-    /** Where per-patch colours start in the palette. Two each: deep, then petal. */
+    /**
+     * Where the petal colours start in the palette. Two per flower kind:
+     * deep, then light.
+     *
+     * Bucketed by kind rather than by patch. A patch used to own two buckets
+     * and every bloom on it drew from them, which is what made a patch one
+     * colour however many different flowers had been chosen for it. There are
+     * twenty kinds and they never change, so this is a fixed table that does
+     * not depend on how many people are in the field.
+     */
     const val PATCH_PAINT_FROM = 8
 
     private const val BARE_PAINT = 7
@@ -126,8 +285,23 @@ object Field {
         val y: Double,
         val radius: Double,
         val ring: List<Garden.Spot>,
-        /** The flower this patch is planted with, which gives it its colour. */
+        /**
+         * The flower this patch is planted with *most often*, which is what
+         * names it on the tag and the card.
+         */
         val flower: FlowerKind,
+        /**
+         * What each flower in it actually is, oldest first, one per call
+         * minute -- so entry `k` is the kind of the flower whose [Cell.bloom]
+         * is `k`.
+         *
+         * The patch used to have only the kind above, and every bloom on it
+         * was drawn in that one colour. Somebody who had answered the picker
+         * differently on twelve calls got twelve identical flowers, which
+         * quietly threw away the only thing the picker is for. Short, or
+         * empty, falls back to [flower].
+         */
+        val flowers: List<FlowerKind> = emptyList(),
     )
 
     /**
@@ -147,6 +321,17 @@ object Field {
         val patch: Int,
         /** Stable per-cell randomness, used for petal spin and colour choice. */
         val tone: Double,
+        /**
+         * Which flower of its patch this is, counting from the first ever
+         * planted there, or -1 for anything that is not a flower.
+         *
+         * Planting order is a stable rank rather than a clock, so a flower
+         * keeps its number as the patch grows around it -- which makes the
+         * highest number in a patch the one that arrived most recently, and
+         * therefore the place to fly the camera when somebody has just grown
+         * it.
+         */
+        val bloom: Int = -1,
     )
 
     data class Camera(val x: Double, val y: Double, val zoom: Double)
@@ -288,6 +473,7 @@ object Field {
             radius = radius,
             ring = Terrain.blobRing(at.x, at.y, radius, seed),
             flower = person.flower,
+            flowers = person.flowers,
         )
     }
 
@@ -298,6 +484,8 @@ object Field {
         val calls: Int,
         /** What this patch is planted with — the kind chosen most often here. */
         val flower: FlowerKind,
+        /** Every flower here, oldest first. See [Patch.flowers]. */
+        val flowers: List<FlowerKind> = emptyList(),
     )
 
     /**
@@ -318,23 +506,101 @@ object Field {
     const val EMPTY_ZOOM = 6.5
 
     /**
-     * How much of a patch is in bloom: the share of its cells that carry a
-     * flower.
+     * How far in the field stands when it is standing at a flower.
      *
-     * A patch covers roughly `pi r^2 / cell^2` cells, and a cell is planted
-     * when its own hash falls under this share -- so the count comes out at
-     * about one flower per call, scattered rather than clumped, and identical
-     * on every redraw because the hash is a function of the cell.
+     * [EMPTY_ZOOM] is the right distance for empty ground -- close enough to
+     * read the grass, far enough to see there is room. It is the wrong one for
+     * a bloom: at 6.5x a flower is about eleven pixels across, which is a dot
+     * with petals rather than the thing somebody just grew. At this distance
+     * it is about fifty, which is four and a half times the area and is as
+     * close as the field goes -- the last tenth of [MAX_REL] is left so a
+     * pinch inward still does something.
      *
-     * Capped at three quarters rather than one. A patch where every cell is a
-     * flower stops reading as flowers and starts reading as a coloured field,
-     * and somebody with two hundred calls has earned a full patch, not a
-     * solid one.
+     * Fifty pixels is the ceiling, not a choice: a bloom is about three world
+     * units across on a fifteen-unit grid, so how large it can ever draw is
+     * set by [MAX_REL]. That is the dial to turn if this is still too small.
      */
-    private fun bloomShare(patch: Patch): Double {
-        if (patch.calls <= 0) return 0.0
-        val covered = max(1.0, PI * patch.radius * patch.radius / (Terrain.CELL * Terrain.CELL))
-        return min(0.75, patch.calls / covered)
+    const val BLOOM_ZOOM = MAX_REL * 0.9
+
+    /**
+     * Somewhere a flower could grow, and the order in which it would.
+     *
+     * Collected on the one pass over the grid so the planting afterwards
+     * needs no second look at the terrain.
+     */
+    private class Candidate(
+        /** Index into the cell list, so the cell can be planted in place. */
+        val at: Int,
+        /** Low ranks are planted first, and a cell's rank never changes. */
+        val rank: Double,
+        val tone: Double,
+        val size: Double,
+    )
+
+    /**
+     * Where the last flower planted in a patch stands, or null if none has.
+     *
+     * The camera's target after somebody grows one. The patch centre is not
+     * good enough: at standing zoom a well-planted patch is wider than the
+     * screen, so aiming at the middle can leave the new bloom off the edge.
+     */
+    fun newestBloom(cells: List<Cell>, patch: Int): Cell? {
+        var best: Cell? = null
+        for (c in cells) {
+            if (c.kind != Kind.FLOWER || c.patch != patch) continue
+            if (best == null || c.bloom > best.bloom) best = c
+        }
+        return best
+    }
+
+    /**
+     * Plant exactly one flower per call, in rank order.
+     *
+     * This used to be a probability: each cell in a patch bloomed if its own
+     * hash fell under `calls / cells-in-patch`. The average came out right and
+     * every individual case did not -- a patch of one call had rather worse
+     * than even odds of growing anything at all, so better than a third of
+     * first flowers simply did not exist, and two or three calls in you were
+     * hunting a couple of cells in two hundred. The first flower is the whole
+     * of somebody's first week; it cannot be a coin toss.
+     *
+     * Ranking instead of rolling costs one sort per patch and gives an exact
+     * count, still scattered, still identical on every redraw, and still
+     * stable as the patch grows: flower five does not move when flower six
+     * arrives, because six is simply the next rank down the list.
+     *
+     * Capped at three quarters of the patch rather than all of it. A patch
+     * where every cell is a flower stops reading as flowers and starts
+     * reading as a coloured field, and somebody with two hundred calls has
+     * earned a full patch, not a solid one.
+     */
+    private fun plant(
+        out: ArrayList<Cell>,
+        patches: List<Patch>,
+        candidates: Array<ArrayList<Candidate>>,
+    ) {
+        for (i in patches.indices) {
+            val calls = patches[i].calls
+            if (calls <= 0) continue
+            val here = candidates[i]
+            if (here.isEmpty()) continue
+            val room = max(1, (here.size * 0.75).toInt())
+            val n = min(calls, room)
+            here.sortBy { it.rank }
+            for (k in 0 until n) {
+                val seed = here[k]
+                out[seed.at] = out[seed.at].copy(
+                    kind = Kind.FLOWER,
+                    size = seed.size,
+                    // Each bloom in the kind somebody chose for that call, not
+                    // in the patch's one colour. The tone still picks between
+                    // that kind's light and deep petal, which is what keeps a
+                    // run of the same answer from reading as a flat blob.
+                    paint = paintFor(kindOf(patches[i], k), deep = seed.tone <= 0.55),
+                    bloom = k,
+                )
+            }
+        }
     }
 
     /** Which patch contains a point, or -1. */
@@ -347,23 +613,31 @@ object Field {
         return -1
     }
 
-    /** The full palette for a given set of patches: shared colours, then two each. */
-    fun palette(patches: List<Patch>): LongArray {
-        val out = LongArray(PATCH_PAINT_FROM + patches.size * 2)
+    /** Which bucket a flower of this kind fills. */
+    fun paintFor(kind: FlowerKind, deep: Boolean): Int =
+        PATCH_PAINT_FROM + kind.ordinal * 2 + (if (deep) 0 else 1)
+
+    /** What kind flower number [bloom] of a patch is. */
+    fun kindOf(patch: Patch, bloom: Int): FlowerKind =
+        patch.flowers.getOrNull(bloom) ?: patch.flower
+
+    /** The full palette: the shared ground colours, then two per flower kind. */
+    fun palette(): LongArray {
+        val out = LongArray(PATCH_PAINT_FROM + FlowerKind.entries.size * 2)
         VEG.forEachIndexed { i, c -> out[i] = c }
         WATER.forEachIndexed { i, c -> out[VEG.size + i] = c }
         out[BARE_PAINT] = BARE
-        patches.forEachIndexed { i, p ->
-            val spec = Flowers.spec(p.flower)
-            out[PATCH_PAINT_FROM + i * 2] = spec.petalDeep
-            out[PATCH_PAINT_FROM + i * 2 + 1] = spec.petal
+        FlowerKind.entries.forEach { kind ->
+            val spec = Flowers.spec(kind)
+            out[paintFor(kind, deep = true)] = spec.petalDeep
+            out[paintFor(kind, deep = false)] = spec.petal
         }
         return out
     }
 
     /** How opaque a bucket draws. Sparse ground recedes; planted ground does not. */
     fun alphaFor(paint: Int): Float = when {
-        paint == BARE_PAINT -> 0.45f
+        paint == BARE_PAINT -> 0.62f
         paint >= PATCH_PAINT_FROM -> 0.95f
         else -> 0.9f
     }
@@ -381,6 +655,7 @@ object Field {
      */
     fun cells(patches: List<Patch>): List<Cell> {
         val out = ArrayList<Cell>(Terrain.COLS * Terrain.ROWS / 2)
+        val candidates = Array(patches.size) { ArrayList<Candidate>() }
         for (row in 0 until Terrain.ROWS) {
             for (col in 0 until Terrain.COLS) {
                 val jx = (Terrain.hash2(col, row, Terrain.SEED + 5) - 0.5) * Terrain.CELL * 0.5
@@ -402,24 +677,25 @@ object Field {
                 var size = 0.1
                 var paint = BARE_PAINT
 
-                // One flower for one call, and none for none.
-                //
-                // This used to plant every cell inside a patch, so a patch was
-                // in full bloom from the moment a contact existed -- somebody
-                // who had never called anybody opened the app to a field of
-                // flowers they had not grown. The garden is the whole reward
-                // and that gave it away for nothing.
-                val bloom = patch >= 0 && z > 0.3 &&
-                    chance < bloomShare(patches[patch])
+                // Ground somebody could plant in, and where it stands in the
+                // queue. Nothing blooms here yet -- [plant] does that once the
+                // whole grid is known, because how many of these cells a patch
+                // is entitled to depends on how many of them there turn out to
+                // be. A contact who has never called anybody still grows
+                // nothing: the garden is the whole reward, and it was once
+                // given away for free to anyone who added a contact.
+                if (patch >= 0 && z > 0.3) {
+                    candidates[patch] += Candidate(
+                        at = out.size,
+                        rank = Terrain.hash2(col, row, Terrain.SEED + 13),
+                        tone = Terrain.hash2(col, row, Terrain.SEED + 11),
+                        // Inside somebody's patch the ground is planted:
+                        // denser, larger, and in their flower's colour.
+                        size = min(2.4, 0.72 + chance * 0.9 + grove * 0.5),
+                    )
+                }
 
-                if (bloom) {
-                    // Inside somebody's patch the ground is planted: denser,
-                    // larger, and in their flower's colour.
-                    kind = Kind.FLOWER
-                    size = 0.72 + chance * 0.9 + grove * 0.5
-                    val tone = Terrain.hash2(col, row, Terrain.SEED + 11)
-                    paint = PATCH_PAINT_FROM + patch * 2 + (if (tone > 0.55) 1 else 0)
-                } else if (z < 0.3) {
+                if (z < 0.3) {
                     size = 0.5 + (0.3 - z) * 2.4
                     paint = 5 + (if (chance > 0.5) 1 else 0)
                 } else if (z < 0.35) {
@@ -448,6 +724,7 @@ object Field {
                 out += Cell(x, y, z, kind, min(size, 2.4), paint, patch, chance)
             }
         }
+        plant(out, patches, candidates)
         return out
     }
 }

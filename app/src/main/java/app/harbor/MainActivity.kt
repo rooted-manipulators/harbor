@@ -29,17 +29,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import app.harbor.cue.CallFlow
+import android.content.Intent
 import app.harbor.data.HarborStore
+import app.harbor.data.SupabaseClient
 import app.harbor.data.StudyFile
+import app.harbor.data.WhatsAppInbox
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
 import app.harbor.domain.CallStats
 import app.harbor.domain.Moment
+import app.harbor.sensing.Sensing
 import app.harbor.ui.ContactScreen
 import app.harbor.ui.CuesSetupScreen
 import app.harbor.ui.FlowerLanding
+import app.harbor.ui.ForwardYourChats
 import app.harbor.ui.GardenScreen
+import app.harbor.ui.SignInScreen
 import app.harbor.ui.HarborShell
 import app.harbor.ui.HarborTab
 import app.harbor.ui.HomeScreen
@@ -113,12 +119,51 @@ class MainActivity : ComponentActivity() {
         Notes(null, "A petal"),
         Person(null, null),
         Reflect(null, null),
+        SignIn(null, "Your account"),
     }
 
     private lateinit var store: HarborStore
 
+    /** Built once. Reads its own preferences file and holds no state of ours. */
+    private val sync by lazy { SupabaseClient(applicationContext) }
+
+    /**
+     * The address a provider sign-in came home on, waiting to be dealt with.
+     *
+     * A provider hands the browser back to `harbor://auth#access_token=...`,
+     * which Android delivers as an Intent rather than as a return value. The
+     * activity is `singleTask`, so that arrives through [onNewIntent] while
+     * Harbor is already running -- and through [onCreate]'s own intent if the
+     * app was killed while the browser had the screen.
+     *
+     * Held as state so the composition can see it, and cleared by the screen
+     * that consumes it: replaying a sign-in on every rotation would sign
+     * somebody in twice and read as the app flickering.
+     */
+    private var signInRedirect by mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeRedirect(intent)
+    }
+
+    /**
+     * Whether this intent is a sign-in coming home, and if so, keep it.
+     *
+     * Checked by scheme rather than by trusting that only our own filter can
+     * reach here, because any app can send an Intent with any data.
+     */
+    private fun takeRedirect(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "harbor" || data.host != "auth") return
+        signInRedirect = data.toString()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The browser may have finished while Harbor was not running.
+        takeRedirect(intent)
         // Dark bars, stated rather than inferred.
         //
         // enableEdgeToEdge() with no arguments picks its bar style from the
@@ -135,6 +180,12 @@ class MainActivity : ComponentActivity() {
         // too and they run outside the composition.
         store = HarborStore(applicationContext)
 
+        // Put sensing back if it has fallen over. Installing a build
+        // force-stops the app, which stops delivery until it is launched by
+        // hand -- exactly the state a participant handed a new APK is in, and
+        // one that reports itself as working. See Sensing.repair.
+        lifecycleScope.launch { Sensing.repair(applicationContext, store) }
+
         setContent {
             HarborTheme {
                 var screen by remember { mutableStateOf(Screen.Home) }
@@ -150,6 +201,15 @@ class MainActivity : ComponentActivity() {
                 // Which screens get looked at, and in what order. A category
                 // per screen; nothing about what was on it.
                 LaunchedEffect(screen) { store.note(Moment.SCREEN, screen.name) }
+
+                // Anything the WhatsApp bot has parsed goes onto the week
+                // (ADR-014). Keyed on `resumes` rather than on the schedule
+                // screen, because a class that moved should already be
+                // suppressing cues by the time anybody thinks to look at the
+                // grid -- and because the point of forwarding a message was
+                // not having to open that screen. Returns 0 and costs nothing
+                // when signed out, offline, or with no backend.
+                LaunchedEffect(resumes) { WhatsAppInbox.drain(sync, store) }
                 var reflecting by remember { mutableStateOf<LedgerEntry?>(null) }
 
                 // The flower on its way into the field, drawn over whatever
@@ -366,13 +426,28 @@ class MainActivity : ComponentActivity() {
                                 store = store,
                                 onDone = home,
                                 modifier = inset,
+                                otherWays = {
+                                    ForwardYourChats(
+                                        client = sync,
+                                        onOpenAccount = { screen = Screen.SignIn },
+                                    )
+                                },
                             )
 
                             Screen.Settings -> SettingsScreen(
                                 store = store,
                                 onEditSchedule = { screen = Screen.Schedule },
                                 onOpenCues = { screen = Screen.Cues },
+                                onOpenAccount = { screen = Screen.SignIn },
                                 onDone = home,
+                                modifier = inset,
+                            )
+
+                            Screen.SignIn -> SignInScreen(
+                                client = sync,
+                                redirect = signInRedirect,
+                                onRedirectHandled = { signInRedirect = null },
+                                onDone = { screen = Screen.Settings },
                                 modifier = inset,
                             )
 

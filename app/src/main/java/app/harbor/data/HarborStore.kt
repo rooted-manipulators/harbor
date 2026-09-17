@@ -8,7 +8,7 @@ import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Moment
-import app.harbor.domain.Resolution
+import app.harbor.domain.Reminders
 import app.harbor.domain.Telemetry
 import app.harbor.domain.TriggerSource
 import app.harbor.domain.UserSettings
@@ -58,6 +58,31 @@ class HarborStore(context: Context) : HarborRepository {
 
     private val _dailyAnswers = MutableStateFlow(readDailyAnswers())
     override val dailyAnswers: StateFlow<Map<LocalDate, String>> = _dailyAnswers.asStateFlow()
+
+    // Android hands every caller in this process the same underlying
+    // SharedPreferences object for a given file name, so a write from one
+    // HarborStore instance (the widget's own, for instance) reaches every
+    // other instance's listener -- this is what that's for. Without it, a
+    // long-lived instance such as MainActivity's keeps whatever it read at
+    // construction and a change made elsewhere in the same process never
+    // reaches its StateFlows until the process restarts.
+    //
+    // Held in a field rather than passed inline: registerOnSharedPreferenceChangeListener
+    // keeps only a weak reference, so an unheld lambda is eligible for
+    // collection and can silently stop firing.
+    private val prefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                KEY_SETTINGS -> _settings.value = readSettings()
+                KEY_CONTACTS -> _contacts.value = readContacts()
+                KEY_BUSY -> _weekBlocks.value = readWeekBlocks()
+                KEY_ANSWERS -> _dailyAnswers.value = readDailyAnswers()
+            }
+        }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
 
     // --- settings ---------------------------------------------------------
 
@@ -181,13 +206,25 @@ class HarborStore(context: Context) : HarborRepository {
                     it.firedDate == date && it.triggerSource != TriggerSource.MANUAL
                 },
                 // Across every day, not just today: the cooldown has to
-                // survive midnight.
-                lastCueAt = cues.maxOfOrNull { it.firedAt },
-                // Also across every day: a plan made on Tuesday for Friday is
-                // still a plan.
-                hasPendingReminder = ledger.any {
-                    it.resolution == Resolution.PROPOSED_LATER && !it.reminderDone
-                },
+                // survive midnight. Manual cues are left out for the same
+                // reason they are left out of the cap — onboarding's preview
+                // is one, so counting it started a two-hour cooldown on the
+                // way out of the flow, and the first real walk after setting
+                // Harbor up could never produce anything.
+                lastCueAt = cues
+                    .filter { it.triggerSource != TriggerSource.MANUAL }
+                    .maxOfOrNull { it.firedAt },
+                // Across days when the plan was made for tomorrow, and then
+                // over: a plan holds reminders back until its own time has
+                // been and gone, whether or not anybody closed it.
+                //
+                // It used to hold until `reminderDone`, which nothing in the
+                // app ever set -- so one "later" tap switched sensed reminders
+                // off for the rest of the study with no way back. The hold is
+                // a question about now and is answered against the clock; the
+                // closing is a fact about the person and is written down. See
+                // domain/Reminders.
+                hasPendingReminder = Reminders.holding(ledger, Instant.now()) != null,
                 busyNow = Windows.busyAt(_weekBlocks.value, ZonedDateTime.now()),
             )
         }
@@ -209,28 +246,48 @@ class HarborStore(context: Context) : HarborRepository {
     }
 
     override suspend fun append(entry: LedgerEntry) {
+        // Any plan this moment closes on its own: they meant to call her, and
+        // then they called her. Worked out inside the lambda, which runs under
+        // the same lock as the write, so two rows landing at once cannot each
+        // miss what the other did.
+        val closed = mutableListOf<UUID>()
         writeList(KEY_LEDGER) {
+            val held = readLedger()
+            closed += Reminders.closedBy(held, entry)
             // Idempotent: re-appending the same moment replaces it rather than
             // duplicating, matching the server's upsert key.
-            (readLedger() + entry)
+            (held + entry)
                 .associateBy { it.id }
                 .values
+                .map { if (it.id in closed) it.copy(reminderDone = true) else it }
                 .sortedBy { it.occurredAt }
                 .takeLast(RETAINED)
                 .let(LedgerJson::entries)
         }
+        if (closed.isNotEmpty()) {
+            unsync(closed)
+            closed.forEach { note(Moment.REMINDER_CLOSED, Reminders.Closed.REACHED_THEM.name) }
+        }
     }
 
-    override suspend fun markReminderDone(id: UUID) {
+    override suspend fun markReminderDone(id: UUID, how: Reminders.Closed) {
         writeList(KEY_LEDGER) {
             readLedger()
                 .map { if (it.id == id) it.copy(reminderDone = true) else it }
                 .let(LedgerJson::entries)
         }
-        // The entry changed, so it has to go up to the server again.
+        unsync(listOf(id))
+        // How it closed, as a category and never anybody's words. This is the
+        // half of the study's second question that "later" never had: whether
+        // a deferred call is one that eventually happens.
+        note(Moment.REMINDER_CLOSED, how.name)
+    }
+
+    /** An amended entry has to go up to the server again. */
+    private suspend fun unsync(ids: List<UUID>) {
         write {
             val synced = prefs.getStringSet(KEY_SYNCED_ENTRIES, emptySet()).orEmpty()
-            putStringSet(KEY_SYNCED_ENTRIES, synced - id.toString())
+            putStringSet(KEY_SYNCED_ENTRIES, synced - ids.map(UUID::toString).toSet())
         }
     }
 

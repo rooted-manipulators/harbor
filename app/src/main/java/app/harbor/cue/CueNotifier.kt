@@ -80,7 +80,20 @@ object CueNotifier {
             .setContentTitle("A quiet moment")
             .setContentText("Call $who?")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            // Delivered like an alarm, worded like Harbor.
+            //
+            // ADR-009 forbids the cue *claiming* to be a call: no "Mom is
+            // calling", no answer/decline pair, no imitation of the system
+            // call UI. That is about what the surface says. This is about how
+            // insistently the system carries it, and the two are separable --
+            // CATEGORY_REMINDER is ranked with the notifications people learn
+            // to swipe past unread, which loses the moment the cue exists to
+            // catch. CATEGORY_ALARM claims nothing about who is calling.
+            //
+            // Not CATEGORY_CALL, which is the one that would be a lie, and
+            // which on API 31+ pulls in CallStyle and the answer/decline pair
+            // ADR-009 exists to refuse.
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             // Shown on the lock screen rather than hidden behind "Harbor has a
             // notification". The channel's own lockscreenVisibility is PRIVATE,
             // which is the right default for a channel but wrong for this one
@@ -155,7 +168,13 @@ object CueNotifier {
     private fun ensureChannel(context: Context, sound: Uri?): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return LEGACY_CHANNEL
 
-        val id = "cue_${sound?.toString()?.hashCode() ?: 0}"
+        // The prefix is versioned because a channel's settings are frozen at
+        // creation, exactly like its sound. Bumping it is the only way a phone
+        // that already has the old channel picks up the alarm audio usage and
+        // the DND request below; without this, every existing install would
+        // keep the gentler channel for ever and the change would appear to do
+        // nothing on precisely the devices being tested.
+        val id = "cue2_${sound?.toString()?.hashCode() ?: 0}"
         val manager = context.getSystemService(NotificationManager::class.java)
 
         if (manager.getNotificationChannel(id) == null) {
@@ -168,12 +187,25 @@ object CueNotifier {
                 setSound(
                     sound,
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        // Alarm usage, so the sound rides the alarm volume
+                        // rather than the notification one. A phone silenced
+                        // for notifications still wakes for its alarms, and
+                        // somebody who has silenced notifications has not
+                        // asked to miss this.
+                        .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build(),
                 )
                 enableVibration(true)
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+
+                // Asks to be heard through Do Not Disturb. Honoured only if
+                // Harbor holds notification policy access, and silently
+                // ignored otherwise -- so this is a request, not a guarantee,
+                // and a phone in a Sleep schedule will still swallow the cue
+                // until somebody grants that. Worth knowing before reading a
+                // silent night as a trigger that failed.
+                setBypassDnd(true)
             }
             manager.createNotificationChannel(channel)
 
@@ -181,7 +213,7 @@ object CueNotifier {
             // notification settings do not accumulate one row per song the
             // user ever tried.
             manager.notificationChannels
-                .filter { it.id.startsWith("cue_") && it.id != id }
+                .filter { (it.id.startsWith("cue_") || it.id.startsWith("cue2_")) && it.id != id }
                 .forEach { manager.deleteNotificationChannel(it.id) }
         }
         return id

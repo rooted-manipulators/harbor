@@ -6,8 +6,12 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,6 +58,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +66,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.harbor.cue.CueNotifier
 import app.harbor.data.HarborRepository
 import app.harbor.domain.Contact
 import app.harbor.domain.Moment
@@ -68,6 +79,9 @@ import app.harbor.sensing.Sensing
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
 import app.harbor.ui.theme.Chalk
+import app.harbor.ui.theme.ChosenEdge
+import app.harbor.ui.theme.ChosenFill
+import app.harbor.ui.theme.Glass
 import app.harbor.ui.theme.Gold
 import app.harbor.ui.theme.Ink
 import app.harbor.ui.theme.LocalReducedMotion
@@ -213,8 +227,8 @@ private val FlowGround = Paper
 /** What the flow says: a question, an answer being typed, a label. */
 private val FlowInk = Chalk
 
-/** A hole you type into. White at eight percent, composited. */
-private val FieldGlass = Color(0xFF202124)
+/** A hole you type into. See [app.harbor.ui.theme.Glass]. */
+private val FieldGlass = Glass
 
 /** The enabled button and the chosen chip. The design's one accent. */
 private val ActionFill = Gold
@@ -229,8 +243,8 @@ private val ActionInk = Ink
  * of marking a whole card as live -- it does the same on the cues screen. A
  * card filled solid amber would shout down the question above it.
  */
-private val SelectedCard = Color(0xFF1F1C15)
-private val SelectedEdge = Color(0x33F0BD3E)
+private val SelectedCard = ChosenFill
+private val SelectedEdge = ChosenEdge
 
 /** Not yet, or not available. */
 private val PillIdle = Sand
@@ -730,6 +744,52 @@ private fun AskPermission(
     var granted by remember { mutableStateOf(ActivityTransitions.hasPermission(context)) }
     var refused by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    // Set only for the instant between Sensing.enable succeeding and the
+    // LaunchedEffect below moving on -- long enough for "Reminders are on"
+    // to be seen, not long enough to need a tap.
+    var justEnabled by remember { mutableStateOf(false) }
+
+    // Granting the permission is only the first of three things a reminder
+    // needs, and the other two fail in silence -- the same pair the cues
+    // settings screen has to surface. Asked here as well because somebody who
+    // finishes onboarding believing reminders are on, and then walks, is the
+    // exact person the study loses. Re-read on resume: both can only be fixed
+    // by a trip to system settings and back.
+    var canNotify by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
+    var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                canTakeScreen = CueNotifier.canTakeTheScreen(context)
+                canStayAwake = Sensing.isUnrestricted(context)
+                granted = ActivityTransitions.hasPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val wouldReach = canNotify && canTakeScreen && canStayAwake
+
+    // Only move on by itself when there is nothing left to fix. With a gap
+    // open the step waits, shows what it is, and keeps a Continue under it --
+    // fixing either one is a trip out of the app, and coming back to find the
+    // flow had walked on without you is worse than the gap.
+    LaunchedEffect(justEnabled, wouldReach) {
+        if (justEnabled && wouldReach) {
+            delay(900)
+            onNext()
+        }
+    }
+
+    suspend fun enable() {
+        failed = !Sensing.enable(context, store)
+        justEnabled = !failed
+    }
 
     val request = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -737,7 +797,7 @@ private fun AskPermission(
         val ok = results[Manifest.permission.ACTIVITY_RECOGNITION] ?: granted
         granted = ok
         refused = !ok
-        if (ok) scope.launch { failed = !Sensing.enable(context, store) }
+        if (ok) scope.launch { enable() }
     }
 
     fun ask() {
@@ -756,7 +816,7 @@ private fun AskPermission(
             // before. See cue/Dialer.
             add(Manifest.permission.CALL_PHONE)
         }
-        if (wanted.isEmpty()) scope.launch { failed = !Sensing.enable(context, store) }
+        if (wanted.isEmpty()) scope.launch { enable() }
         else request.launch(wanted.toTypedArray())
     }
 
@@ -791,6 +851,55 @@ private fun AskPermission(
         when {
             Sensing.isActive(context, store) -> {
                 Notice("Reminders are on. Harbor will wait for a real walk.")
+                if (!wouldReach) {
+                    Spacer(Modifier.height(18.dp))
+                    Surface {
+                        SectionHeading("A reminder would not reach you yet")
+                        if (!canStayAwake) {
+                            SmallCopy(
+                                "Your phone can put Harbor to sleep to save " +
+                                    "battery. Asleep, it never hears that your walk " +
+                                    "ended — the reminder is not late, it never " +
+                                    "happens. This is the one that matters most.",
+                                size = 14,
+                            )
+                            FlowPill("Let Harbor keep listening") {
+                                context.startActivity(Sensing.unrestrictedRequest(context))
+                            }
+                        }
+                        if (!canNotify) {
+                            SmallCopy(
+                                "Notifications are off for Harbor. A reminder is " +
+                                    "posted as one, so with these off it is thrown " +
+                                    "away the moment it is made and nothing appears.",
+                                size = 14,
+                            )
+                            FlowPill("Allow notifications") {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(
+                                            Settings.EXTRA_APP_PACKAGE,
+                                            context.packageName,
+                                        ),
+                                )
+                            }
+                        }
+                        if (!canTakeScreen) {
+                            SmallCopy(
+                                "Android only lets an app take over the screen if " +
+                                    "you allow it by hand. Without it a reminder " +
+                                    "arrives as a banner that fades on its own, so " +
+                                    "in your pocket you would miss it.",
+                                size = 14,
+                            )
+                            CueNotifier.fullScreenSettings(context)?.let { intent ->
+                                FlowPill("Let a reminder open the screen") {
+                                    context.startActivity(intent)
+                                }
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 FlowPill("Continue", onClick = onNext)
             }
@@ -803,10 +912,10 @@ private fun AskPermission(
                         "again, so from here it would have to be system settings.",
                 )
                 Spacer(Modifier.height(14.dp))
-                TextLink("I have granted it — check again") {
+                TextLink("I have granted it — check again", onClick = {
                     granted = ActivityTransitions.hasPermission(context)
                     if (granted) ask()
-                }
+                })
                 Spacer(Modifier.height(10.dp))
                 FlowPill("Continue without reminders", onClick = onNext)
             }
@@ -915,9 +1024,14 @@ private fun daily(
  *
  * Seeing one explains the product better than any screen about it, and it
  * costs nothing to show: a manual reminder does not touch the daily
- * allowance, and [showManualCue] is called with `skipPulse = true` so the
+ * allowance, and [manualCueIntent] is built with `skipPulse = true` so the
  * preview does not ask stage 8's "was this a good moment" question — that
  * stays for after a real call, not a walkthrough of one.
+ *
+ * Launched through a result launcher rather than a plain `startActivity` so
+ * onboarding finds out when the preview closes and can move on by itself —
+ * "I have already seen a reminder" stays as the way past this step for
+ * anyone who does not want to watch it again.
  */
 @Composable
 private fun AlmostComplete(store: HarborRepository, onNext: () -> Unit) {
@@ -926,12 +1040,16 @@ private fun AlmostComplete(store: HarborRepository, onNext: () -> Unit) {
     val contacts by store.contacts.collectAsState()
     val who = contacts.firstOrNull()
 
+    val showCue = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { onNext() }
+
     FlowPage(petal = 4) {
         Question("Our flower is almost complete")
         Spacer(Modifier.height(34.dp))
         if (who != null) {
             FlowPill("show me a reminder") {
-                scope.launch { showManualCue(context, store, who, skipPulse = true) }
+                scope.launch { showCue.launch(manualCueIntent(context, store, who, skipPulse = true)) }
             }
             Spacer(Modifier.height(22.dp))
         }
@@ -943,23 +1061,33 @@ private fun AlmostComplete(store: HarborRepository, onNext: () -> Unit) {
  * The flower, whole — the reward, not a form to submit.
  *
  * Used to hold a Continue button under it. Usability testing wanted it
- * centred with nothing to press: it fades on its own after about five
- * seconds, and a tap anywhere moves on sooner for anyone who does not want to
- * wait. [LocalReducedMotion] skips the wait entirely rather than shortening
- * it — there is no animation left to justify the pause once it is gone.
+ * centred with nothing to press: it fades in, holds for a moment, fades out
+ * and moves on by itself — under two seconds in total, not the five the
+ * first pass used, which read as the screen having stalled. A tap anywhere
+ * moves on sooner for anyone who does not want to wait. [LocalReducedMotion]
+ * skips straight to the next step rather than playing a shortened version of
+ * the same fade.
  */
 @Composable
 private fun GoodJob(onNext: () -> Unit) {
     val reducedMotion = LocalReducedMotion.current
+    val alpha = remember { Animatable(if (reducedMotion) 1f else 0f) }
 
     LaunchedEffect(Unit) {
-        if (!reducedMotion) delay(5_000)
+        if (reducedMotion) {
+            onNext()
+            return@LaunchedEffect
+        }
+        alpha.animateTo(1f, tween(350, easing = FastOutSlowInEasing))
+        delay(1_100)
+        alpha.animateTo(0f, tween(300, easing = FastOutSlowInEasing))
         onNext()
     }
 
     Box(
         Modifier
             .fillMaxSize()
+            .graphicsLayer { this.alpha = alpha.value }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
