@@ -90,13 +90,21 @@ fun CuesSetupScreen(
     // Re-read on every resume rather than once: the only way to grant this is
     // in Settings, so the interesting moment is the return from there.
     val lifecycleOwner = LocalLifecycleOwner.current
-    var canTakeScreen by remember { mutableStateOf(true) }
-    var canNotify by remember { mutableStateOf(true) }
+    // Read now, not optimistically. ON_RESUME only arrives on the *next*
+    // resume, so starting these at true meant somebody who opened this screen
+    // and stayed in the app was told nothing was wrong until they happened to
+    // leave and come back.
+    var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
+    var canNotify by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                canStayAwake = Sensing.isUnrestricted(context)
                 hasPermission = ActivityTransitions.hasPermission(context)
             }
         }
@@ -248,12 +256,23 @@ fun CuesSetupScreen(
                             "Last noticed you moving " + Liveness.phrase(heard, now) + ".",
                             size = 13,
                         )
-                        Liveness.State.QUIET_TOO_LONG -> Notice(
-                            "Harbor has not heard from your phone since " +
-                                Liveness.phrase(heard, now) + ". It may have been put " +
-                                "to sleep in the background. Opening Harbor now and " +
-                                "then keeps it awake.",
-                        )
+                        Liveness.State.QUIET_TOO_LONG -> {
+                            // The old copy said to open Harbor now and then,
+                            // which is the remedy only when there is nothing
+                            // better. There is: the exemption below is the
+                            // thing that stops the phone doing this at all.
+                            val remedy = if (canStayAwake) {
+                                " Opening Harbor now and then wakes it up again."
+                            } else {
+                                " The setting below is what stops that happening."
+                            }
+                            Notice(
+                                "Harbor has not heard from your phone since " +
+                                    Liveness.phrase(heard, now) +
+                                    ". It has probably been put to sleep in the " +
+                                    "background." + remedy,
+                            )
+                        }
                     }
                     QuietAction("Turn reminders off") {
                         scope.launch { Sensing.disable(context, store) }
@@ -284,16 +303,40 @@ fun CuesSetupScreen(
 
             // Everything a cue needs that is not "cues are on".
             //
-            // Three separate things have to be true before a cue reaches
-            // somebody, and turning cues on only settles the first. The other
-            // two fail silently, which is the whole problem: Harbor senses the
-            // walk, writes the beat, posts the cue, and the person sees
-            // nothing. Reading "moving, 3 minutes ago" on this screen while
-            // never having seen a cue is what that looks like from the
-            // outside, and nothing anywhere said why.
-            if (settings.cuesEnabled && hasPermission && (!canNotify || !canTakeScreen)) {
+            // Four separate things have to be true before a reminder reaches
+            // somebody, and turning reminders on only settles the first. The
+            // other three fail silently, which is the whole problem: Harbor
+            // senses the walk, writes the beat, posts the reminder, and the
+            // person sees nothing. Reading "moving, 3 minutes ago" on this
+            // screen while never having seen a reminder is what that looks
+            // like from the outside, and nothing anywhere said why.
+            //
+            // Onboarding asks for all three. This screen asked for two, which
+            // meant the one somebody refused or skipped in onboarding had no
+            // second chance anywhere in the app -- and battery, the one it was
+            // missing, is the one that loses the walk rather than the
+            // reminder.
+            if (settings.cuesEnabled && hasPermission &&
+                (!canNotify || !canTakeScreen || !canStayAwake)
+            ) {
                 Surface {
                     SectionHeading("A reminder would not reach you yet")
+                    // First, because it is the one that loses the walk itself.
+                    // The other two drop a reminder that was made; this one
+                    // means the app was never woken to make it, and on One UI
+                    // it is the measured default rather than an edge case.
+                    if (!canStayAwake) {
+                        SmallCopy(
+                            "Your phone can put Harbor to sleep to save battery. " +
+                                "Asleep, it never hears that your walk ended — the " +
+                                "reminder is not late, it never happens. This is the " +
+                                "one that matters most.",
+                            size = 14,
+                        )
+                        PrimaryAction("Let Harbor keep listening") {
+                            context.startActivity(Sensing.unrestrictedRequest(context))
+                        }
+                    }
                     if (!canNotify) {
                         SmallCopy(
                             "Notifications are off for Harbor. A reminder is posted " +
