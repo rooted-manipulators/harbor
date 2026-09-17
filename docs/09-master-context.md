@@ -1,13 +1,22 @@
 # Master context
 
 Written for a teammate opening a fresh Claude Code session against this repo.
-Everything in it was checked against the running code and the actual CI
-history on 15 Sep 2026, not recalled from memory — where something is a
-belief rather than a checked fact, it says so.
+Everything in it was checked against the running code, not recalled from
+memory — where something is a belief rather than a checked fact, it says so.
+
+Last corrected **17 Sep 2026**, against a working tree that is large and
+uncommitted. Two things changed that session which invalidate a lot of what
+older docs say, and both have their own ADR:
+
+- **The flowers are artwork now**, not drawn geometry (ADR-012).
+- **Harbor has a server, an account and the `INTERNET` permission**
+  (ADR-013), which reverses ADR-003, ADR-004 and ADR-007.
+
+If you read only two things before touching anything, read those two ADRs.
 
 This is a supplement to `CLAUDE.md` and `docs/01-decisions.md`, not a
-replacement. Those two are still the authority; this is the map of how
-today's twenty-one usability changes land on what they describe.
+replacement. Those two are still the authority; this is the map of how the
+recent work lands on what they describe.
 
 ---
 
@@ -23,11 +32,17 @@ list:
 - The cue (now called a **reminder** in every screen — see below) is an
   offer, never a demand. Dismissing one costs nothing: no streak, no score,
   nothing that goes down.
-- The parent installs nothing, is never contacted by the app, and is never
-  told anything about whether their child answered.
+- ~~The parent installs nothing~~ — **changed 17 Sep.** Harbor is no longer a
+  child-and-parent app with one participant and one bystander: everybody who
+  uses it has it, and you add your aunt the way you add anybody. See ADR-013.
+  What survives the change is the part that mattered: nobody is ever told
+  anything about whether you answered, and nothing about a call leaves your
+  phone.
 - Nothing about where the phone is or was is ever sensed or stored.
-- The device is authoritative. There is no server the app depends on to
-  function — see Architecture, below.
+- The device is authoritative. There is a server now, and **nothing the app
+  needs in order to work goes near it** — sensing, the reminder, the ledger,
+  the garden and the study file are all local and offline. Sync is a mirror,
+  never a source of truth. See Architecture, below.
 
 Read `docs/00-product.md` for the fuller pitch and `docs/01-decisions.md` for
 why each promise is a promise and not just a design choice.
@@ -39,8 +54,9 @@ why each promise is a promise and not just a design choice.
 **Two repositories, deliberately kept apart:**
 
 - **This one** — `AndroidStudioProjects/harbor` — the Android app, Kotlin +
-  Jetpack Compose, plus a `backend/` folder holding Supabase SQL migrations
-  that have never been applied to any real database.
+  Jetpack Compose, plus a `backend/` folder holding Supabase SQL migrations.
+  **None has been applied to any database yet**, including `0011`, which is
+  the one that matters now.
 - **`Bored-Kxiden/harvest-pulse`** — a v0-generated Next.js prototype. It is
   still **the behaviour spec**: where the two disagree about what something
   *does* (not how it looks), `lib/harbor/model.ts` wins. It says nothing
@@ -55,16 +71,41 @@ why each promise is a promise and not just a design choice.
   only layer that runs outside an emulator.
 - `data/` — `HarborStore` (the one `HarborRepository` implementation,
   backed by `SharedPreferences` and JSON, not a database), `LedgerJson`
-  (the wire format), `StudyFile` (writes the week's export).
+  (the wire format), `StudyFile` (writes the week's export), and since
+  17 Sep the sync: `SyncJson`, `SupabaseClient`, `SessionStore`.
 - `ui/` + `cue/` + `sensing/` — Compose screens, the full-screen reminder
   surface and its own activity, and the Android `ActivityRecognition`
   plumbing.
 
-**No server dependency.** The app holds **no `INTERNET` permission** and has
-no HTTP client in its dependencies at all (checked: no Retrofit, OkHttp, or
-Supabase SDK anywhere in `app/build.gradle.kts`). Nothing the app records can
-ever reach a server. This is ADR-004 and ADR-003 made physically true rather
-than merely promised — see "Things not to change."
+**There is a server now, and it is optional.** Added 17 Sep by ADR-013, which
+reverses ADR-003, ADR-004 and ADR-007 and records what each cost. Read it.
+
+What to hold on to:
+
+- **`INTERNET` is in the manifest.** Its absence used to be the strongest
+  privacy guarantee in the app — not a policy but a fact you could check by
+  reading the build file. That guarantee is spent. What replaces it is review.
+- **Still no HTTP library.** `SupabaseClient` is plain REST over
+  `HttpURLConnection`, which is in the platform. The only new dependency is a
+  *test-scoped* `org.json`, because Android ships it as stubs that throw in
+  unit tests. Every request is a GET, POST or DELETE — `HttpURLConnection`
+  will not reliably send a PATCH, which is why answering a link goes through
+  the `answer_link` function rather than a table update.
+- **No backend configured is a supported state.** With `harbor.supabaseUrl` or
+  `harbor.supabaseAnonKey` blank in `gradle.properties`,
+  `SupabaseClient.configured` is false, every call returns null without
+  touching the network, and Harbor behaves exactly as it did before. The URL
+  is set; **the anon key is deliberately left empty.** A study build ships fine
+  in this state.
+- **Only the shape of a week crosses the wire.** `WeekBlock.label` is
+  documented "Never leaves the device", `Sharing.SharedBlock` has no field for
+  it, and `week_blocks` in `0011` has no column for it. Three layers agree on
+  purpose — that is what a promise like that takes. `SharingTest` and
+  `SyncJsonTest` each assert it independently; they are the most important
+  tests in the repo.
+- **Nothing in the cue path may await the network.** That was ADR-003's real
+  argument — the reminder has to fire on a train with no signal — and it
+  survives the reversal as a constraint rather than as an architecture.
 
 **The one-week study's data path**, concretely: `Telemetry` records category
 beats (never content) → `HarborStore` appends them to a capped local ledger
@@ -75,7 +116,7 @@ exist for a possible future sync layer and are inert today.
 
 **Build:** Gradle cannot run in this sandbox. **GitHub Actions is the only
 way to know whether something compiles** — push, then
-`gh run list --branch dark-reskin`, then pull the `harbor-debug-apk`
+`gh run list --branch devansh/cue-settle`, then pull the `harbor-debug-apk`
 artifact off a green run and `adb install -r` it. Budget for a ~2 minute
 round trip on every change; there is no faster loop.
 
@@ -91,9 +132,16 @@ to get subtly wrong:
   shim that lets old ledger rows written under either earlier name keep
   reading; **extend it, never replace it** when the shelf changes again.
 - **`domain/Windows.kt`** — the only place "busy" and "free" time are
-  reasoned about. `busyAt` currently suppresses; nothing currently requires
-  a *free* block to exist. This is the file the free-time-only sensing
-  change (still open) will touch.
+  reasoned about. `busyAt` suppresses and **is already wired**: `HarborStore.
+  dayState` feeds it to `CuePolicy` as `busyNow`, which holds with
+  `IN_CLASS` before any other suppression. A thorn on the grid already stops
+  a sensed reminder. A *flower* still does nothing to the cue pipeline —
+  that is the open half. Also holds `load()` and `weatherFor()`, added
+  17 Sep, which weigh a day's busy minutes so the mood picker can open at a
+  guess instead of blank.
+- **`domain/Sharing.kt`** — the device's half of ADR-013: who may see whose
+  week, and in what shape. Pure, no IO. `forWire` is the only door out and
+  is the function that drops the label.
 - **`domain/Telemetry.kt` → `Moment`** — the closed enum that is the whole
   of what the study is allowed to know happened. It can never grow a case
   that carries free text.
@@ -114,6 +162,17 @@ to get subtly wrong:
   directory *and* the shared Downloads collection (MediaStore), because the
   private one is invisible to the Files app on Android 11+. This was a real
   bug, found and fixed on 14 Sep.
+- **`data/SyncJson.kt`** — the wire format, hand-written against `0011` the
+  way `LedgerJson` is hand-written against the study file. Pure, so the half
+  of networking where bugs actually live is testable while `SupabaseClient`
+  stays a thin shell. A mis-named column fails loudly; a wrong day number
+  moves somebody's whole week by a day and looks fine, which is why
+  `SyncJsonTest` checks Monday is 1 at both ends.
+- **`ui/FlowerMark.kt`** — no longer draws anything. It picks one of forty
+  files in `res/drawable-nodpi` (whole plant, and bloom on its own) and
+  `Image`s it. `drawFlowerDot` is the exception: the two top-down views draw
+  a cheap rosette, because at eleven pixels there is no shape left to
+  recognise and a plot view can hold hundreds.
 
 ---
 
@@ -132,20 +191,32 @@ app/src/main/java/app/harbor/
                             reflection screens after a call)
   data/                     HarborRepository (interface) / HarborStore
                             (the implementation) / LedgerJson (wire format)
-                            / StudyFile (the export)
+                            / StudyFile (the export) / SyncJson +
+                            SupabaseClient + SessionStore (the server)
   domain/                   pure logic — Model, Field, Terrain, Flowers,
                             Windows, CuePolicy, Reminders, Telemetry, Garden,
-                            CallStats, StudyExport, DailyQuestion, Liveness
+                            CallStats, StudyExport, DailyQuestion, Liveness,
+                            Sharing
   sensing/                  ActivityTransitions, TransitionReceiver,
                             BootReceiver, BoutTracker, SensingStore
   ui/                       every screen, plus:
     theme/                  Color.kt, Theme.kt, Type.kt, Harbor.kt (the
                             component vocabulary)
-app/src/test/java/app/harbor/domain/   unit tests — this is what CI's
-                                        "Unit tests" step actually runs;
-                                        no instrumented/device tests exist
-backend/supabase/migrations/           0001 through 0010, none applied
+  res/drawable-nodpi/       the flower artwork: 40 webp files, two cuts of
+                            each of the twenty. Generated, never hand-edited
+                            — see tools/cut_flowers.py
+app/src/test/java/app/harbor/            unit tests — this is what CI's
+  domain/ and data/                       "Unit tests" step runs. 252 of them
+                                          as of 17 Sep. No instrumented or
+                                          device tests exist.
+backend/supabase/migrations/           0001 through 0011, none applied
+tools/                                 cut_flowers.py (makes the drawables)
+                                        and flower-source/ (the 20 masters,
+                                        ~5MB)
 docs/                                  00 through 08, this file, and 10
+.mcp.json                              the Supabase MCP server, project
+                                        scope. Only loads for a session
+                                        rooted in THIS directory.
 ```
 
 ---
@@ -178,12 +249,27 @@ each layer:
 - **Shape**: cards at 24dp, everything you press is a full pill. Radii
   collapsed to 8–10dp in the *first* (light, now-dead) reskin; do not
   reintroduce that ladder.
-- **Flowers**: drawn geometry, not bitmaps (`FlowerMark.kt`), petals use
-  `BlendMode.Screen` (not `Multiply` — that was a real, long-lived bug; see
-  Known bugs). Twenty kinds, named for a feeling after a call, colours and
-  petal counts in `domain/Flowers.kt`.
-- **Icons**: also drawn geometry, never a library or bitmaps — see
-  `drawTabMark` in `ui/HarborShell.kt` for the pattern to copy.
+- **Flowers**: **artwork, not drawn geometry, since 17 Sep** (ADR-012). Forty
+  webp files in `res/drawable-nodpi`, cut by `tools/cut_flowers.py` from the
+  twenty masters in `tools/flower-source`. Do not hand-edit either; re-run the
+  cutter. Three separate attempts were made to draw them — one petal function,
+  then a silhouette per flower, then the illustration vectorised and its Bézier
+  outlines ported into Compose paths — and each produced a recognisable flower
+  that was not *the* flower. `domain/Flowers.kt` still holds three colours per
+  kind, for the things that need a colour rather than a picture: the field's
+  cells and the garden's dots.
+- **Icons**: still drawn geometry, never a library or bitmaps — see
+  `drawTabMark` in `ui/HarborShell.kt` for the pattern to copy. ADR-012
+  reverses the rule **for the flowers only**; everything else in
+  `docs/05-changing-the-ui.md`'s table still holds.
+- **Level of detail** (`domain/Field.kt`, `ui/FieldCanvas.kt`). The field
+  resolves as you lean in, on two ladders. A planted cell is a dot, then
+  petals around a centre past `FLOWER_AT`, then the artwork past `ARTWORK_AT`
+  with a short crossfade. Ground is a dot until `GRASS_AT`, then grows blades
+  out of it. Grass is gated on `Field.grassStand` — tilt *and* nearness — and
+  not on size alone: in plan view every cell projects at the same scale, so
+  gating on size grew grass over the whole overview, thickest along the far
+  edge, which is the one place the eye is not.
 - **Motion**: `LocalReducedMotion` is a `CompositionLocal` read by anything
   that animates (card entrance, screen crossfade, the press-scale on
   buttons). Anything new that animates has to check it — it's an
@@ -193,25 +279,40 @@ each layer:
 
 ## Current state
 
-- **Branch:** `dark-reskin`, PR #3, based on `new-onboarding` (not `main`).
-  62 commits ahead of that base as of this writing.
-- **CI:** the last commit with a genuine green compile is `4fe4d26`
-  (14 Sep). Every commit after that — `f523805` through the current tip
-  `f1ac305` — has **not** had a successful CI run. The one run attempted
-  against the tip failed in Android SDK setup itself (`sdkmanager` could not
-  fetch a package), which is an infrastructure flake, not a code signal —
-  it tells you nothing about whether the code compiles. **Re-run CI before
-  trusting that anything after `4fe4d26` builds.**
-- **Working tree has uncommitted changes right now**, touching
-  `ContactScreen.kt`, `CuesSetupScreen.kt`, `HomeScreen.kt`,
-  `OnboardingScreen.kt`, `PersonScreen.kt`. These are a real, complete fix
-  (verified: every `TextLink` call site in the app checked and consistent)
-  for a break that commit `c87ace6` introduced — see Known bugs, next
-  section. **Do not discard this diff.** It should be committed before
-  anything else, ideally as its own commit, so the branch has a chance of
-  a real green run.
-- Everything under "Completed usability changes" below is committed, on
-  the branch, unpushed-verification aside.
+**17 Sep 2026. The working tree is large, uncommitted, and worth reading before
+you touch anything.**
+
+- **Branch:** `devansh/cue-settle`. Tip is `0f50449` ("Commit the master
+  context, corrected against tonight").
+- **CI:** not run against any of the work below. Gradle cannot run in the
+  sandbox, so **GitHub Actions is still the only thing that genuinely
+  compiles this app.** Everything in the uncommitted diff has been
+  compile-checked with the standalone kotlinc recipe in `CLAUDE.md`, which
+  proves the Kotlin parses and resolves and proves nothing about resource
+  linking, manifest merging, or `BuildConfig`.
+- **`MainActivity.kt` has never been compiled outside Gradle**, in this
+  session or any other — the ad-hoc classpath has never resolved
+  `ComponentActivity`. It is the file most likely to hold a real error.
+- **Tests: 252, all passing.** Run them with the kotlinc recipe. Two notes if
+  you do: the test source set needs `-Xfriend-paths` pointed at the main
+  output or `internal` is invisible, and anything touching `org.json` needs a
+  real implementation on the classpath because Android ships stubs that throw.
+  `app/build.gradle.kts` has `testImplementation(libs.json)` for that reason.
+
+**Uncommitted, and all of it deliberate:**
+
+| What | Where |
+| --- | --- |
+| Flowers as artwork | `res/drawable-nodpi/`, `FlowerMark.kt`, `tools/` |
+| Field LOD: grass, artwork blooms | `domain/Field.kt`, `ui/FieldCanvas.kt` |
+| Schedule gestures reworked | `ui/ScheduleScreen.kt`, `ui/ThornsAndFlowers.kt` |
+| The bud on home | `ui/HomeBud.kt` (**not yet wired into `HomeScreen`**) |
+| Day weight for the mood picker | `domain/Windows.kt` (**not yet wired in**) |
+| The whole backend | `0011`, `Sharing.kt`, `data/Sync*`, `SignInScreen.kt` |
+
+**Two of those are finished components with no caller.** `HomeBud` and
+`Windows.weatherFor` are built and verified and nothing uses them yet. That is
+where to pick up.
 
 ---
 
@@ -297,6 +398,15 @@ future change could reintroduce the shape of the bug:**
 
 **Not yet proven, because nothing has driven the real path:**
 
+- **Every single line of the backend.** `0011` has never been parsed by
+  Postgres. `SupabaseClient` has never opened a socket. The RLS policies have
+  never refused anything. Sign-in has never completed. Everything from the
+  migration outwards is unexercised — what is verified is that the Kotlin
+  compiles and that `SyncJson`, which is pure, does what its 19 tests say.
+- **Harbor with the radio off.** ADR-013 keeps ADR-003's argument as a
+  constraint — the reminder must fire on a train with no signal — and nobody
+  has put a build in aeroplane mode and walked.
+
 - A reminder firing from an actual sensed walking-stop, on a real phone,
   with all three permissions granted. Verified only via the in-app "show me
   a reminder now" test button, which bypasses sensing entirely.
@@ -304,14 +414,17 @@ future change could reintroduce the shape of the bug:**
   flower opens) end to end, off a real phone call. The timings in the code
   are estimates, not calibrated against a real device.
 - Every Supabase migration. None has been applied to any database, ever.
-  Not urgent — see Architecture, the app cannot reach one anyway.
+  **This is urgent now.** It used to be moot because the app could not reach a
+  database; since ADR-013 it can, and `0011` is the file the next piece of work
+  depends on.
 
 ---
 
 ## Completed usability changes
 
 Cross-referenced against the nineteen items sent after usability testing on
-15 Sep. Commit hashes are on `dark-reskin`.
+15 Sep. Those commit hashes are on `dark-reskin`, which has since been
+merged into the current branch.
 
 - **"Cue"/"notification" → "reminder", everywhere a person reads it**
   (`f523805`). Deliberately **did not** rename the internal identifiers
@@ -381,12 +494,17 @@ Checked against the running code, not assumed from the request list:
 Beyond the eleven ADRs in `docs/01-decisions.md` (read that file — this is
 only the index, and it does not repeat their reasoning):
 
-1. No `INTERNET` permission, no server dependency for anything the app
-   needs to function (ADR-003, ADR-004).
+1. ~~No `INTERNET` permission, no server dependency~~ — **reversed 17 Sep by
+   ADR-013.** There is a server, an account, and the permission. What survives
+   is the constraint: nothing the app needs in order to work may depend on it,
+   and nothing in the cue path may await it.
 2. No `READ_CONTACTS` (ADR-009) — the contact and photo pickers are the
    permission-free substitute, deliberately.
 3. No location, ever, not even opt-in (ADR-010).
-4. The parent gets no software and no notification of any kind (ADR-007).
+4. ~~The parent gets no software~~ — **reversed 17 Sep by ADR-013.** Everybody
+   has the app; it is no longer a child-and-parent product. Still true, and
+   still ADR-007's actual point: nobody is told anything about whether you
+   answered.
 5. The reminder is call-shaped (full screen, her photo, her ringtone) but
    the copy never claims to be an actual incoming call (ADR-009).
 6. Harbor places the call itself now, rather than handing off to the
@@ -403,7 +521,16 @@ only the index, and it does not repeat their reasoning):
    of the flower shelf adds to it; nothing is ever removed from it, because
    real devices in the study are holding ledger rows written under earlier
    names.
-10. Everyone on this project runs their own Claude Code session against the
+10. **Identity is an email address**, and sign-in is Google, Microsoft or a
+    code to your inbox. Supabase has **no Yahoo provider** and cannot be given
+    one — the email code is the route that covers Yahoo and everybody else,
+    and it is the one that always works because it needs no provider set up.
+    Microsoft is the slug `azure`; there is no `microsoft` provider and asking
+    for one returns a 400 that reads like a bad account.
+11. **Sharing is asked for, read-only and revocable**, and only the shape of a
+    week ever crosses. See `0011`'s own header, which states the three rules it
+    is built to enforce rather than merely permit.
+12. Everyone on this project runs their own Claude Code session against the
     same repo. There is no shared chat history between sessions — context
     that matters has to be written into a committed file (a doc, a code
     comment, this one) or it does not exist for the next person. That
@@ -413,27 +540,67 @@ only the index, and it does not repeat their reasoning):
 
 ## Things NOT to change
 
-- **Do not add `READ_CONTACTS`, `READ_PHONE_STATE`, location permissions
-  of any kind, or an `INTERNET` permission** without it being an explicit,
-  discussed decision with Devansh — each one reverses a named ADR.
-- **Do not rename `Moment`'s enum values, `Cue`/`CueActivity`, or any
-  Postgres enum label that a shipped migration already added**, without
-  extending a compatibility map the way `FlowerKind.stored()` does. Real
-  devices hold data written under the current names.
+Three entries here were reversed on 17 Sep. They are kept, struck through,
+because a rule that vanishes looks like a rule nobody had.
+
+- **Do not add `READ_CONTACTS`, `READ_PHONE_STATE`, or location permissions of
+  any kind** without an explicit decision with Devansh — each reverses a named
+  ADR. ~~or an `INTERNET` permission~~ — that one was the explicit decision,
+  and it is ADR-013.
+- **Do not let anything the app needs depend on the network.** The replacement
+  for the rule above, and the stronger version of it. Sensing, `CuePolicy`, the
+  ledger, the reminder surface and the study file must all work with the radio
+  off. `SupabaseClient` returns null on every failure precisely so a caller
+  cannot accidentally require it. **This has never been tested in aeroplane
+  mode on a real device.**
+- **Do not give `week_blocks` a label column**, or `Sharing.SharedBlock` a
+  label field. `WeekBlock.label` is "Never leaves the device" and three layers
+  agree on that so no single change can break it. Two tests assert it.
+- **Do not rename `Moment`'s enum values, `Cue`/`CueActivity`, or any Postgres
+  enum label that a shipped migration already added**, without extending a
+  compatibility map the way `FlowerKind.stored()` does. Real devices hold data
+  written under the current names.
 - **Do not flatten a card's fill to an opaque colour.** It has to stay
-  translucent (alpha, not a solid hex) or the "glass on a sunset" look
-  degrades to plain dark mode — this exact mistake already shipped once.
+  translucent (alpha, not a solid hex) or the "glass on a sunset" look degrades
+  to plain dark mode — this exact mistake already shipped once.
 - **Do not use `BlendMode.Multiply` for anything drawn against the app's
-  near-black ground.** Use `Screen`. This is the flower-petal bug, and the
-  underlying trap (multiply against near-black goes to near-black) applies
-  to any future illustration too.
-- **Do not add an icon library, bitmap icons, or flower artwork as
-  images.** Every mark in the app is drawn geometry on purpose, so it
-  restyles for free with the palette. This is stated directly in
-  `docs/05-changing-the-ui.md`.
-- **Do not treat the v0 prototype (`harvest-pulse`) as a visual reference
-  any more.** It is behaviour-only now; the app has shipped two full visual
-  languages since it was last visually accurate.
-- **Do not discard the uncommitted `TextLink` fix currently sitting in the
-  working tree** (see Current state) — it's real, complete work fixing a
-  genuine break, not a stray edit.
+  near-black ground.** Use `Screen`. This was the flower-petal bug. It no
+  longer applies to the flowers, which are opaque artwork now, and it still
+  applies to every other thing drawn on this ground.
+- **Do not add an icon library or bitmap icons.** ~~or flower artwork as
+  images~~ — the flowers are images now, by ADR-012, and they are the only
+  exception. Everything else is drawn geometry so it restyles with the palette.
+- **Do not hand-edit `res/drawable-nodpi/` or `tools/flower-source/`.** The
+  drawables are generated; change the sources and re-run
+  `tools/cut_flowers.py`.
+- **Do not treat the v0 prototype (`harvest-pulse`) as a visual reference any
+  more.** It is behaviour-only now.
+- **Do not commit the Supabase anon key** into `gradle.properties` without
+  deciding to. It is public by design and protected by RLS, so it is not a
+  leak — but a key in git is a key nobody rotates, and the build works without
+  it. `~/.gradle/gradle.properties` keeps it off the repo.
+
+---
+
+## What to do next, if nobody has told you otherwise
+
+In the order I would do them:
+
+1. **Apply `0011` and see what breaks.** Nothing in it has ever been parsed by
+   Postgres. The three things I would expect to bite: whether `request_link`
+   can read `auth.users` as `security definer`, whether `gen_random_uuid()`
+   needs pgcrypto enabled, and whether the `week_blocks` select policy's
+   subquery into `links` behaves (I believe it does — `links`' own policy
+   restricts it to rows where you are an end, which is what the subquery wants,
+   and there is no recursion because `links` does not reference `week_blocks`).
+2. **Get a green CI run.** Nothing on this branch has had one.
+3. **Wire the two orphans**: `HomeBud` into `HomeScreen`, and
+   `Windows.weatherFor` into `WeatherBar` as its opening state.
+4. **Prove offline.** Aeroplane mode, a real walk, a reminder. If that does not
+   work, ADR-013 has broken the product to add a feature.
+5. Then the person's clock, the bee and the reminder it sets — which is the
+   thing the backend was added for, and which has no UI at all yet.
+
+The MCP server for Supabase is in `.mcp.json` at **project scope**, so it only
+loads for a session rooted in this directory. A session rooted anywhere else
+will not see it however authenticated you are.
