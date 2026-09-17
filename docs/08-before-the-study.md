@@ -329,8 +329,11 @@ where nobody is sure which one ran.
 8. Run a two-person, two-day pilot including an overnight and a reboot.
 9. Battery-optimisation guidance or prompt, per OEM.
 10. An outside read of the permission, privacy and sign-in copy.
-11. Ship the real typefaces — the app currently uses whatever the phone has, so
-    it looks different on every device in the cohort.
+11. ~~Ship the real typefaces.~~ Done, and it was done before this list said
+    otherwise: Manjari ships in three weights in `res/font/` and `Type.kt`
+    sets it on every style in the theme. The item claimed the app used
+    whatever the phone had, which stopped being true at `f1ac305`. Checked
+    against the tree rather than carried forward again.
 
 **Nice, not blocking**
 
