@@ -50,11 +50,13 @@ import app.harbor.ui.theme.SoftSurface
 import app.harbor.ui.theme.Surface
 import app.harbor.ui.theme.pageContent
 import app.harbor.domain.Contact
+import app.harbor.domain.CuePolicy
 import app.harbor.domain.Cue
 import app.harbor.domain.Liveness
 import app.harbor.domain.TriggerSource
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import app.harbor.sensing.ActivityTransitions
 import app.harbor.sensing.Sensing
@@ -185,13 +187,20 @@ fun CuesSetupScreen(
                 )
 
                 SectionHeading("What you keep control of")
+                // "You choose those numbers" was true of both until the gap
+                // between reminders stopped being editable -- see the note in
+                // SettingsScreen where its stepper used to be. The claim now
+                // names only the one somebody can actually change, because a
+                // screen whose whole job is being believed cannot offer a
+                // choice that is not there.
                 SmallCopy(
                     "Every reminder can be dismissed, and dismissing costs nothing — " +
                         "there is no streak to break. At most " +
-                        "${settings.thresholds.dailyCap} a day, with at least " +
+                        "${settings.thresholds.dailyCap} a day — your number, and " +
+                        "yours to change — with at least " +
                         "${settings.thresholds.cooldownMinutes} minutes between " +
-                        "them. You choose those numbers, and you can turn this " +
-                        "off whenever you like.",
+                        "them so two never land together. You can turn this off " +
+                        "whenever you like.",
                 )
             }
 
@@ -274,6 +283,19 @@ fun CuesSetupScreen(
                             )
                         }
                     }
+                    // What the last walk measured, and what became of it.
+                    //
+                    // The liveness line above says the phone is still talking
+                    // to Harbor. This says what it said. Somebody testing this
+                    // on their own phone -- walking, stopping, and seeing
+                    // nothing -- had no way to tell a walk that was never
+                    // sensed from one that was measured at four minutes and
+                    // refused for being under their threshold, and those need
+                    // opposite fixes.
+                    Sensing.lastBout(context)?.let { bout ->
+                        SmallCopy(lastWalkPhrase(bout, settings), size = 13)
+                    }
+
                     QuietAction("Turn reminders off") {
                         scope.launch { Sensing.disable(context, store) }
                     }
@@ -396,6 +418,54 @@ fun CuesSetupScreen(
             TextLink("See your garden", onOpenGarden)
         }
     }
+}
+
+/**
+ * The last walk in a sentence: when it was, how long Harbor made it, and why
+ * it did or did not become a reminder.
+ *
+ * The reason is spelled out rather than named. `BELOW_THRESHOLD` is precise
+ * and means nothing to the person holding the phone; "shorter than the 10
+ * minutes you asked for" is the same fact and is actionable, because the
+ * number it mentions is one they can change on this screen.
+ */
+private fun lastWalkPhrase(
+    bout: app.harbor.sensing.SensingStore.Recorded,
+    settings: app.harbor.domain.UserSettings,
+): String {
+    val zone = ZoneId.systemDefault()
+    val clock = DateTimeFormatter.ofPattern("HH:mm")
+    val window = clock.format(bout.startedAt.atZone(zone)) + "–" +
+        clock.format(bout.endedAt.atZone(zone))
+    val length = if (bout.minutes == 1) "1 minute" else "${bout.minutes} minutes"
+
+    val outcome = when (bout.outcome) {
+        null -> "That became a reminder."
+        CuePolicy.Reason.BELOW_THRESHOLD.name ->
+            "No reminder — shorter than the " +
+                "${settings.thresholds.walkingMinutes} minutes you asked for."
+        CuePolicy.Reason.IN_CLASS.name ->
+            "No reminder — you had marked that time busy."
+        CuePolicy.Reason.DAILY_CAP_REACHED.name ->
+            "No reminder — today's ${settings.thresholds.dailyCap} were already used."
+        CuePolicy.Reason.IN_COOLDOWN.name ->
+            "No reminder — less than " +
+                "${settings.thresholds.cooldownMinutes} minutes since the last one."
+        CuePolicy.Reason.ALREADY_CONNECTED_TODAY.name ->
+            "No reminder — you had already reached them today."
+        CuePolicy.Reason.REMINDER_PENDING.name ->
+            "No reminder — you had planned a later time."
+        CuePolicy.Reason.CUES_DISABLED.name ->
+            "No reminder — reminders were off at the time."
+        CuePolicy.Reason.TRANSITION_UNSETTLED.name ->
+            "Waiting to see whether you stay still."
+        // A reason added later and not given words here. Better than dropping
+        // the line: the walk was still measured, and that is most of the
+        // answer.
+        else -> "No reminder."
+    }
+
+    return "Last walk: $window, measured as $length. $outcome"
 }
 
 private fun openAppSettings(context: Context) {

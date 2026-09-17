@@ -20,9 +20,16 @@ internal class SensingStore(context: Context) {
 
     var state: BoutTracker.State
         get() {
-            val millis = prefs.getLong(KEY_WALKING_SINCE, ABSENT)
+            val since = prefs.getLong(KEY_WALKING_SINCE, ABSENT)
+            val until = prefs.getLong(KEY_WALKED_UNTIL, ABSENT)
             return BoutTracker.State(
-                walkingSince = if (millis == ABSENT) null else Instant.ofEpochMilli(millis),
+                walkingSince = if (since == ABSENT) null else Instant.ofEpochMilli(since),
+                // Carried across process death like the start, and for the
+                // same reason: EXIT walking and ENTER still arrive in
+                // different batches, minutes apart, with the receiver dead in
+                // between. Forgetting it would silently put the length of
+                // every walk back to the onset of stillness.
+                walkedUntil = if (until == ABSENT) null else Instant.ofEpochMilli(until),
             )
         }
         set(value) {
@@ -32,8 +39,68 @@ internal class SensingStore(context: Context) {
                 val since = value.walkingSince
                 if (since == null) remove(KEY_WALKING_SINCE)
                 else putLong(KEY_WALKING_SINCE, since.toEpochMilli())
+                val until = value.walkedUntil
+                if (until == null) remove(KEY_WALKED_UNTIL)
+                else putLong(KEY_WALKED_UNTIL, until.toEpochMilli())
             }.commit()
         }
+
+    /**
+     * The last walk that closed, what it measured, and what came of it.
+     *
+     * Kept so the app can show its working. "No reminder arrived" has at least
+     * five causes — no transition at all, a bout shorter than the threshold,
+     * a suppression, a settle that landed too late, a reminder posted and
+     * swallowed by the system — and until this existed they were
+     * indistinguishable from the outside, including to the person testing it
+     * on their own phone. It is also the only way to check the measured length
+     * against the walk somebody actually took.
+     *
+     * One record, overwritten. This is a diagnostic, not a second ledger:
+     * nothing in the study reads it and it never leaves the device.
+     */
+    var lastBout: Recorded?
+        get() {
+            val started = prefs.getLong(KEY_BOUT_STARTED, ABSENT)
+            if (started == ABSENT) return null
+            val ended = prefs.getLong(KEY_BOUT_ENDED, ABSENT)
+            if (ended == ABSENT) return null
+            return Recorded(
+                startedAt = Instant.ofEpochMilli(started),
+                endedAt = Instant.ofEpochMilli(ended),
+                minutes = prefs.getInt(KEY_BOUT_MINUTES, 0),
+                outcome = prefs.getString(KEY_BOUT_OUTCOME, null),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_BOUT_STARTED)
+                    remove(KEY_BOUT_ENDED)
+                    remove(KEY_BOUT_MINUTES)
+                    remove(KEY_BOUT_OUTCOME)
+                } else {
+                    putLong(KEY_BOUT_STARTED, value.startedAt.toEpochMilli())
+                    putLong(KEY_BOUT_ENDED, value.endedAt.toEpochMilli())
+                    putInt(KEY_BOUT_MINUTES, value.minutes)
+                    if (value.outcome == null) remove(KEY_BOUT_OUTCOME)
+                    else putString(KEY_BOUT_OUTCOME, value.outcome)
+                }
+            }.commit()
+        }
+
+    /**
+     * A walk the tracker closed.
+     *
+     * [outcome] is a [CuePolicy.Reason] name, or null when the walk became a
+     * reminder — the absence of a reason being the one good answer.
+     */
+    data class Recorded(
+        val startedAt: Instant,
+        val endedAt: Instant,
+        val minutes: Int,
+        val outcome: String?,
+    )
 
     /**
      * The last time the system told us anything at all.
@@ -100,6 +167,11 @@ internal class SensingStore(context: Context) {
 
     private companion object {
         const val KEY_WALKING_SINCE = "walking_since"
+        const val KEY_WALKED_UNTIL = "walked_until"
+        const val KEY_BOUT_STARTED = "bout_started_at"
+        const val KEY_BOUT_ENDED = "bout_ended_at"
+        const val KEY_BOUT_MINUTES = "bout_minutes"
+        const val KEY_BOUT_OUTCOME = "bout_outcome"
         const val KEY_LAST_TRANSITION = "last_transition_at"
         const val KEY_PENDING_STILL_SINCE = "pending_still_since"
         const val KEY_PENDING_SOURCE = "pending_source"

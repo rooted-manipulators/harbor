@@ -89,6 +89,17 @@ object Sensing {
     fun lastTransition(context: Context): Instant? =
         SensingStore(context).lastTransitionAt
 
+    /**
+     * The last walk the tracker closed, what it measured, and what came of it.
+     *
+     * [lastTransition] answers "is the phone still talking to us". This answers
+     * the question after it: something was heard, a walk was measured — so why
+     * was there no reminder? Internal because the type is; the only caller is
+     * the screen somebody visits when nothing arrives.
+     */
+    internal fun lastBout(context: Context): SensingStore.Recorded? =
+        SensingStore(context).lastBout
+
     fun isActive(context: Context, store: HarborRepository): Boolean =
         store.settings.value.cuesEnabled && ActivityTransitions.hasPermission(context)
 
