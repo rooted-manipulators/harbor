@@ -102,7 +102,7 @@ internal object SyncJson {
      * Carries the row's id as well as the block, because the phone deletes the
      * row once it has placed it — this is a queue, not a mirror. That id is
      * server-generated, which is the one place in this app where that happens;
-     * `0012` records why it is safe here and nowhere else.
+     * `0013` records why it is safe here and nowhere else.
      */
     data class Arrived(val id: UUID, val block: Sharing.SharedBlock)
 

@@ -6,7 +6,7 @@
  * that participant's `schedule_inbox`. Their phone drains the inbox the next
  * time Harbor comes to the front and places the blocks on their week.
  *
- * See ADR-014 for why a bot at all, and `0012_whatsapp_inbox.sql` for the
+ * See ADR-014 for why a bot at all, and `0013_whatsapp_inbox.sql` for the
  * rules the schema enforces.
  *
  * ## What this is not allowed to do

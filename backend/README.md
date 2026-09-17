@@ -21,7 +21,7 @@ supabase/migrations/
   0001_init.sql           tables, enums, RLS, new-user trigger
   0002_study_export.sql   the two views the study actually needs
   ...
-  0012_whatsapp_inbox.sql pairing a number, and the queue the bot fills
+  0013_whatsapp_inbox.sql pairing a number, and the queue the bot fills
 supabase/functions/
   whatsapp/               the bot itself (ADR-014)
 ```
@@ -65,7 +65,7 @@ class group chat, reads the days and times out of it, and files them in that
 participant's `schedule_inbox`. Their phone drains the queue on its next
 resume and places the blocks on the week. Nothing else about the message —
 the text, the subject, the room, the sender, the group — is kept anywhere.
-ADR-014 has the reasoning, `0012` has the rules the schema enforces.
+ADR-014 has the reasoning, `0013` has the rules the schema enforces.
 
 ```bash
 supabase functions deploy whatsapp --no-verify-jwt

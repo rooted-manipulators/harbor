@@ -651,7 +651,7 @@ number. A Supabase edge function reads the days and times out of it, files
 them in `schedule_inbox`, and the phone places them on the week the next time
 Harbor comes to the front.
 
-`backend/supabase/functions/whatsapp/`, `0012_whatsapp_inbox.sql`,
+`backend/supabase/functions/whatsapp/`, `0013_whatsapp_inbox.sql`,
 `data/WhatsAppInbox.kt`, `ui/ForwardYourChats.kt`.
 
 ### Why
