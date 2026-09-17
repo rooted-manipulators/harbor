@@ -143,13 +143,49 @@ fun SettingsScreen(
                         )
                     },
                 )
-                // The quiet gap between two cues is not here any more.
+                // The quiet gap between two cues is back, against the reasoning
+                // that took it out.
                 //
-                // It is still enforced - CuePolicy checks it before anything
-                // else - but it exists to stop two cues landing on top of one
-                // another, which is a rule about how the app behaves rather
-                // than a taste anybody holds. Nobody opened this screen to
-                // decide how many minutes apart their interruptions should be.
+                // That reasoning still holds for a participant: nobody opens
+                // this screen to decide how many minutes apart their
+                // interruptions should be. What it missed is that this number,
+                // not the two above it, decides how often a reminder can
+                // arrive at all. At the suggested 120 minutes, combined with
+                // the rule that any connection ends the day, a participant
+                // gets at most one sensed reminder a day in practice -- so a
+                // study week is about seven observations per person, and no
+                // amount of walking changes that. It was also unreachable: the
+                // reminders screen quotes the number at you while nothing
+                // anywhere could move it.
+                //
+                // Steps coarsely up high and finely down low, because the two
+                // reasons to touch it are opposite: shortening it to minutes
+                // to test the pipeline, or nudging it in hours to be left
+                // alone.
+                Stepper(
+                    label = "Quiet gap between reminders",
+                    value = gapLabel(settings.thresholds.cooldownMinutes),
+                    onDown = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = false,
+                                ),
+                            ),
+                        )
+                    },
+                    onUp = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = true,
+                                ),
+                            ),
+                        )
+                    },
+                )
                 SmallCopy("Suggested values, always editable.")
             }
 
@@ -168,6 +204,24 @@ fun SettingsScreen(
             TextLink("Back", onDone)
         }
     }
+}
+
+/**
+ * Hours read as hours once there are enough of them. "120 min" is a number to
+ * be converted; "2 h" is a length of time somebody can picture.
+ */
+private fun gapLabel(minutes: Int): String = when {
+    minutes < 60 -> "$minutes min"
+    minutes % 60 == 0 -> "${minutes / 60} h"
+    else -> "${minutes / 60} h ${minutes % 60}"
+}
+
+/** Quarter-hours above an hour, five minutes below it. Clamped to what
+ *  `Thresholds` will accept, so the stepper can never build a rejected value. */
+private fun stepGap(minutes: Int, up: Boolean): Int {
+    val step = if (minutes >= 60) 15 else 5
+    val moved = if (up) minutes + step else minutes - step
+    return moved.coerceIn(1, 1440)
 }
 
 /** `.duration-row` — a label, and a round stepper either side of the value. */
