@@ -230,4 +230,43 @@ class SyncJsonTest {
         assertEquals(me, session.userId)
         assertTrue(session.expiresInSeconds > 0)
     }
+
+    // --- the schedule inbox --------------------------------------------------
+
+    private val row = UUID.fromString("22222222-2222-2222-2222-222222222222")
+
+    @Test
+    fun `an inbox row comes back as a block and the id that clears it`() {
+        val rows = JSONArray(
+            """[{"id":"$row","user_id":"$me","day":4,"starts_at":"14:00:00",
+                 "ends_at":"16:00:00","kind":"busy","arrived_at":"2026-09-16T10:00:00Z"}]""",
+        )
+        val arrived = SyncJson.inbox(rows)
+        assertEquals(1, arrived.size)
+        // The id matters as much as the block: without it the row is never
+        // deleted and the same lecture is placed again on every resume.
+        assertEquals(row, arrived[0].id)
+        assertEquals(block(DayOfWeek.THURSDAY), arrived[0].block)
+    }
+
+    @Test
+    fun `a bad inbox row costs one block, not the batch`() {
+        val rows = JSONArray(
+            """[{"id":"not-a-uuid","day":1,"starts_at":"09:00:00","ends_at":"10:00:00","kind":"busy"},
+                {"id":"$row","day":2,"starts_at":"14:00:00","ends_at":"16:00:00","kind":"busy"}]""",
+        )
+        assertEquals(1, SyncJson.inbox(rows).size)
+    }
+
+    @Test
+    fun `a block that arrived has no label, because there was nowhere to send one`() {
+        // The bot reads a whole group message and keeps only the times. A
+        // label appearing here would mean the server had started keeping what
+        // somebody's class chat actually said.
+        val rows = JSONArray(
+            """[{"id":"$row","day":2,"starts_at":"14:00:00","ends_at":"16:00:00","kind":"busy"}]""",
+        )
+        val week = Sharing.fromWire(SyncJson.inbox(rows).map { it.block })
+        assertNull(week.single().label)
+    }
 }

@@ -143,6 +143,50 @@ internal class SupabaseClient(context: Context) {
     suspend fun weekOf(owner: UUID): List<Sharing.SharedBlock>? =
         array("$BASE/rest/v1/week_blocks?user_id=eq.$owner&select=*")?.let { SyncJson.blocks(it) }
 
+    // --- the WhatsApp bot ----------------------------------------------------
+
+    /**
+     * The six characters that bind a WhatsApp number to this account.
+     *
+     * Minted by `whatsapp_code()` rather than here, so two devices signed into
+     * one account cannot race each other into two codes, and asking twice gives
+     * the same answer. Null when signed out, offline, or with no backend.
+     */
+    suspend fun whatsappCode(): String? {
+        if (session.userId == null) return null
+        val text = call("$BASE/rest/v1/rpc/whatsapp_code", "POST", "{}") ?: return null
+        // PostgREST returns a scalar function's result as a bare JSON string,
+        // quotes and all.
+        return text.trim().trim('"').takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Blocks the bot has parsed and not yet handed over.
+     *
+     * A queue, not a view: whatever comes back here is meant to be placed on
+     * the week and then cleared with [clearInbox]. Empty and null are different
+     * — nothing waiting, versus no answer — and only the caller can tell which
+     * one it can act on.
+     */
+    suspend fun inbox(): List<SyncJson.Arrived>? {
+        val me = session.userId ?: return null
+        return array("$BASE/rest/v1/schedule_inbox?user_id=eq.$me&select=*&order=arrived_at")
+            ?.let { SyncJson.inbox(it) }
+    }
+
+    /**
+     * Drop the rows now that the phone has them.
+     *
+     * Deleted rather than flagged: the row has done its whole job once the
+     * block is on the week, and a row that stays is a message the server is
+     * keeping about somebody's timetable for no reason.
+     */
+    suspend fun clearInbox(ids: List<UUID>): Boolean {
+        if (ids.isEmpty()) return true
+        val list = ids.joinToString(",") { it.toString() }
+        return call("$BASE/rest/v1/schedule_inbox?id=in.($list)", "DELETE", null) != null
+    }
+
     // --- links ---------------------------------------------------------------
 
     /** Every link I am either end of. */

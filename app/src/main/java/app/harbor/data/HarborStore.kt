@@ -59,6 +59,31 @@ class HarborStore(context: Context) : HarborRepository {
     private val _dailyAnswers = MutableStateFlow(readDailyAnswers())
     override val dailyAnswers: StateFlow<Map<LocalDate, String>> = _dailyAnswers.asStateFlow()
 
+    // Android hands every caller in this process the same underlying
+    // SharedPreferences object for a given file name, so a write from one
+    // HarborStore instance (the widget's own, for instance) reaches every
+    // other instance's listener -- this is what that's for. Without it, a
+    // long-lived instance such as MainActivity's keeps whatever it read at
+    // construction and a change made elsewhere in the same process never
+    // reaches its StateFlows until the process restarts.
+    //
+    // Held in a field rather than passed inline: registerOnSharedPreferenceChangeListener
+    // keeps only a weak reference, so an unheld lambda is eligible for
+    // collection and can silently stop firing.
+    private val prefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                KEY_SETTINGS -> _settings.value = readSettings()
+                KEY_CONTACTS -> _contacts.value = readContacts()
+                KEY_BUSY -> _weekBlocks.value = readWeekBlocks()
+                KEY_ANSWERS -> _dailyAnswers.value = readDailyAnswers()
+            }
+        }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
+
     // --- settings ---------------------------------------------------------
 
     private fun readSettings(): UserSettings {

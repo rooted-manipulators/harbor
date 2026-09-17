@@ -202,6 +202,13 @@ Done:
   image, and a copy into app storage. Do not "improve" this with
   `READ_CONTACTS`.
 
+- `backend/supabase/functions/whatsapp/` + `data/WhatsAppInbox.kt` — the bot a
+  participant forwards a class group message to, so a week can stay current
+  without anybody redrawing it (ADR-014). It proposes into `schedule_inbox`
+  and the phone places the blocks; it is off the cue path and off by default.
+  **Not yet run against a real WhatsApp number** — the parser and the ingest
+  chain are tested, the webhook has never been called by Meta.
+
 Not built yet: threshold calibration, the Garden/Jar, the other prototype
 screens, and Supabase sync.
 

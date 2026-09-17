@@ -453,6 +453,13 @@ established it was even possible.
 Asking a study participant to hand a student app their college password is a
 security problem we would be creating for them, and no timetable is worth it.
 
+A fourth arrived later and sits alongside the first rather than replacing it:
+**a message forwarded to a WhatsApp bot** (ADR-014). No permission and no
+credential either, and it is the only one of the four that keeps a week
+current *after* onboarding, because it is fed by the announcements people are
+already receiving. The rule below stays source-agnostic — this is one more
+place a `WeekBlock` can come from, and the policy still cannot tell.
+
 ### Windows are weekly, not dated
 
 A timetable's real shape. A one-off engagement is not worth modelling — the
@@ -629,3 +636,107 @@ is better than implying otherwise.
   is notified in-app or not at all.
 - Whether two accounts that link each way should collapse into one mutual
   state in the UI, while staying two rows underneath.
+
+---
+
+## ADR-014 — A timetable can arrive by WhatsApp
+
+**Status:** accepted (2026-09-18). Adds a fourth candidate source to ADR-011
+and does not change the rule ADR-011 built.
+
+### What
+
+A participant forwards a message from a class group chat to a Harbor WhatsApp
+number. A Supabase edge function reads the days and times out of it, files
+them in `schedule_inbox`, and the phone places them on the week the next time
+Harbor comes to the front.
+
+`backend/supabase/functions/whatsapp/`, `0012_whatsapp_inbox.sql`,
+`data/WhatsAppInbox.kt`, `ui/ForwardYourChats.kt`.
+
+### Why
+
+ADR-011 chose a self-entered timetable and listed what to try after it. This
+is none of those three, and it beats two of them on the thing that actually
+matters: it needs no permission, no credential, and no campus API that does
+not exist. What it needs is a message people are already receiving.
+
+The self-entered week is not wrong, it is just not kept up. Somebody draws
+their week once in onboarding and then a class moves on a Tuesday afternoon —
+and the grid, which is what stops a cue landing in a lecture, is now quietly
+wrong in a way nobody will fix by opening a screen. The announcement of that
+move is already in a chat on the same phone.
+
+### What it costs, and why the schedule screen changed in the same commit
+
+A forwarded message leaves the device. It goes to WhatsApp — so to Meta — and
+to our function. That is a real cost, and it contradicted a line the schedule
+screen was showing: *"nothing leaves this phone"*.
+
+So that line changed, in the same commit, to what is still true: **what you
+draw stays on this phone**. The part that does not stay says so itself, on the
+card that offers it, where somebody deciding whether to use this can read it.
+`CLAUDE.md` requires exactly this — the explainer's copy is a promise the code
+has to keep — and it is the reason this feature is a card you opt into rather
+than a setting that was already on.
+
+Three things narrow the cost:
+
+1. **The bot keeps nothing but times.** `readTimetable` returns day, start and
+   end. There is no column in `schedule_inbox` for the text, the subject, the
+   room, the sender or the group, and the row is deleted as soon as the phone
+   has it. This is the same move as `week_blocks` having no label column: the
+   cheapest way to keep a promise is to have nowhere to break it.
+2. **It is opt-in twice.** Once by messaging the bot a code read off your own
+   screen, and again every time you choose to forward something. Nothing is
+   read from anybody's chats; a message arrives only because somebody sent it.
+3. **It is off entirely by default.** No number configured, no card. Same
+   posture as `SupabaseClient.configured`.
+
+### The bot proposes; the phone decides
+
+Parsed blocks land in `schedule_inbox`, never in `week_blocks`.
+
+The device is authoritative for its own week (ADR-003), and `putWeek` replaces
+rather than merges for that reason — a server writing into `week_blocks` would
+be erased by the next upload. More to the point, a week with two authors is a
+week nobody owns. So the function fills a queue and `WhatsAppInbox.drain`
+empties it through the same `Windows.place` a finger goes through, which makes
+a block that arrived by message indistinguishable afterwards from one that was
+drawn, and removable by the same drag.
+
+Draining on resume rather than on opening the schedule screen, because a class
+that moved should already be suppressing cues before anyone thinks to look at
+the grid — and because not having to open that screen was the point.
+
+### It only ever adds busy time
+
+A cancelled class is read and deliberately dropped rather than clearing the
+block it names. Two reasons: a busy block is what *stops* a cue, so a
+misparsed "no class Monday 9-11" that booked the hour would be wrong in the
+worst available direction; and marking the freed hour `FREE` would be worse
+still, because a flower means *this is when I would welcome a call* (ADR-011),
+which a cancelled lecture does not say. Removing time stays a gesture on the
+grid.
+
+### Rejected
+
+- **Reading chats on the device.** A notification listener over WhatsApp would
+  need no forwarding at all, and would be Harbor reading every message a
+  participant receives. Not for a timetable, not for anything.
+- **The bot writing `week_blocks` directly.** Above.
+- **Keeping the message to improve the parser.** Tempting and refused: a
+  corpus of participants' group chats is the single most sensitive thing this
+  project could hold, and the parser is testable without one.
+
+### Open
+
+- The parser resolves "today" and "tomorrow" in Asia/Kolkata, hard-coded. Fine
+  for a BITSoM study, wrong the moment it is not one.
+- WhatsApp's 24-hour customer service window: outside it, free-form replies
+  are refused and only a template will send. A participant who forwards
+  something after a day of silence may get no confirmation. The blocks are
+  still filed.
+- Nothing tells the participant in-app that blocks arrived; they simply appear
+  on the grid. Whether that wants a mark of its own is a question for the
+  study, not for now.

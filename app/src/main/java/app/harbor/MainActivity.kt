@@ -33,6 +33,7 @@ import android.content.Intent
 import app.harbor.data.HarborStore
 import app.harbor.data.SupabaseClient
 import app.harbor.data.StudyFile
+import app.harbor.data.WhatsAppInbox
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
@@ -42,6 +43,7 @@ import app.harbor.sensing.Sensing
 import app.harbor.ui.ContactScreen
 import app.harbor.ui.CuesSetupScreen
 import app.harbor.ui.FlowerLanding
+import app.harbor.ui.ForwardYourChats
 import app.harbor.ui.GardenScreen
 import app.harbor.ui.SignInScreen
 import app.harbor.ui.HarborShell
@@ -199,6 +201,15 @@ class MainActivity : ComponentActivity() {
                 // Which screens get looked at, and in what order. A category
                 // per screen; nothing about what was on it.
                 LaunchedEffect(screen) { store.note(Moment.SCREEN, screen.name) }
+
+                // Anything the WhatsApp bot has parsed goes onto the week
+                // (ADR-014). Keyed on `resumes` rather than on the schedule
+                // screen, because a class that moved should already be
+                // suppressing cues by the time anybody thinks to look at the
+                // grid -- and because the point of forwarding a message was
+                // not having to open that screen. Returns 0 and costs nothing
+                // when signed out, offline, or with no backend.
+                LaunchedEffect(resumes) { WhatsAppInbox.drain(sync, store) }
                 var reflecting by remember { mutableStateOf<LedgerEntry?>(null) }
 
                 // The flower on its way into the field, drawn over whatever
@@ -415,6 +426,12 @@ class MainActivity : ComponentActivity() {
                                 store = store,
                                 onDone = home,
                                 modifier = inset,
+                                otherWays = {
+                                    ForwardYourChats(
+                                        client = sync,
+                                        onOpenAccount = { screen = Screen.SignIn },
+                                    )
+                                },
                             )
 
                             Screen.Settings -> SettingsScreen(

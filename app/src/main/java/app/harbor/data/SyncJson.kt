@@ -94,6 +94,41 @@ internal object SyncJson {
      */
     private fun time(raw: String): LocalTime = LocalTime.parse(raw)
 
+    // --- the schedule inbox --------------------------------------------------
+
+    /**
+     * A block the WhatsApp bot parsed out of a forwarded message.
+     *
+     * Carries the row's id as well as the block, because the phone deletes the
+     * row once it has placed it — this is a queue, not a mirror. That id is
+     * server-generated, which is the one place in this app where that happens;
+     * `0012` records why it is safe here and nowhere else.
+     */
+    data class Arrived(val id: UUID, val block: Sharing.SharedBlock)
+
+    /**
+     * Rows from `schedule_inbox`.
+     *
+     * Reuses [Sharing.SharedBlock] rather than growing a type of its own. Same
+     * columns, and the missing one is missing for the same reason: a block that
+     * arrives has no label, because the bot has nowhere to have kept one.
+     */
+    fun inbox(rows: JSONArray): List<Arrived> =
+        (0 until rows.length()).mapNotNull { i ->
+            runCatching {
+                val row = rows.getJSONObject(i)
+                Arrived(
+                    id = UUID.fromString(row.getString("id")),
+                    block = Sharing.SharedBlock(
+                        day = row.getInt("day"),
+                        start = time(row.getString("starts_at")),
+                        end = time(row.getString("ends_at")),
+                        kind = BlockKind.valueOf(row.getString("kind").uppercase()),
+                    ),
+                )
+            }.getOrNull()
+        }
+
     // --- links ---------------------------------------------------------------
 
     fun links(rows: JSONArray): List<Sharing.Link> =

@@ -44,6 +44,16 @@ android {
             "SUPABASE_ANON_KEY",
             "\"" + (project.findProperty("harbor.supabaseAnonKey") as String? ?: "") + "\"",
         )
+
+        // The number people forward their class chats to (ADR-014). Empty
+        // until a WhatsApp Business number exists, and empty is the same
+        // supported state as above: the card that offers this simply does not
+        // appear, and the week is drawn by hand as before.
+        buildConfigField(
+            "String",
+            "WHATSAPP_NUMBER",
+            "\"" + (project.findProperty("harbor.whatsappNumber") as String? ?: "") + "\"",
+        )
     }
 
     // One debug signature for every machine that builds Harbor.
@@ -104,6 +114,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.play.services.location)
+    implementation(libs.androidx.glance.appwidget)
     testImplementation(libs.junit)
     // Android ships org.json as stubs that throw at runtime, so any unit test
     // touching a wire format needs a real implementation on its own classpath.

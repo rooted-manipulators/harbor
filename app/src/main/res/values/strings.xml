@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Harbor</string>
+    <string name="weather_widget_description">Set how life feels right now, right from your home screen.</string>
 </resources>

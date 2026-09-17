@@ -144,6 +144,14 @@ fun ScheduleScreen(
     store: HarborRepository,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Other ways a week can arrive, drawn under the grid.
+     *
+     * A slot rather than a parameter, because what goes in it needs the
+     * network client and this screen deliberately has no idea one exists —
+     * everything above it is a week and a finger. See `ForwardYourChats`.
+     */
+    otherWays: @Composable ColumnScope.() -> Unit = {},
 ) {
     val skin = WeekSkin.specimen()
 
@@ -152,6 +160,8 @@ fun ScheduleScreen(
         skin = skin,
         modifier = modifier,
         footer = {
+            otherWays()
+
             // Importing a calendar sits under the grid, not over it.
             //
             // It was the third thing on the screen, above the grid it is an
@@ -165,7 +175,13 @@ fun ScheduleScreen(
             // the one line on this screen that is not about times, and the
             // screen where somebody types their week is the screen where it
             // most needs saying — but it does not need saying above the grid.
-            Eyebrow("Only the times · no subjects, no locations · nothing leaves this phone")
+            //
+            // It used to end "nothing leaves this phone", which stopped being
+            // true the moment a message could be forwarded to a bot (ADR-014).
+            // What is still true is narrower and is what this now says: the
+            // week you draw stays here. The thing that does leave says so
+            // itself, on the card that offers it.
+            Eyebrow("Only the times · no subjects, no locations · what you draw stays on this phone")
             TextLink("Back", onDone)
         },
     ) {
