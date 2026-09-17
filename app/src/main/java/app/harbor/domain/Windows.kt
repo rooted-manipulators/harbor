@@ -89,21 +89,7 @@ object Windows {
     ): List<Window> {
         if (from >= to) return emptyList()
 
-        val clamped = blocks
-            .filter { it.day == day && it.kind == BlockKind.BUSY }
-            .map { maxOf(it.start, from) to minOf(it.end, to) }
-            .filter { it.first < it.second }
-            .sortedBy { it.first }
-
-        val merged = mutableListOf<Pair<LocalTime, LocalTime>>()
-        for ((start, end) in clamped) {
-            val last = merged.lastOrNull()
-            if (last != null && start <= last.second) {
-                merged[merged.lastIndex] = last.first to maxOf(last.second, end)
-            } else {
-                merged.add(start to end)
-            }
-        }
+        val merged = busyRuns(blocks, day, from, to)
 
         val out = mutableListOf<Window>()
         var cursor = from
@@ -165,6 +151,82 @@ object Windows {
         to: LocalTime = DAY_END,
     ): Window? = planted(blocks, day, from = now).maxByOrNull { it.minutes }
         ?: free(blocks, day, maxOf(now, from), to).maxByOrNull { it.minutes }
+
+    /**
+     * How full [day] is, from nought to one.
+     *
+     * Busy time only. A flower is somebody saying *this is room I have kept*,
+     * which is the opposite of a day filling up, and counting it would make
+     * marking your good evenings look like work.
+     *
+     * Measured against the waking window rather than the whole twenty-four
+     * hours, because eight hours of lectures is most of a day and a third of a
+     * clock, and the number is meant to answer "how full does this feel".
+     */
+    fun load(blocks: List<WeekBlock>, day: DayOfWeek): Double {
+        val span = DAY_END.toSecondOfDay() - DAY_START.toSecondOfDay()
+        if (span <= 0) return 0.0
+        val busy = busyRuns(blocks, day, DAY_START, DAY_END)
+            .sumOf { (start, end) -> end.toSecondOfDay() - start.toSecondOfDay() }
+        return (busy.toDouble() / span).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * The weather a day this full looks like, as a place to start.
+     *
+     * The mood picker opened on [Weather.CLEAR] for everybody, every day,
+     * which is a question disguised as an answer: a blank control asks the
+     * user to do the work of noticing before they have opened the app
+     * properly. The week they typed in already knows whether today is packed,
+     * so the picker can arrive at a guess and be corrected.
+     *
+     * A guess, and nothing more. It is never written to settings by itself --
+     * how a day *feels* is the user's to say, and a timetable cannot know that
+     * a light day is the hard one. See the caller.
+     *
+     * The bands are deliberately not even. Most of the difference people feel
+     * is at the bottom -- an empty day and a third-full day are not the same
+     * day -- while everything past about two thirds booked is simply a lot.
+     */
+    fun weatherFor(blocks: List<WeekBlock>, day: DayOfWeek): Weather =
+        when (load(blocks, day)) {
+            in 0.0..0.12 -> Weather.CLEAR
+            in 0.12..0.30 -> Weather.BRIGHT
+            in 0.30..0.52 -> Weather.CLOUDY
+            in 0.52..0.72 -> Weather.RAIN
+            else -> Weather.STORM
+        }
+
+    /**
+     * The busy stretches of [day], clamped and merged, in order.
+     *
+     * Merging first is what stops two classes that run into each other
+     * producing a phantom gap between them, and stops an overlap being counted
+     * twice when the day is weighed.
+     */
+    private fun busyRuns(
+        blocks: List<WeekBlock>,
+        day: DayOfWeek,
+        from: LocalTime,
+        to: LocalTime,
+    ): List<Pair<LocalTime, LocalTime>> {
+        val clamped = blocks
+            .filter { it.day == day && it.kind == BlockKind.BUSY }
+            .map { maxOf(it.start, from) to minOf(it.end, to) }
+            .filter { it.first < it.second }
+            .sortedBy { it.first }
+
+        val merged = mutableListOf<Pair<LocalTime, LocalTime>>()
+        for ((start, end) in clamped) {
+            val last = merged.lastOrNull()
+            if (last != null && start <= last.second) {
+                merged[merged.lastIndex] = last.first to maxOf(last.second, end)
+            } else {
+                merged.add(start to end)
+            }
+        }
+        return merged
+    }
 
     /**
      * Put [block] on the week, clearing whatever it lands on.
