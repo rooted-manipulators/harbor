@@ -55,6 +55,18 @@ object Sensing {
     suspend fun repair(context: Context, store: HarborRepository) {
         if (!store.settings.value.cuesEnabled) return
         if (!ActivityTransitions.hasPermission(context)) return
+        // Clear before asking again, rather than trusting the replace.
+        //
+        // requestActivityTransitionUpdates is documented to replace an
+        // existing registration, and after an ordinary launch it does. After
+        // the package is replaced it appears not to: measured on 18 Sep, an
+        // install at 02:49:40 was followed by a successful re-register at
+        // 02:49:44 and then no transition for the next eleven minutes,
+        // through a walk. The registration Play services still holds is
+        // against the old PendingIntent, which died with the old package, so
+        // removing it explicitly is the only way to be sure what is left is
+        // ours. Costs a round trip on a path that runs once per launch.
+        ActivityTransitions.unregister(context)
         ActivityTransitions.register(context)
         // Same reasoning as the registration: the service dies with the
         // process when an OEM kills it outright, and START_STICKY is the
