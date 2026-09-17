@@ -49,11 +49,12 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                val why = if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-                    "update"
-                } else {
-                    "boot"
-                }
+                val replaced = intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
+                // After an update, clear what Play services still holds before
+                // asking again: that registration points at a PendingIntent
+                // that died with the old package. See Sensing.repair.
+                if (replaced) ActivityTransitions.unregister(app)
+                val why = if (replaced) "update" else "boot"
                 Log.i(TAG, "$why re-register: ${ActivityTransitions.register(app)}")
                 // Registrations do not survive a restart and neither does the
                 // service. BOOT_COMPLETED is one of the exemptions that may

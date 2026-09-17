@@ -52,21 +52,25 @@ object Sensing {
      * rather than stacking another, so re-registering when nothing was wrong
      * costs a round trip and changes nothing.
      */
-    suspend fun repair(context: Context, store: HarborRepository) {
+    suspend fun repair(context: Context, store: HarborRepository, replaced: Boolean = false) {
         if (!store.settings.value.cuesEnabled) return
         if (!ActivityTransitions.hasPermission(context)) return
-        // Clear before asking again, rather than trusting the replace.
+        // Clear before asking again, but only after the package was replaced.
         //
         // requestActivityTransitionUpdates is documented to replace an
-        // existing registration, and after an ordinary launch it does. After
-        // the package is replaced it appears not to: measured on 18 Sep, an
-        // install at 02:49:40 was followed by a successful re-register at
-        // 02:49:44 and then no transition for the next eleven minutes,
-        // through a walk. The registration Play services still holds is
-        // against the old PendingIntent, which died with the old package, so
-        // removing it explicitly is the only way to be sure what is left is
-        // ours. Costs a round trip on a path that runs once per launch.
-        ActivityTransitions.unregister(context)
+        // existing registration, and on an ordinary launch it plainly does --
+        // that is the path sensing runs on every day, and it is working. After
+        // a package replace it appears not to: measured on 18 Sep, an install
+        // at 02:49:40 was followed by a successful re-register at 02:49:44 and
+        // then no transition for eleven minutes, through a walk. What Play
+        // services still holds there is a PendingIntent that died with the old
+        // package.
+        //
+        // Narrow on purpose. Clearing on every launch would put an extra
+        // unregister on the one path that is known to work, to fix a case that
+        // only happens when the app is updated. [replaced] is true only from
+        // ACTION_MY_PACKAGE_REPLACED.
+        if (replaced) ActivityTransitions.unregister(context)
         ActivityTransitions.register(context)
         // Same reasoning as the registration: the service dies with the
         // process when an OEM kills it outright, and START_STICKY is the
