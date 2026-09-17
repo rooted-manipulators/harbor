@@ -268,6 +268,30 @@ So: `TransitionReceiver` is a plain broadcast receiver, woken by Play
 services, using `goAsync()` for the few milliseconds it takes to read the
 ledger and write a cue.
 
+**Amended 2026-09-17: one inexact alarm, for the settle wait.** No service
+still, but the receiver-only design had a hole in it that took until the first
+real walk to find. `CuePolicy` will not fire until the user has been still for
+`SETTLE`, and Play services wakes the receiver at the instant stillness is
+detected — inside that window, every time — and then has nothing further to
+send while the user stays still. So the one chance to evaluate a walk was the
+one moment it was certain to be refused, and `BoutTracker` had already cleared
+the bout. No sensed walk could ever produce a cue. The unit tests all passed:
+each handed `decide` a signal that was already settled, describing a caller
+that did not exist.
+
+`sensing/SettleAlarm` is that caller. The signal is parked in `SensingStore`
+and an `AlarmManager` alarm re-asks once it has settled. This is not the
+service ADR-008 refuses: it is nothing between firings, no notification, no
+permission. The alarm is inexact (`setAndAllowWhileIdle`) because
+`SCHEDULE_EXACT_ALARM` is not worth spending on a ninety-second timer, so it
+can land minutes late under Doze — `CuePolicy.settleExpired` drops a signal
+that lands *much* later rather than firing into a moment that has passed.
+
+Registrations are also re-established on every launch (`Sensing.repair`), not
+only on boot. Installing a build force-stops the app, and Android delivers
+nothing to a stopped app until it is launched by hand; that is the state every
+participant handed a new APK was in, and it reported itself as working.
+
 ### What this costs
 
 A permanent notification is also a *disclosure* — the user can see sensing is

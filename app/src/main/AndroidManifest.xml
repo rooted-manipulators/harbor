@@ -87,6 +87,20 @@
             android:name=".sensing.TransitionReceiver"
             android:exported="false" />
 
+        <!--
+          The settle timer. A walk that has just ended cannot fire yet — the
+          policy wants ninety seconds of stillness first — and Play services
+          has no further transition to send while somebody stays still, so
+          this is what comes back to ask again. See sensing/SettleAlarm.
+
+          No permission: the alarm is inexact (setAndAllowWhileIdle), which is
+          deliberate — SCHEDULE_EXACT_ALARM is not worth spending on a
+          ninety-second timer.
+        -->
+        <receiver
+            android:name=".sensing.SettleReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".sensing.BootReceiver"
             android:exported="true">

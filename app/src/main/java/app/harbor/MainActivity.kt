@@ -36,6 +36,7 @@ import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
 import app.harbor.domain.CallStats
 import app.harbor.domain.Moment
+import app.harbor.sensing.Sensing
 import app.harbor.ui.ContactScreen
 import app.harbor.ui.CuesSetupScreen
 import app.harbor.ui.FlowerLanding
@@ -134,6 +135,12 @@ class MainActivity : ComponentActivity() {
         // A field as well as a local, because onResume and onPause need it
         // too and they run outside the composition.
         store = HarborStore(applicationContext)
+
+        // Put sensing back if it has fallen over. Installing a build
+        // force-stops the app, which stops delivery until it is launched by
+        // hand -- exactly the state a participant handed a new APK is in, and
+        // one that reports itself as working. See Sensing.repair.
+        lifecycleScope.launch { Sensing.repair(applicationContext, store) }
 
         setContent {
             HarborTheme {

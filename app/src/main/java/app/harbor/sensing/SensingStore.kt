@@ -1,6 +1,8 @@
 package app.harbor.sensing
 
 import android.content.Context
+import app.harbor.domain.CuePolicy
+import app.harbor.domain.TriggerSource
 import java.time.Instant
 
 /**
@@ -56,9 +58,52 @@ internal class SensingStore(context: Context) {
             prefs.edit().putLong(KEY_LAST_TRANSITION, value.toEpochMilli()).commit()
         }
 
+    /**
+     * A walk that ended but has not settled yet, waiting for its re-ask.
+     *
+     * The bout is gone from [BoutTracker] the moment it closes — the tracker
+     * emits the signal and resets — so without this the signal existed only
+     * for the length of one receiver call, was refused for being unsettled,
+     * and was then unrecoverable. That was the whole reason no reminder ever
+     * fired: the one thing that could evaluate a walk ran at the only moment
+     * it was guaranteed to be refused.
+     *
+     * Held here rather than in `HarborStore` for the same reason the bout is:
+     * this file is read and written by a receiver that lives for milliseconds.
+     */
+    var pending: CuePolicy.Signal?
+        get() {
+            val stillSince = prefs.getLong(KEY_PENDING_STILL_SINCE, ABSENT)
+            if (stillSince == ABSENT) return null
+            val source = prefs.getString(KEY_PENDING_SOURCE, null)
+                ?.let { name -> runCatching { TriggerSource.valueOf(name) }.getOrNull() }
+                ?: return null
+            return CuePolicy.Signal(
+                source = source,
+                activeMinutes = prefs.getInt(KEY_PENDING_MINUTES, 0),
+                stillSince = Instant.ofEpochMilli(stillSince),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_PENDING_STILL_SINCE)
+                    remove(KEY_PENDING_SOURCE)
+                    remove(KEY_PENDING_MINUTES)
+                } else {
+                    putLong(KEY_PENDING_STILL_SINCE, value.stillSince.toEpochMilli())
+                    putString(KEY_PENDING_SOURCE, value.source.name)
+                    putInt(KEY_PENDING_MINUTES, value.activeMinutes)
+                }
+            }.commit()
+        }
+
     private companion object {
         const val KEY_WALKING_SINCE = "walking_since"
         const val KEY_LAST_TRANSITION = "last_transition_at"
+        const val KEY_PENDING_STILL_SINCE = "pending_still_since"
+        const val KEY_PENDING_SOURCE = "pending_source"
+        const val KEY_PENDING_MINUTES = "pending_active_minutes"
         const val ABSENT = -1L
     }
 }

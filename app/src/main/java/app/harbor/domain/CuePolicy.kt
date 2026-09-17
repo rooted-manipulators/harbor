@@ -31,6 +31,34 @@ object CuePolicy {
     val SETTLE: Duration = Duration.ofSeconds(90)
 
     /**
+     * How late a deferred signal may still fire, measured from [SETTLE].
+     *
+     * A walk that ended is held for [SETTLE] and re-asked afterwards, because
+     * the transition arrives the instant stillness is detected and nothing
+     * else will wake the pipeline later — see `sensing/SettleAlarm`. That
+     * re-ask is scheduled with an inexact alarm, so it can land late: Doze
+     * holds `setAndAllowWhileIdle` until a maintenance window, which is
+     * minutes rather than seconds.
+     *
+     * Landing late is fine. Landing *much* later is not: a cue for a stop that
+     * finished half an hour ago is a cue at the wrong moment, which this file
+     * exists to prevent. So a deferred signal past this window is dropped
+     * rather than fired.
+     */
+    val SETTLE_WINDOW: Duration = Duration.ofMinutes(15)
+
+    /**
+     * Whether a deferred signal has aged out — the stop it belongs to is over
+     * and the moment with it.
+     *
+     * Pure, and separate from [decide], because the deferral path has no
+     * signal to hand [decide] once it has expired: there is nothing to weigh,
+     * only something to throw away.
+     */
+    fun settleExpired(stillSince: Instant, now: Instant): Boolean =
+        Duration.between(stillSince, now) > SETTLE.plus(SETTLE_WINDOW)
+
+    /**
      * A transition the sensing layer has observed. [activeMinutes] is the
      * length of the bout that just ended — the walk, or the app session.
      */
