@@ -31,6 +31,27 @@ object Sensing {
     }
 
     /**
+     * Re-register if the user has cues on, whether or not anything is wrong.
+     *
+     * Registrations are lost by more than reboots, which is all [BootReceiver]
+     * covers. Installing a new build force-stops the app, and Android delivers
+     * nothing to a stopped app until it is launched by hand; Play services
+     * updating itself can drop them too. None of that is visible — the setting
+     * still says on, the screen still says on, and nothing is listening. Until
+     * this existed the only cure was toggling reminders off and on again, and
+     * nobody knew they had to.
+     *
+     * Called on every launch. Play services replaces an existing registration
+     * rather than stacking another, so re-registering when nothing was wrong
+     * costs a round trip and changes nothing.
+     */
+    suspend fun repair(context: Context, store: HarborRepository) {
+        if (!store.settings.value.cuesEnabled) return
+        if (!ActivityTransitions.hasPermission(context)) return
+        ActivityTransitions.register(context)
+    }
+
+    /**
      * Record the setting first, then unregister.
      *
      * This order is deliberate too, and for a stronger reason. If unregistering

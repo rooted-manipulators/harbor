@@ -5,6 +5,8 @@ import app.harbor.domain.CuePolicy.Decision
 import app.harbor.domain.CuePolicy.Reason
 import app.harbor.domain.CuePolicy.Signal
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 import java.time.Instant
@@ -308,6 +310,37 @@ class CuePolicyTest {
     @Test
     fun fires_the_moment_the_settle_window_is_met() {
         assertEquals(Decision.Fire, decide(walkSignal(stillFor = CuePolicy.SETTLE)))
+    }
+
+    // --- stage 4, deferred: the re-ask once it has settled ------------------
+    //
+    // Every test above hands `decide` a signal that is already settled, which
+    // is what the production path could never do: the transition arrives the
+    // instant stillness is detected, so the first ask is always inside SETTLE
+    // and always refused. Nothing came back afterwards, so no sensed walk ever
+    // became a reminder, and none of these tests could see it — they were
+    // describing a caller that did not exist. `sensing/SettleAlarm` is now
+    // that caller, and these cover the part of its contract that is pure.
+
+    @Test
+    fun a_walk_waiting_to_settle_has_not_expired() {
+        assertFalse(CuePolicy.settleExpired(now, now.plus(CuePolicy.SETTLE)))
+    }
+
+    @Test
+    fun a_late_alarm_still_fires_inside_the_window() {
+        // Doze holds an inexact alarm until a maintenance window, so landing
+        // minutes late is normal rather than exceptional.
+        val late = now.plus(CuePolicy.SETTLE).plus(Duration.ofMinutes(5))
+        assertFalse(CuePolicy.settleExpired(now, late))
+    }
+
+    @Test
+    fun a_stop_that_finished_long_ago_is_dropped_rather_than_fired() {
+        // The worst thing this file can do is fire at the wrong moment, and a
+        // reminder for a walk that ended an hour ago is exactly that.
+        val muchLater = now.plus(Duration.ofHours(1))
+        assertTrue(CuePolicy.settleExpired(now, muchLater))
     }
 
     @Test
