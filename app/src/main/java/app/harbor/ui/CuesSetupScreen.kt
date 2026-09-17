@@ -50,11 +50,13 @@ import app.harbor.ui.theme.SoftSurface
 import app.harbor.ui.theme.Surface
 import app.harbor.ui.theme.pageContent
 import app.harbor.domain.Contact
+import app.harbor.domain.CuePolicy
 import app.harbor.domain.Cue
 import app.harbor.domain.Liveness
 import app.harbor.domain.TriggerSource
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import app.harbor.sensing.ActivityTransitions
 import app.harbor.sensing.Sensing
@@ -90,13 +92,21 @@ fun CuesSetupScreen(
     // Re-read on every resume rather than once: the only way to grant this is
     // in Settings, so the interesting moment is the return from there.
     val lifecycleOwner = LocalLifecycleOwner.current
-    var canTakeScreen by remember { mutableStateOf(true) }
-    var canNotify by remember { mutableStateOf(true) }
+    // Read now, not optimistically. ON_RESUME only arrives on the *next*
+    // resume, so starting these at true meant somebody who opened this screen
+    // and stayed in the app was told nothing was wrong until they happened to
+    // leave and come back.
+    var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
+    var canNotify by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                canStayAwake = Sensing.isUnrestricted(context)
                 hasPermission = ActivityTransitions.hasPermission(context)
             }
         }
@@ -177,13 +187,27 @@ fun CuesSetupScreen(
                 )
 
                 SectionHeading("What you keep control of")
+                // "You choose those numbers" is a claim about both, and for a
+                // while it was only true of one: the gap between reminders was
+                // enforced with its stepper removed from settings. The stepper
+                // is back, so the sentence is honest again -- but it is the
+                // kind of sentence to re-read whenever a control moves, since
+                // a screen whose whole job is being believed cannot offer a
+                // choice that is not there.
+                // The gap can now be nothing, so the sentence has to be able
+                // to say so. Promising "at least 0 minutes between them" is
+                // worse than saying there is no gap.
+                val gap = settings.thresholds.cooldownMinutes
+                val spacing = if (gap > 0) {
+                    ", with at least $gap minutes between them"
+                } else {
+                    ", with no enforced gap between them"
+                }
                 SmallCopy(
                     "Every reminder can be dismissed, and dismissing costs nothing — " +
                         "there is no streak to break. At most " +
-                        "${settings.thresholds.dailyCap} a day, with at least " +
-                        "${settings.thresholds.cooldownMinutes} minutes between " +
-                        "them. You choose those numbers, and you can turn this " +
-                        "off whenever you like.",
+                        "${settings.thresholds.dailyCap} a day$spacing. You choose " +
+                        "those numbers, and you can turn this off whenever you like.",
                 )
             }
 
@@ -248,13 +272,37 @@ fun CuesSetupScreen(
                             "Last noticed you moving " + Liveness.phrase(heard, now) + ".",
                             size = 13,
                         )
-                        Liveness.State.QUIET_TOO_LONG -> Notice(
-                            "Harbor has not heard from your phone since " +
-                                Liveness.phrase(heard, now) + ". It may have been put " +
-                                "to sleep in the background. Opening Harbor now and " +
-                                "then keeps it awake.",
-                        )
+                        Liveness.State.QUIET_TOO_LONG -> {
+                            // The old copy said to open Harbor now and then,
+                            // which is the remedy only when there is nothing
+                            // better. There is: the exemption below is the
+                            // thing that stops the phone doing this at all.
+                            val remedy = if (canStayAwake) {
+                                " Opening Harbor now and then wakes it up again."
+                            } else {
+                                " The setting below is what stops that happening."
+                            }
+                            Notice(
+                                "Harbor has not heard from your phone since " +
+                                    Liveness.phrase(heard, now) +
+                                    ". It has probably been put to sleep in the " +
+                                    "background." + remedy,
+                            )
+                        }
                     }
+                    // What the last walk measured, and what became of it.
+                    //
+                    // The liveness line above says the phone is still talking
+                    // to Harbor. This says what it said. Somebody testing this
+                    // on their own phone -- walking, stopping, and seeing
+                    // nothing -- had no way to tell a walk that was never
+                    // sensed from one that was measured at four minutes and
+                    // refused for being under their threshold, and those need
+                    // opposite fixes.
+                    Sensing.lastBout(context)?.let { bout ->
+                        SmallCopy(lastWalkPhrase(bout, settings), size = 13)
+                    }
+
                     QuietAction("Turn reminders off") {
                         scope.launch { Sensing.disable(context, store) }
                     }
@@ -284,16 +332,40 @@ fun CuesSetupScreen(
 
             // Everything a cue needs that is not "cues are on".
             //
-            // Three separate things have to be true before a cue reaches
-            // somebody, and turning cues on only settles the first. The other
-            // two fail silently, which is the whole problem: Harbor senses the
-            // walk, writes the beat, posts the cue, and the person sees
-            // nothing. Reading "moving, 3 minutes ago" on this screen while
-            // never having seen a cue is what that looks like from the
-            // outside, and nothing anywhere said why.
-            if (settings.cuesEnabled && hasPermission && (!canNotify || !canTakeScreen)) {
+            // Four separate things have to be true before a reminder reaches
+            // somebody, and turning reminders on only settles the first. The
+            // other three fail silently, which is the whole problem: Harbor
+            // senses the walk, writes the beat, posts the reminder, and the
+            // person sees nothing. Reading "moving, 3 minutes ago" on this
+            // screen while never having seen a reminder is what that looks
+            // like from the outside, and nothing anywhere said why.
+            //
+            // Onboarding asks for all three. This screen asked for two, which
+            // meant the one somebody refused or skipped in onboarding had no
+            // second chance anywhere in the app -- and battery, the one it was
+            // missing, is the one that loses the walk rather than the
+            // reminder.
+            if (settings.cuesEnabled && hasPermission &&
+                (!canNotify || !canTakeScreen || !canStayAwake)
+            ) {
                 Surface {
                     SectionHeading("A reminder would not reach you yet")
+                    // First, because it is the one that loses the walk itself.
+                    // The other two drop a reminder that was made; this one
+                    // means the app was never woken to make it, and on One UI
+                    // it is the measured default rather than an edge case.
+                    if (!canStayAwake) {
+                        SmallCopy(
+                            "Your phone can put Harbor to sleep to save battery. " +
+                                "Asleep, it never hears that your walk ended — the " +
+                                "reminder is not late, it never happens. This is the " +
+                                "one that matters most.",
+                            size = 14,
+                        )
+                        PrimaryAction("Let Harbor keep listening") {
+                            context.startActivity(Sensing.unrestrictedRequest(context))
+                        }
+                    }
                     if (!canNotify) {
                         SmallCopy(
                             "Notifications are off for Harbor. A reminder is posted " +
@@ -353,6 +425,58 @@ fun CuesSetupScreen(
             TextLink("See your garden", onOpenGarden)
         }
     }
+}
+
+/**
+ * The last walk in a sentence: when it was, how long Harbor made it, and why
+ * it did or did not become a reminder.
+ *
+ * The reason is spelled out rather than named. `BELOW_THRESHOLD` is precise
+ * and means nothing to the person holding the phone; "shorter than the 10
+ * minutes you asked for" is the same fact and is actionable, because the
+ * number it mentions is one they can change on this screen.
+ */
+private fun lastWalkPhrase(
+    bout: app.harbor.sensing.SensingStore.Recorded,
+    settings: app.harbor.domain.UserSettings,
+): String {
+    val zone = ZoneId.systemDefault()
+    val clock = DateTimeFormatter.ofPattern("HH:mm")
+    val window = clock.format(bout.startedAt.atZone(zone)) + "–" +
+        clock.format(bout.endedAt.atZone(zone))
+    val length = if (bout.minutes == 1) "1 minute" else "${bout.minutes} minutes"
+
+    val outcome = when (bout.outcome) {
+        null -> "That became a reminder."
+        CuePolicy.Reason.BELOW_THRESHOLD.name ->
+            "No reminder — shorter than the " +
+                "${settings.thresholds.walkingMinutes} minutes you asked for."
+        CuePolicy.Reason.IN_CLASS.name ->
+            "No reminder — you had marked that time busy."
+        CuePolicy.Reason.DAILY_CAP_REACHED.name ->
+            "No reminder — today's ${settings.thresholds.dailyCap} were already used."
+        CuePolicy.Reason.IN_COOLDOWN.name ->
+            "No reminder — less than " +
+                "${settings.thresholds.cooldownMinutes} minutes since the last one."
+        CuePolicy.Reason.ALREADY_CONNECTED_TODAY.name ->
+            "No reminder — you had already reached them today."
+        CuePolicy.Reason.REMINDER_PENDING.name ->
+            "No reminder — you had planned a later time."
+        CuePolicy.Reason.CUES_DISABLED.name ->
+            "No reminder — reminders were off at the time."
+        CuePolicy.Reason.TRANSITION_UNSETTLED.name ->
+            "Waiting to see whether you stay still."
+        app.harbor.sensing.SensingStore.WALKING_RESUMED ->
+            "No reminder \u2014 you set off again before it was sure you had stopped."
+        app.harbor.sensing.SensingStore.SETTLE_EXPIRED ->
+            "No reminder \u2014 your phone woke Harbor too late, and the moment had passed."
+        // A reason added later and not given words here. Better than dropping
+        // the line: the walk was still measured, and that is most of the
+        // answer.
+        else -> "No reminder."
+    }
+
+    return "Last walk: $window, measured as $length. $outcome"
 }
 
 private fun openAppSettings(context: Context) {

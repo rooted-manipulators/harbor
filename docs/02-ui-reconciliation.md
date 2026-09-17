@@ -253,3 +253,35 @@ It also adds three things the native cue does not have yet:
 | Home | **Not built** |
 | Notes, Schedule, Settings, Daily question | **Not built** |
 | Conversation | Reshape, do not port — ADR-007 |
+
+## The quiet gap between reminders — 18 Sep 2026
+
+The prototype suggests two hours, `0001_init.sql` shipped two hours as the
+column default, and `Thresholds.SUGGESTED` matched. Harbor now suggests **no
+gap at all**, which is the one calibration number that no longer agrees with
+the prototype.
+
+Not a retune of a number somebody disliked. The gap had no control on any
+screen — its stepper had been removed from settings on the reasonable-sounding
+argument that nobody opens a settings screen wanting to choose the minutes
+between their own interruptions — so it was a two-hour rule wearing a
+suggestion's clothes, against "thresholds are user-set, never a locked
+default". It was also checked before almost everything else, which meant a day
+of testing produced one reminder every two hours however high the daily number
+was set, with nothing on any screen saying why. The trigger could not be
+watched working.
+
+So the stepper is back, it reaches zero, and zero is what is suggested. The
+daily cap is the limit that remains, and it is the limit the handoff's
+frequency argument actually rests on.
+
+What this costs, and it is a real cost: two reminders can now land close
+together, which is the thing the gap existed to prevent. Anybody who wants the
+quiet back can set it in one place, which was never true before. If the pilot
+shows people being interrupted twice in ten minutes and minding, the number to
+move is this one, and moving it is now a change to a suggestion rather than to
+a rule.
+
+`0012_cooldown_may_be_nothing.sql` widens the CHECK from `1..1440` to
+`0..1440` and moves the column default, so the app and the schema still agree
+about what is a legal value.

@@ -44,10 +44,34 @@ object BoutTracker {
      * It has to survive process death — the receiver is woken, runs for
      * milliseconds, and dies — so it is a small serialisable value rather than
      * anything held in memory. See [SensingStore].
+     *
+     * [walkedUntil] is the last EXIT walking seen while this bout was open, or
+     * null if none has arrived. It is how long the walking lasted; the bout
+     * still ends at stillness. See [closeBout].
      */
-    data class State(val walkingSince: Instant? = null)
+    data class State(
+        val walkingSince: Instant? = null,
+        val walkedUntil: Instant? = null,
+    )
 
-    data class Step(val state: State, val signal: CuePolicy.Signal?)
+    /**
+     * The window a closed bout occupied, for anything that wants to show its
+     * working. [startedAt] to [endedAt] is what was measured as walking;
+     * [stillSince] is when the stop began, which is the same instant only when
+     * no EXIT arrived.
+     */
+    data class Bout(
+        val startedAt: Instant,
+        val endedAt: Instant,
+        val stillSince: Instant,
+    )
+
+    data class Step(
+        val state: State,
+        val signal: CuePolicy.Signal?,
+        /** Set exactly when [signal] is, and describing the same bout. */
+        val bout: Bout? = null,
+    )
 
     /**
      * Advance the machine by one transition.
@@ -58,8 +82,21 @@ object BoutTracker {
         // A walk begins. If one was already open we keep the earlier start:
         // a duplicate ENTER is far more likely than the user genuinely
         // starting a second walk without stopping the first.
+        //
+        // Either way they are walking now, so any EXIT we had recorded is no
+        // longer where the walking stopped.
         event.activity == Activity.WALKING && event.kind == Kind.ENTER ->
             Step(State(walkingSince = state.walkingSince ?: event.at), null)
+
+        // Walking stopped. This does not end the bout — the cue belongs to the
+        // *stop*, and EXIT also fires for breaking into a run or getting into
+        // a car — but it is the honest end of the walking, so it is remembered
+        // as the length. Without it the bout ran to whenever the detector got
+        // round to declaring stillness, which is tens of seconds of standing
+        // about counted as walking.
+        event.activity == Activity.WALKING && event.kind == Kind.EXIT ->
+            if (state.walkingSince == null) Step(state, null)
+            else Step(state.copy(walkedUntil = event.at), null)
 
         // Stillness is what ends a bout — not EXIT walking, which also fires
         // when someone starts running or gets into a car. The handoff is
@@ -74,7 +111,7 @@ object BoutTracker {
         event.activity == Activity.OTHER && event.kind == Kind.ENTER ->
             Step(State(), null)
 
-        // EXIT events and anything else move nothing.
+        // Every other EXIT, and anything else, moves nothing.
         else -> Step(state, null)
     }
 
@@ -84,7 +121,13 @@ object BoutTracker {
             // stillness follows more stillness.
             ?: return Step(State(), null)
 
-        val bout = Duration.between(startedAt, stillSince)
+        // The walking ended at the EXIT when there was one, and at the onset
+        // of stillness when there was not. Clamped, because a batch can carry
+        // an EXIT stamped after the stillness it precedes and a walk cannot
+        // end after it ended.
+        val endedAt = state.walkedUntil?.coerceIn(startedAt, stillSince) ?: stillSince
+
+        val bout = Duration.between(startedAt, endedAt)
 
         // Negative means the clock moved backwards (timezone change, NTP
         // correction, a stale event). Not measurable, so not a cue.
@@ -99,8 +142,12 @@ object BoutTracker {
                 // Truncating, not rounding: a 9-minute-59-second walk should
                 // not clear a 10-minute threshold the user set deliberately.
                 activeMinutes = bout.toMinutes().toInt(),
+                // The stop, not the end of the walking. This is what the
+                // settle window is measured from and it is the moment the
+                // reminder belongs to.
                 stillSince = stillSince,
             ),
+            Bout(startedAt = startedAt, endedAt = endedAt, stillSince = stillSince),
         )
     }
 }

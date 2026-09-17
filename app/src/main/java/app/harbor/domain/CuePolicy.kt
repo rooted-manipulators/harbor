@@ -188,7 +188,11 @@ object CuePolicy {
         if (day.hasPendingReminder) {
             return Decision.Hold(Reason.REMINDER_PENDING)
         }
-        if (day.lastCueAt != null) {
+        // Zero is off, said out loud rather than left to the arithmetic. A
+        // zero-length comparison would happen to work for a clock that only
+        // moves forwards, and would hold a cue for ever on one that had just
+        // been corrected backwards.
+        if (thresholds.cooldownMinutes > 0 && day.lastCueAt != null) {
             val elapsed = Duration.between(day.lastCueAt, now)
             if (elapsed < Duration.ofMinutes(thresholds.cooldownMinutes.toLong())) {
                 return Decision.Hold(Reason.IN_COOLDOWN)

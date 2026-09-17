@@ -53,6 +53,93 @@ class BoutTrackerTest {
     }
 
     @Test
+    fun the_walk_is_measured_to_the_exit_not_to_the_onset_of_stillness() {
+        // The detector does not declare stillness the moment somebody stops.
+        // Standing at a door for two minutes before it catches up is not
+        // walking, and counting it made every bout longer than the walk.
+        val signals = signalsFrom(
+            enter(Activity.WALKING, 0),
+            exit(Activity.WALKING, 10),
+            enter(Activity.STILL, 12),
+        )
+        assertEquals(10, signals.single().activeMinutes)
+    }
+
+    @Test
+    fun the_stop_is_still_the_onset_of_stillness_not_the_exit() {
+        // The length comes from the EXIT; the moment does not. The settle
+        // window is measured from the stop, and firing against the EXIT would
+        // let a reminder arrive before somebody had finished stopping.
+        val signals = signalsFrom(
+            enter(Activity.WALKING, 0),
+            exit(Activity.WALKING, 10),
+            enter(Activity.STILL, 12),
+        )
+        assertEquals(at(12), signals.single().stillSince)
+    }
+
+    @Test
+    fun walking_again_after_an_exit_measures_to_the_later_exit() {
+        // Paused at a crossing long enough for an EXIT but not long enough for
+        // stillness. The walk resumed, so the first EXIT is not where it
+        // ended.
+        val signals = signalsFrom(
+            enter(Activity.WALKING, 0),
+            exit(Activity.WALKING, 4),
+            enter(Activity.WALKING, 5),
+            exit(Activity.WALKING, 20),
+            enter(Activity.STILL, 22),
+        )
+        assertEquals(20, signals.single().activeMinutes)
+    }
+
+    @Test
+    fun an_exit_with_no_walk_open_is_ignored() {
+        // A stray EXIT must not open a bout or leave anything behind that a
+        // later stillness could close against.
+        val signals = signalsFrom(
+            exit(Activity.WALKING, 3),
+            enter(Activity.STILL, 5),
+        )
+        assertEquals(emptyList<Signal>(), signals)
+    }
+
+    @Test
+    fun an_exit_stamped_after_the_stillness_cannot_stretch_the_walk() {
+        // Events inside one batch are sorted before they reach the tracker,
+        // but a clock correction can still put an EXIT past the stop it
+        // precedes. The walk ends at the stop at the latest.
+        val signals = signalsFrom(
+            enter(Activity.WALKING, 0),
+            exit(Activity.WALKING, 30),
+            enter(Activity.STILL, 20),
+        )
+        assertEquals(20, signals.single().activeMinutes)
+    }
+
+    @Test
+    fun a_closed_bout_reports_the_window_it_measured() {
+        val step = run {
+            var state = State()
+            var last: BoutTracker.Step? = null
+            for (event in listOf(
+                enter(Activity.WALKING, 0),
+                exit(Activity.WALKING, 10),
+                enter(Activity.STILL, 12),
+            )) {
+                last = BoutTracker.advance(state, event)
+                state = last.state
+            }
+            last!!
+        }
+        assertNotNull(step.bout)
+        val bout = step.bout!!
+        assertEquals(at(0), bout.startedAt)
+        assertEquals(at(10), bout.endedAt)
+        assertEquals(at(12), bout.stillSince)
+    }
+
+    @Test
     fun stillness_ends_the_bout_even_without_an_exit_event() {
         // EXIT is not guaranteed to arrive. Stillness is the real terminator.
         val signals = signalsFrom(

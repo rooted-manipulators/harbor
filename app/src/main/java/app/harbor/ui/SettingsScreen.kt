@@ -143,13 +143,48 @@ fun SettingsScreen(
                         )
                     },
                 )
-                // The quiet gap between two cues is not here any more.
+                // The quiet gap between two reminders, back after a spell of
+                // being enforced with no way to change it.
                 //
-                // It is still enforced - CuePolicy checks it before anything
-                // else - but it exists to stop two cues landing on top of one
-                // another, which is a rule about how the app behaves rather
-                // than a taste anybody holds. Nobody opened this screen to
-                // decide how many minutes apart their interruptions should be.
+                // The argument for removing it was sound as far as it went --
+                // nobody opens a settings screen wanting to pick the minutes
+                // between their own interruptions. But "thresholds are
+                // user-set, never a locked default" is a guardrail in
+                // CLAUDE.md rather than a preference, and this was a locked
+                // default: two hours, enforced by CuePolicy ahead of
+                // everything else, invisible and unreachable. It also meant
+                // the reminders screen promised a choice that did not exist,
+                // and it made the app untestable -- a day of test walks
+                // produced one reminder every two hours however the daily
+                // number was set, with nothing anywhere saying why.
+                //
+                // Fine steps low down and coarse ones higher up, because the
+                // bottom of this range is where testing lives and the top is
+                // where people do.
+                Stepper(
+                    label = "Quiet gap between reminders",
+                    value = gapPhrase(settings.thresholds.cooldownMinutes),
+                    onDown = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = false,
+                                ),
+                            ),
+                        )
+                    },
+                    onUp = {
+                        thresholds(
+                            settings.thresholds.copy(
+                                cooldownMinutes = stepGap(
+                                    settings.thresholds.cooldownMinutes,
+                                    up = true,
+                                ),
+                            ),
+                        )
+                    },
+                )
                 SmallCopy("Suggested values, always editable.")
             }
 
@@ -168,6 +203,37 @@ fun SettingsScreen(
             TextLink("Back", onDone)
         }
     }
+}
+
+/**
+ * The quiet gap in words: minutes while they are still countable, hours once
+ * they are not.
+ *
+ * "120 min" is the same fact as "2 h" and is harder to hold. Below an hour the
+ * minutes are the unit people think in; above it they are not.
+ */
+private fun gapPhrase(minutes: Int): String = when {
+    minutes == 0 -> "off"
+    minutes < 60 -> "$minutes min"
+    minutes % 60 == 0 -> "${minutes / 60} h"
+    else -> "${minutes / 60} h ${minutes % 60} min"
+}
+
+/**
+ * One press of the gap stepper.
+ *
+ * Quarter-hours from fifteen minutes up, single minutes below it. A stepper
+ * that moved in ones would take a hundred and five presses to get from the
+ * suggested two hours to a quarter of an hour; one that moved in fifteens
+ * could never reach the one-minute setting that makes the trigger testable at
+ * all. The range is [Thresholds]' own, and it validates on construction, so
+ * the bounds here are the same ones or the app crashes on a tap.
+ */
+private fun stepGap(minutes: Int, up: Boolean): Int = when {
+    up && minutes < 15 -> minutes + 1
+    up -> (minutes + 15).coerceAtMost(1440)
+    minutes > 15 -> minutes - 15
+    else -> (minutes - 1).coerceAtLeast(0)
 }
 
 /** `.duration-row` — a label, and a round stepper either side of the value. */

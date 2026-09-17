@@ -23,6 +23,15 @@ class CuePolicyTest {
     private val settings = UserSettings(cuesEnabled = true)
     private val thresholds = settings.thresholds
 
+    /**
+     * Someone who has asked for a quiet gap.
+     *
+     * The suggestion no longer carries one, so the gap has to be set on
+     * purpose to test it. That is the point of the tests below: the mechanism
+     * still works for anybody who wants it, it is simply no longer imposed.
+     */
+    private val spaced = settings.copy(thresholds = thresholds.copy(cooldownMinutes = 120))
+
     /** A walk that just ended, long enough and settled enough to fire. */
     private fun walkSignal(
         activeMinutes: Int = 20,
@@ -216,14 +225,51 @@ class CuePolicyTest {
         assertEquals(10, Thresholds.SUGGESTED.walkingMinutes)
         assertEquals(20, Thresholds.SUGGESTED.sessionMinutes)
         assertEquals(2, Thresholds.SUGGESTED.dailyCap)
-        assertEquals(120, Thresholds.SUGGESTED.cooldownMinutes)
+        // The one that no longer matches the prototype, which suggested two
+        // hours. Deliberate, and recorded in docs/02: a gap nobody could see
+        // or change was a rule wearing a suggestion's clothes, and it made the
+        // trigger impossible to watch work. 0012 moves the column default to
+        // match. The cap is the limit that remains.
+        assertEquals(0, Thresholds.SUGGESTED.cooldownMinutes)
+    }
+
+    @Test
+    fun a_zero_gap_lets_a_second_cue_follow_immediately() {
+        assertEquals(
+            Decision.Fire,
+            decide(lastCueAt = now.minus(Duration.ofSeconds(1))),
+        )
+    }
+
+    @Test
+    fun a_zero_gap_does_not_hold_a_cue_when_the_clock_has_gone_backwards() {
+        // lastCueAt in the future, which an NTP correction can produce. With
+        // the gate off there is nothing to compare against and nothing to
+        // hold; the arithmetic alone would have refused for ever.
+        assertEquals(
+            Decision.Fire,
+            decide(lastCueAt = now.plus(Duration.ofMinutes(5))),
+        )
+    }
+
+    @Test
+    fun a_gap_that_was_asked_for_is_still_enforced() {
+        assertEquals(
+            Decision.Hold(Reason.IN_COOLDOWN),
+            decide(settings = spaced, lastCueAt = now.minus(Duration.ofMinutes(119))),
+        )
     }
 
     @Test
     fun holds_inside_the_cooldown_window() {
         assertEquals(
             Decision.Hold(Reason.IN_COOLDOWN),
-            decide(lastCueAt = now.minus(Duration.ofMinutes(thresholds.cooldownMinutes - 1L))),
+            decide(
+                settings = spaced,
+                lastCueAt = now.minus(
+                    Duration.ofMinutes(spaced.thresholds.cooldownMinutes - 1L),
+                ),
+            ),
         )
     }
 
@@ -231,7 +277,12 @@ class CuePolicyTest {
     fun fires_once_the_cooldown_has_cleared() {
         assertEquals(
             Decision.Fire,
-            decide(lastCueAt = now.minus(Duration.ofMinutes(thresholds.cooldownMinutes + 1L))),
+            decide(
+                settings = spaced,
+                lastCueAt = now.minus(
+                    Duration.ofMinutes(spaced.thresholds.cooldownMinutes + 1L),
+                ),
+            ),
         )
     }
 
@@ -242,7 +293,11 @@ class CuePolicyTest {
         // today had just rolled over.
         assertEquals(
             Decision.Hold(Reason.IN_COOLDOWN),
-            decide(entriesToday = emptyList(), lastCueAt = now.minus(Duration.ofMinutes(10))),
+            decide(
+                settings = spaced,
+                entriesToday = emptyList(),
+                lastCueAt = now.minus(Duration.ofMinutes(10)),
+            ),
         )
     }
 
