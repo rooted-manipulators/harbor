@@ -445,7 +445,10 @@ fun QuietAction(
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            // Fourteen, not ten. Fourteen plus a 14sp line is the 48dp
+            // minimum touch target; ten made this chip 39dp, which is small
+            // enough to miss and is the size guidance exists to prevent.
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(

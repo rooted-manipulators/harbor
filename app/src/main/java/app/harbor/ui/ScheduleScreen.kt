@@ -65,6 +65,7 @@ import app.harbor.domain.Windows
 import app.harbor.ui.theme.BandWarm
 import app.harbor.ui.theme.Chalk
 import app.harbor.ui.theme.Gold
+import app.harbor.ui.theme.Glass
 import app.harbor.ui.theme.Hairline
 import app.harbor.ui.theme.Ink
 import app.harbor.ui.theme.Muted
@@ -363,7 +364,7 @@ internal data class WeekSkin(
             line = Hairline,
             ink = Chalk,
             muted = Muted,
-            tile = Color(0xFF202124),
+            tile = Glass,
         )
     }
 }

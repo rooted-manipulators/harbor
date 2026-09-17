@@ -158,7 +158,13 @@ fun ContactScreen(
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap,
-                            contentDescription = null,
+                            // Named, unlike the drawn flowers and the bud: this
+                            // is the one image in the app carrying information
+                            // a screen reader user cannot get anywhere else on
+                            // the screen -- whether the photo they chose is the
+                            // one that stuck.
+                            contentDescription = "The photo you chose for " +
+                                label.ifBlank { "them" },
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.size(72.dp).clip(CircleShape),
                         )

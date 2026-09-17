@@ -79,6 +79,9 @@ import app.harbor.sensing.Sensing
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
 import app.harbor.ui.theme.Chalk
+import app.harbor.ui.theme.ChosenEdge
+import app.harbor.ui.theme.ChosenFill
+import app.harbor.ui.theme.Glass
 import app.harbor.ui.theme.Gold
 import app.harbor.ui.theme.Ink
 import app.harbor.ui.theme.LocalReducedMotion
@@ -224,8 +227,8 @@ private val FlowGround = Paper
 /** What the flow says: a question, an answer being typed, a label. */
 private val FlowInk = Chalk
 
-/** A hole you type into. White at eight percent, composited. */
-private val FieldGlass = Color(0xFF202124)
+/** A hole you type into. See [app.harbor.ui.theme.Glass]. */
+private val FieldGlass = Glass
 
 /** The enabled button and the chosen chip. The design's one accent. */
 private val ActionFill = Gold
@@ -240,8 +243,8 @@ private val ActionInk = Ink
  * of marking a whole card as live -- it does the same on the cues screen. A
  * card filled solid amber would shout down the question above it.
  */
-private val SelectedCard = Color(0xFF1F1C15)
-private val SelectedEdge = Color(0x33F0BD3E)
+private val SelectedCard = ChosenFill
+private val SelectedEdge = ChosenEdge
 
 /** Not yet, or not available. */
 private val PillIdle = Sand

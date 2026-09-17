@@ -500,7 +500,9 @@ internal fun TextLink(text: String, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            // 15 + a 13sp line clears 48dp. Quiet is about weight and colour,
+            // not about being hard to press.
+            .padding(vertical = 15.dp),
         style = MaterialTheme.typography.labelLarge.copy(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
