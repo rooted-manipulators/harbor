@@ -305,4 +305,73 @@ class WindowsTest {
             LocalTime.of(hour, minute),
             java.time.ZoneId.of("Asia/Kolkata"),
         )
+
+    // --- how full a day is --------------------------------------------------
+
+    @Test
+    fun `an unmarked day is empty`() {
+        assertEquals(0.0, Windows.load(emptyList(), mon), 1e-9)
+        assertEquals(Weather.CLEAR, Windows.weatherFor(emptyList(), mon))
+    }
+
+    @Test
+    fun `a day of lectures reads as a heavy one`() {
+        val week = listOf(
+            busy(at(9), at(13)),
+            busy(at(14), at(18)),
+            busy(at(19), at(21)),
+        )
+        // Ten of the fourteen waking hours: heavy, and still not the worst a
+        // week can do. Storm is kept for a day with almost nothing left in it.
+        assertEquals(10.0 / 14.0, Windows.load(week, mon), 1e-9)
+        assertEquals(Weather.RAIN, Windows.weatherFor(week, mon))
+        assertEquals(
+            Weather.STORM,
+            Windows.weatherFor(listOf(busy(at(8), at(21, 30))), mon),
+        )
+    }
+
+    @Test
+    fun `two lectures that run into each other are not counted twice`() {
+        // The overlap is an hour. Weighed naively the day comes out fuller
+        // than it is, and an overlap is easy to make on a grid you drag on.
+        val overlapping = listOf(busy(at(9), at(13)), busy(at(12), at(15)))
+        val same = listOf(busy(at(9), at(15)))
+        assertEquals(Windows.load(same, mon), Windows.load(overlapping, mon), 1e-9)
+    }
+
+    @Test
+    fun `time outside the waking window does not weigh on the day`() {
+        // Somebody marking sleep busy is describing a night, not a full day.
+        val asleep = listOf(busy(LocalTime.MIDNIGHT, at(7)))
+        assertEquals(0.0, Windows.load(asleep, mon), 1e-9)
+    }
+
+    @Test
+    fun `a flower never makes the day look busier`() {
+        // The asymmetry this file exists to guard, in one more place: room you
+        // kept is not work you took on.
+        val week = listOf(busy(at(9), at(12)), flower(at(18), at(21)))
+        assertEquals(Windows.load(listOf(busy(at(9), at(12))), mon), Windows.load(week, mon), 1e-9)
+    }
+
+    @Test
+    fun `a fuller day never suggests lighter weather`() {
+        // Monotonic, so the guess cannot go backwards as the week fills up.
+        val order = Weather.entries
+        var last = -1
+        for (hours in 0..14) {
+            val week = if (hours == 0) emptyList() else listOf(busy(at(8), at(8 + hours)))
+            val here = order.indexOf(Windows.weatherFor(week, mon))
+            assertTrue("$hours hours went backwards", here >= last)
+            last = here
+        }
+        assertEquals(Weather.STORM, last.let { order[it] })
+    }
+
+    @Test
+    fun `the day is never fuller than full`() {
+        val week = listOf(busy(LocalTime.MIDNIGHT, LocalTime.of(23, 59)))
+        assertTrue(Windows.load(week, mon) <= 1.0)
+    }
 }

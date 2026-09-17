@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import app.harbor.cue.CueNotifier
 import app.harbor.data.HarborStore
+import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
@@ -14,29 +16,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.ZoneId
+import java.util.UUID
 
 /**
  * Where the pipeline actually runs.
  *
  * Play services wakes this receiver with a batch of transitions. It advances
  * [BoutTracker] (stage 1), and when a walk has ended in stillness it asks
- * [CueGate] (stages 2-5) whether that moment deserves a reminder.
- *
- * A walk that ends is always asked about twice: once here, the instant
- * stillness is reported, and once more when [SettleAlarm] brings it back
- * settled. The first ask can only ever be refused — see [considerCue] — and
- * for a long time it was also the only one, which is why no sensed walk had
- * ever produced a reminder.
+ * [CuePolicy] (stages 2-4) whether that moment deserves a cue.
  *
  * Everything here is on-device and offline. Nothing in this path touches the
- * network, by design — the reminder has to fire on a train with no signal.
+ * network, by design — the cue has to fire on a train with no signal.
  * See ADR-003.
  */
 class TransitionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (!ActivityTransitionResult.hasResult(intent)) return
-        val result = ActivityTransitionResult.extractResult(intent) ?: return
+        // Two ways in: a batch of transitions from Play services, or our own
+        // alarm coming back to ask about a stop that was too fresh the first
+        // time. See [SettleAlarm].
+        val settled = SettleAlarm.signalOf(intent)
+        val result = if (settled != null) null else ActivityTransitionResult.extractResult(intent)
+        if (settled == null && result == null) return
 
         val app = context.applicationContext
         val pending = goAsync()
@@ -46,7 +48,7 @@ class TransitionReceiver : BroadcastReceiver() {
         // anything slow here.
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
-                handle(app, result)
+                if (settled != null) settle(app, settled) else handle(app, result!!)
             } catch (e: Throwable) {
                 // A crash here would be invisible to the user and would take
                 // sensing down until the next reboot. Losing one transition is
@@ -78,57 +80,67 @@ class TransitionReceiver : BroadcastReceiver() {
                 at = ActivityTransitions.toInstant(event.elapsedRealTimeNanos),
             )
 
-            // Moving again, by any means. Whatever stop was waiting to settle
-            // is over, and firing into the middle of the next walk is the
-            // "never mid-activity" rule broken by the back door.
-            if (mapped.kind == BoutTracker.Kind.ENTER &&
-                mapped.activity != BoutTracker.Activity.STILL
-            ) {
-                if (sensing.pending != null) {
-                    sensing.pending = null
-                    SettleAlarm.cancel(context)
-                }
-            }
-
             val step = BoutTracker.advance(sensing.state, mapped)
             sensing.state = step.state
 
             val signal = step.signal ?: continue
-            considerCue(context, sensing, store, signal)
+            considerCue(context, store, signal)
         }
     }
 
     /**
-     * Ask about a walk that just ended — and park it when the only thing
-     * standing in the way is that it ended a moment ago.
+     * The stop we held is now as old as the settle window. Ask again.
      *
-     * This runs at the instant Play services reports stillness, which is
-     * always inside [CuePolicy.SETTLE], so the settle gate refuses every time.
-     * Before, that refusal was the end of it: the bout had already been
-     * cleared by [BoutTracker] and nothing would wake the pipeline again, so
-     * no sensed walk could ever become a reminder. Now the signal is stored
-     * and [SettleAlarm] brings it back once it has settled.
-     *
-     * Only `TRANSITION_UNSETTLED` is deferred. It is the one refusal that time
-     * alone resolves; a day at its cap or a user inside a lecture is not going
-     * to be different in ninety seconds, and re-asking those would be badgering
-     * the policy rather than respecting it.
+     * Unless a walk has opened since — that stop is stale, and the new one
+     * will be considered on its own terms when it ends.
      */
+    private suspend fun settle(context: Context, signal: CuePolicy.Signal) {
+        if (SensingStore(context).state.walkingSince != null) return
+        considerCue(context, HarborStore(context), signal)
+    }
+
     private suspend fun considerCue(
         context: Context,
-        sensing: SensingStore,
         store: HarborStore,
         signal: CuePolicy.Signal,
     ) {
         val now = Instant.now()
-        val decision = CueGate.consider(context, store, signal, now)
+        val today = now.atZone(ZoneId.systemDefault()).toLocalDate()
 
-        if (decision is CuePolicy.Decision.Hold &&
-            decision.reason == CuePolicy.Reason.TRANSITION_UNSETTLED
-        ) {
-            sensing.pending = signal
-            SettleAlarm.schedule(context, signal, now)
+        val decision = CuePolicy.decide(
+            signal = signal,
+            settings = store.settings.value,
+            day = store.dayState(today),
+            now = now,
+        )
+
+        if (decision is CuePolicy.Decision.Hold) {
+            // The one reason that is not a refusal: the stop is real and only
+            // too recent, and the moment it is waiting for is in the future.
+            // Every other reason means no, and no alarm is set for a no.
+            if (decision.reason == CuePolicy.Reason.TRANSITION_UNSETTLED) {
+                SettleAlarm.arm(context, signal)
+            }
+            // Held cues are not written anywhere. They are not events in the
+            // user's life, and a ledger full of near-misses would make the
+            // study's numbers mean something other than what they say.
+            Log.i(TAG, "cue held: ${decision.reason}")
+            return
         }
+
+        val cue = Cue(
+            id = UUID.randomUUID(),
+            firedDate = today,
+            triggerSource = signal.source,
+            firedAt = now,
+        )
+        // Recorded before it is shown, so the daily cap counts it even if the
+        // process dies between here and the surface appearing. The surface
+        // records only the resolution, never a second cue.
+        store.recordCue(cue)
+
+        CueNotifier.post(context, cue, store.contacts.value.firstOrNull())
+        Log.i(TAG, "cue fired: ${cue.id} after ${signal.activeMinutes} min")
     }
 
     private fun activityOf(type: Int): BoutTracker.Activity = when (type) {

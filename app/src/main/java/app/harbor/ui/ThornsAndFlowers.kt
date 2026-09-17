@@ -3,6 +3,7 @@ package app.harbor.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -12,6 +13,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,6 +28,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -212,6 +221,55 @@ internal fun DrawScope.drawFlowerBlock(body: Rect) {
 }
 
 /**
+ * A hand, small, over the corner of something you can pick up.
+ *
+ * The palette reads as a pair of radio buttons -- tap one, it lights up, tap
+ * the other -- and nothing about it says the thing you tapped can also be
+ * carried onto the week. Usability testing had people choose a kind and then
+ * hunt the grid for somewhere to press, never once trying to drag from here.
+ *
+ * Drawn rather than an icon, like every other mark in the app, and drawn as a
+ * hand rather than the usual six-dot grip because a grip means "reorder this
+ * list" to anyone who has met one before, and this is not a list.
+ */
+internal fun DrawScope.drawGrabHand(body: Rect, ink: Color) {
+    val w = body.width
+    val h = body.height
+    val finger = w * 0.135f
+
+    drawRoundRect(
+        color = ink,
+        topLeft = Offset(body.left + w * 0.20f, body.top + h * 0.46f),
+        size = Size(w * 0.62f, h * 0.50f),
+        cornerRadius = CornerRadius(w * 0.17f),
+    )
+    // Three fingers, not four, and the middle one longest. Four at this size
+    // closes up into a single block with a bite out of the top; three keeps a
+    // gap you can still see at fourteen points, which is all this is drawn at.
+    val tops = floatArrayOf(0.16f, 0.06f, 0.14f)
+    for (i in 0 until 3) {
+        val x = body.left + w * (0.255f + i * 0.195f)
+        val top = body.top + h * tops[i]
+        drawRoundRect(
+            color = ink,
+            topLeft = Offset(x, top),
+            size = Size(finger, body.top + h * 0.62f - top),
+            cornerRadius = CornerRadius(finger * 0.5f),
+        )
+    }
+    // The thumb, out to the side and lower. It is what stops the shape reading
+    // as a fork.
+    rotate(degrees = -24f, pivot = Offset(body.left + w * 0.22f, body.top + h * 0.60f)) {
+        drawRoundRect(
+            color = ink,
+            topLeft = Offset(body.left + w * 0.06f, body.top + h * 0.60f),
+            size = Size(finger, h * 0.30f),
+            cornerRadius = CornerRadius(finger * 0.5f),
+        )
+    }
+}
+
+/**
  * What you are about to plant.
  *
  * The frames show a hand cursor resting on the thorn to say which one is
@@ -227,13 +285,45 @@ internal fun PaletteChip(
     tile: Color,
     ink: Color,
     modifier: Modifier = Modifier,
+    /**
+     * Where the finger is, in root coordinates, while one is being carried off
+     * the palette. Null means this chip is only a chip.
+     */
+    onCarry: ((Offset) -> Unit)? = null,
+    /** Let go. The offset is where, in root coordinates. */
+    onDrop: ((Offset) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    var at by remember { mutableStateOf(Offset.Zero) }
     Column(
         modifier
+            .onGloballyPositioned { origin = it.positionInRoot() }
             .clip(RoundedCornerShape(18.dp))
             .background(if (selected) tile else Color.Transparent)
             .clickable(onClick = onClick)
+            .then(
+                if (onCarry == null) Modifier else Modifier.pointerInput(kind) {
+                    detectDragGestures(
+                        // Picking one up chooses it too. Dragging the kind you
+                        // had not selected and having it land as the other one
+                        // is the sort of thing nobody reports and everybody
+                        // works around.
+                        onDragStart = { start ->
+                            onClick()
+                            at = origin + start
+                            onCarry(at)
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            at = origin + change.position
+                            onCarry(at)
+                        },
+                        onDragEnd = { onDrop?.invoke(at) },
+                        onDragCancel = { onDrop?.invoke(Offset.Unspecified) },
+                    )
+                },
+            )
             .padding(horizontal = 18.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -248,6 +338,18 @@ internal fun PaletteChip(
                 BlockKind.BUSY -> drawThorn(body)
                 BlockKind.FREE -> drawFlowerBlock(body)
             }
+            if (onCarry != null) {
+                // Over the head of the thorn or the bud, where the eye already
+                // is, rather than tucked in a corner it would have to find.
+                val mark = Size(size.width * 0.38f, size.width * 0.38f)
+                drawGrabHand(
+                    Rect(
+                        offset = Offset(size.width * 0.60f, 0f),
+                        size = mark,
+                    ),
+                    ink.copy(alpha = 0.62f),
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
         Text(
@@ -258,7 +360,6 @@ internal fun PaletteChip(
     }
 }
 
-/** The same two drawings, at whatever size the caller sizes the modifier to. */
 @Composable
 internal fun BlockGlyph(kind: BlockKind, modifier: Modifier = Modifier) {
     Canvas(modifier) {

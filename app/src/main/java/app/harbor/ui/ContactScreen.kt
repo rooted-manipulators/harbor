@@ -262,7 +262,7 @@ fun ContactScreen(
 
             Notice("Everything here stays on this phone. The photo is copied into Harbor.")
 
-            TextLink("Save") {
+            TextLink("Save", onClick = {
                 previewRinger.stop()
                 val trimmedLabel = label.trim()
                 val trimmedPhone = phone.trim()
@@ -287,8 +287,8 @@ fun ContactScreen(
                         onDone()
                     }
                 }
-            }
-            TextLink("Back") { previewRinger.stop(); onDone() }
+            })
+            TextLink("Back", onClick = { previewRinger.stop(); onDone() })
         }
     }
 }

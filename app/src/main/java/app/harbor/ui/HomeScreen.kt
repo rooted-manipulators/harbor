@@ -61,17 +61,22 @@ import app.harbor.domain.Contact
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.Flowers
 import app.harbor.domain.LedgerEntry
+import app.harbor.domain.Reminders
 import app.harbor.domain.Resolution
 import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Ember
 import app.harbor.ui.theme.EmberLight
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.Flow
+import app.harbor.ui.theme.PrimaryAction
+import app.harbor.ui.theme.QuietAction
 import app.harbor.ui.theme.SectionHeading
 import app.harbor.ui.theme.SmallCopy
 import app.harbor.ui.theme.Surface
 import app.harbor.ui.theme.pageContent
+import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Home, hand-translated from `components/harbor/home.tsx`.
@@ -288,6 +293,57 @@ fun HomeScreen(
                     .offset(y = (-40).dp)
                     .pageContent(),
             ) {
+                // A plan they made and nobody has closed.
+                //
+                // This is the "reminder inside Harbor" the cue promises when
+                // somebody taps a later time. Until this card existed there
+                // was nothing behind that promise, and the plan it left behind
+                // held every sensed reminder back for good -- see
+                // domain/Reminders.
+                //
+                // It waits to be found rather than arriving. A reminder that
+                // comes looking for you is a cue, and a cue is the one thing
+                // this person has just said "not now" to.
+                Reminders.due(entries, Instant.now())?.let { plan ->
+                    val who = contacts.firstOrNull { it.id == plan.contactId }
+                    val close: (Reminders.Closed) -> Unit = { how ->
+                        scope.launch {
+                            store.markReminderDone(plan.id, how)
+                            entries = store.recentEntries()
+                        }
+                    }
+                    Surface {
+                        SectionHeading("You made room for this.")
+                        SmallCopy(
+                            "You thought " +
+                                timeLabel(
+                                    plan.proposedTime!!
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalTime(),
+                                ) +
+                                " might suit for " + (who?.label ?: "someone") +
+                                ". It still might.",
+                        )
+                        if (who != null && who.phoneE164 != null) {
+                            // No closing call here. The row the dialer writes
+                            // closes the plan by itself, and a plan marked
+                            // closed by a call that never happened is a worse
+                            // record than one simply left open.
+                            PrimaryAction("Call " + who.label) {
+                                Dialer.handOff(context, store, scope, who)
+                            }
+                        }
+                        // Both of these close it, and neither costs anything.
+                        // "I already did" is taken at its word and writes no
+                        // call -- Harbor did not see one, so Harbor does not
+                        // claim one.
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            QuietAction("I already did") { close(Reminders.Closed.SAID_SO) }
+                            QuietAction("Let it go") { close(Reminders.Closed.LET_GO) }
+                        }
+                    }
+                }
+
                 // A call Harbor watched you start and never heard about.
                 CallStats.pendingReflection(entries, Instant.now())?.let { waiting ->
                     Surface {
@@ -299,7 +355,7 @@ fun HomeScreen(
                                 " earlier. It only takes a moment, and it is what grows " +
                                 "the flower.",
                         )
-                        TextLink("Tell me") { onReflect(waiting) }
+                        TextLink("Tell me", onClick = { onReflect(waiting) })
                     }
                 }
 

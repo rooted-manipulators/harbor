@@ -5,77 +5,70 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.SystemClock
-import android.util.Log
 import app.harbor.domain.CuePolicy
-import java.time.Duration
+import app.harbor.domain.TriggerSource
 import java.time.Instant
 
 /**
- * The clock that comes back to a walk once it has settled.
+ * The second look at a stop that was still too fresh to act on.
  *
- * ## Why this exists
+ * [CuePolicy] holds a cue until the person has been still for
+ * [CuePolicy.SETTLE], so Harbor does not fire at a traffic light. But Play
+ * services delivers the STILL transition within seconds of detecting it, which
+ * is always *inside* that window — so every sensed cue was held once, dropped,
+ * and never asked about again. No real walk could produce a reminder; the
+ * pipeline worked and the last stage threw the result away.
  *
- * [CuePolicy] will not fire on a stop until the user has been still for
- * [CuePolicy.SETTLE] — the rule that stops a reminder arriving at a traffic
- * light. But the only thing that ever ran the policy was
- * [TransitionReceiver], woken by Play services at the instant stillness was
- * detected, which is the one moment the settle check is guaranteed to refuse.
- * Nothing came back afterwards, and the closed bout was discarded, so a real
- * walk could never produce a reminder at all. This is the thing that comes
- * back.
+ * So the hold arms this, and the decision is made a second time once the
+ * stillness is genuinely as old as the window claims.
  *
- * ## Why an alarm and not a service
- *
- * ADR-008 rules out a foreground service and its reasoning holds: the app
- * needs to be woken briefly at a known later time, not to stay running. An
- * alarm is exactly that, costs no permission, no notification and no battery
- * between firings, and leaves the receiver-shaped pipeline intact.
- *
- * ## Inexact on purpose
- *
- * [AlarmManager.setAndAllowWhileIdle] is allowed through Doze and needs no
- * permission. `setExactAndAllowWhileIdle` would be tighter, but from API 31 it
- * needs `SCHEDULE_EXACT_ALARM`, and a permission prompt for a ninety-second
- * timer is a bad trade in an app whose whole permission budget is spent on
- * activity recognition (see docs/00-product.md). Doze can hold this until a
- * maintenance window, which is why the signal carries its own timestamp and
- * [CuePolicy.settleExpired] throws away anything that lands far too late.
- *
- * Elapsed-realtime rather than wall-clock: the wait is a duration, and a
- * timezone change or an NTP correction in the middle of it should not move it.
+ * Inexact on purpose: `setAndAllowWhileIdle` needs no permission, while an
+ * exact alarm would mean `SCHEDULE_EXACT_ALARM`. A reminder that arrives a
+ * couple of minutes into the stillness is still the moment — another
+ * permission on the install funnel is not worth those seconds.
  */
-internal object SettleAlarm {
+object SettleAlarm {
 
-    /**
-     * Wake us once [signal] has been still long enough to be asked about
-     * again. Replaces any alarm already set — there is only ever one walk
-     * waiting, and the newest stop is the one that matters.
-     */
-    fun schedule(context: Context, signal: CuePolicy.Signal, now: Instant) {
-        val remaining = CuePolicy.SETTLE.minus(Duration.between(signal.stillSince, now))
-        val delayMillis = remaining.toMillis().coerceAtLeast(0L)
+    const val ACTION = "app.harbor.sensing.SETTLE"
 
-        val manager = context.getSystemService(AlarmManager::class.java) ?: return
-        val at = SystemClock.elapsedRealtime() + delayMillis
+    /** One armed settle at a time: a newer stop replaces an older one. */
+    private const val REQUEST_CODE = 2
 
-        // No version guard: setAndAllowWhileIdle is API 23 and minSdk is 26.
-        manager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, intent(context))
-        Log.i(TAG, "settle re-ask in ${delayMillis}ms")
+    private const val EXTRA_SOURCE = "source"
+    private const val EXTRA_ACTIVE_MINUTES = "active_minutes"
+    private const val EXTRA_STILL_SINCE = "still_since"
+
+    fun arm(context: Context, signal: CuePolicy.Signal) {
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+        alarms.setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            signal.stillSince.plus(CuePolicy.SETTLE).toEpochMilli(),
+            pendingIntent(context, signal),
+        )
     }
 
-    /** The walk stopped being a walk that ended — they moved again. */
-    fun cancel(context: Context) {
-        context.getSystemService(AlarmManager::class.java)?.cancel(intent(context))
+    /** The signal this alarm was armed for, or null if the intent is not ours. */
+    fun signalOf(intent: Intent): CuePolicy.Signal? {
+        if (intent.action != ACTION) return null
+        val source = intent.getStringExtra(EXTRA_SOURCE) ?: return null
+        val stillSince = intent.getLongExtra(EXTRA_STILL_SINCE, -1L)
+        if (stillSince < 0) return null
+        return CuePolicy.Signal(
+            source = TriggerSource.valueOf(source),
+            activeMinutes = intent.getIntExtra(EXTRA_ACTIVE_MINUTES, 0),
+            stillSince = Instant.ofEpochMilli(stillSince),
+        )
     }
 
-    private fun intent(context: Context): PendingIntent {
-        val intent = Intent(context.applicationContext, SettleReceiver::class.java)
+    private fun pendingIntent(context: Context, signal: CuePolicy.Signal): PendingIntent {
+        val intent = Intent(context.applicationContext, TransitionReceiver::class.java).apply {
+            action = ACTION
+            putExtra(EXTRA_SOURCE, signal.source.name)
+            putExtra(EXTRA_ACTIVE_MINUTES, signal.activeMinutes)
+            putExtra(EXTRA_STILL_SINCE, signal.stillSince.toEpochMilli())
+        }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_IMMUTABLE else 0
         return PendingIntent.getBroadcast(context.applicationContext, REQUEST_CODE, intent, flags)
     }
-
-    private const val REQUEST_CODE = 2
-    private const val TAG = "HarborSensing"
 }

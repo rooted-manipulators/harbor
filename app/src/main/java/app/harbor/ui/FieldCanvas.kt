@@ -1,5 +1,7 @@
 package app.harbor.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path as NativePath
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -62,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
+import kotlin.math.min
 
 /**
  * The field.
@@ -123,6 +127,13 @@ fun FieldCanvas(
      * question and are not: home wants the close shot *and* the gestures, so
      * you can push the field back with two fingers and see the whole garden
      * without leaving the screen. Only the opening frame is fixed.
+     *
+     * The field screen asks for it too now. It used to open on the overview,
+     * on the reasoning that the screen for looking at the whole island should
+     * open on the whole island -- but the island from orbit is where a flower
+     * is a pixel, so somebody who had just grown their first one went looking
+     * for it and found a map. The island is one pinch, or one tap of pull
+     * back, away, and that framing then stays.
      */
     standClose: Boolean = false,
     /**
@@ -155,19 +166,31 @@ fun FieldCanvas(
     LaunchedEffect(Unit) { entries = store.recentEntries() }
 
     val people = remember(contacts, entries) {
+        // Oldest first, because that is the order the ground is planted in
+        // and a flower has to keep its place as the ones after it arrive.
         val grown = entries
             .filter { it.resolution == Resolution.CALLED && it.flower != null }
+            .sortedBy { it.occurredAt }
             .groupBy { it.contactId }
         contacts.map { contact ->
             val theirs = grown[contact.id].orEmpty()
+            // Every flower this person has grown, in order, each in the kind
+            // that was chosen on the call that grew it. One flower a minute,
+            // not one a call -- see Flowers.flowerCount -- so a long call
+            // puts down a run of the same answer, which is the honest shape
+            // of it.
+            val kinds = theirs.flatMap { entry ->
+                List(Flowers.flowerCount(entry.callMinutes)) { entry.flower!! }
+            }
             Field.Person(
                 contactId = contact.id,
                 label = contact.label,
-                // One flower a minute, not one a call. See Flowers.flowerCount.
-                calls = theirs.sumOf { Flowers.flowerCount(it.callMinutes) },
-                // A patch is planted with whatever has been chosen for it
-                // most often, so its colour is something the user picked
-                // rather than something assigned.
+                calls = kinds.size,
+                flowers = kinds,
+                // A patch is named by whatever has been chosen for it most
+                // often, so the tag says something the user picked rather
+                // than something assigned. Only the label and the empty
+                // patch use it now; the blooms are each their own kind.
                 flower = theirs.mapNotNull { it.flower }
                     .groupingBy { it }.eachCount()
                     .maxByOrNull { it.value }?.key
@@ -177,7 +200,25 @@ fun FieldCanvas(
     }
 
     val patches = remember(people) { Field.patches(people) }
-    val palette = remember(patches) { Field.palette(patches) }
+    val palette = remember { Field.palette() }
+
+    // The bloom artwork, for the flowers near enough to be worth drawing
+    // properly. Only the kinds planted here, and decoded off the frame: a
+    // field of five contacts holds a handful of these, not all twenty.
+    val grownKinds = remember(patches) {
+        patches.flatMapTo(LinkedHashSet()) { it.flowers + it.flower }
+    }
+    val res = LocalContext.current.resources
+    val art by produceState(initialValue = emptyMap<FlowerKind, Bitmap>(), grownKinds, res) {
+        value = withContext(Dispatchers.Default) {
+            // Half size. A bloom drawn larger than this in the *field* means
+            // one flower is filling a quarter of the screen, which is further
+            // than this view is for -- and full size would hold four times the
+            // heap for a sharpness nothing here is close enough to use.
+            val opts = BitmapFactory.Options().apply { inSampleSize = 2; inScaled = false }
+            grownKinds.associateWith { BitmapFactory.decodeResource(res, bloomOf(it), opts) }
+        }
+    }
 
     // Tens of thousands of cells, each sampling several octaves of noise.
     // Fast, but not fast enough to sit on the frame that shows the screen.
@@ -217,34 +258,70 @@ fun FieldCanvas(
      * biggest.
      */
     val homeSpot = remember(patches, entries) {
+        // By the clock on the entry, not by where it sits in the list.
+        // `recentEntries` hands them back *oldest* first, so taking the first
+        // one meant the field stood at the patch of the very first call ever
+        // made and called it the newest -- which is the one place in the app
+        // where being a call behind is being a whole person behind.
         val newest = entries
-            .firstOrNull { it.resolution == Resolution.CALLED && it.flower != null }
+            .filter { it.resolution == Resolution.CALLED && it.flower != null }
+            .maxByOrNull { it.occurredAt }
             ?.contactId
         patches.firstOrNull { it.contactId == newest && it.calls > 0 }
             ?: patches.filter { it.calls > 0 }.maxByOrNull { it.calls }
     }
 
-    // Frame the whole island, and keep framing it until the user takes over.
+    /**
+     * The ground the camera actually stands on: that patch's newest flower.
+     *
+     * Aiming at the patch centre was near enough while a patch was a blur of
+     * dots, and is not once the flower somebody just grew is the point of the
+     * shot -- at standing zoom a well-planted patch is wider than the phone,
+     * so its middle can have the new bloom off the edge of the screen.
+     * [Field.newestBloom] is the cell that arrived last, and it is a real
+     * place rather than an average of one.
+     */
+    val newest: Field.Cell? = remember(cells, patches, homeSpot) {
+        val here = homeSpot ?: return@remember null
+        val i = patches.indexOf(here)
+        if (i < 0) null else Field.newestBloom(cells, i)
+    }
+
+    val standSpot: Pair<Double, Double>? = remember(newest, cells, homeSpot) {
+        // Null, not the patch centre, while the cells are still being built.
+        // Nothing is drawn until they arrive, so there is nothing to aim at
+        // yet -- and a first answer that has to be corrected the moment the
+        // real one turns up is a jump across the patch for no reason.
+        newest?.let { it.x to it.y }
+            ?: homeSpot?.let { if (cells.isEmpty()) null else it.x to it.y }
+    }
+
+    // Take the opening framing, and keep taking it until the user takes over.
     //
     // Latching on the first size that arrived was wrong: layout reports an
     // early, smaller frame before it settles, so the camera locked to that
     // one's overview zoom and the island then sat at a third of the width it
     // should have filled. Re-aiming until the first gesture also means a
     // rotation reframes instead of leaving the world off-centre.
-    LaunchedEffect(base, frame, planted, homeSpot, standClose, arriving) {
+    LaunchedEffect(base, frame, planted, standSpot, standClose, arriving) {
         // While a flower is arriving the camera is being flown deliberately;
-        // re-aiming underneath it would cut the flight short. homeSpot also
+        // re-aiming underneath it would cut the flight short. standSpot also
         // changes the instant the new flower lands, which is exactly when this
         // would otherwise fire.
         if (arriving) return@LaunchedEffect
+        // Something is planted but the field is not built yet: wait for it
+        // rather than aim somewhere that will have to be corrected.
+        if (planted && standSpot == null) return@LaunchedEffect
         if (!touched && base > 0 && frame.width > 0) {
-            val here = homeSpot
+            val here = standSpot
             cam = when {
-                // Home, with something to show: stand at the newest patch.
+                // Home, with something to show: stand at the newest flower.
                 standClose && here != null ->
-                    Field.Camera(here.x, here.y, base * Field.EMPTY_ZOOM)
+                    Field.Camera(here.first, here.second, base * Field.BLOOM_ZOOM)
 
-                // The garden screen, which is the one that shows the island.
+                // A field asked to open on the whole island rather than to
+                // stand in it. Nothing does now -- both screens stand -- but
+                // this is what [standClose] being false still means.
                 planted && !standClose ->
                     Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
 
@@ -266,13 +343,13 @@ fun FieldCanvas(
     // chase below does the flying. That is why the descent eases: it is the
     // same motion a tap on a patch makes, which is the point, because this is
     // the app showing you where the thing you just did ended up.
-    LaunchedEffect(arriving, base, frame, homeSpot) {
+    LaunchedEffect(arriving, base, frame, standSpot) {
         if (!arriving || base <= 0 || frame.width <= 0) return@LaunchedEffect
-        val here = homeSpot ?: return@LaunchedEffect
+        val here = standSpot ?: return@LaunchedEffect
         cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
         goal = cam
         delay(520)
-        goal = Field.Camera(here.x, here.y, base * Field.EMPTY_ZOOM)
+        goal = Field.Camera(here.first, here.second, base * Field.BLOOM_ZOOM)
     }
 
     // The camera chases its goal rather than snapping, which is what makes a
@@ -358,7 +435,7 @@ fun FieldCanvas(
                 },
         ) {
             if (cells.isEmpty() || base <= 0) return@Canvas
-            drawField(cells, patches, palette, cam, base, kit, tagInk)
+            drawField(cells, patches, palette, cam, base, kit, tagInk, newest, art)
         }
 
         if (controls) {
@@ -371,10 +448,15 @@ fun FieldCanvas(
                 touched = true
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom / 1.45, base))
             },
-            // Pull back hands the camera back to the app, so the field keeps
-            // reframing itself again afterwards.
+            // Pull back is a framing like any other, and it stays put.
+            //
+            // It used to hand the camera back to the app, which was harmless
+            // while the app's own framing was also the whole island. Now that
+            // the field opens standing at the newest flower, handing it back
+            // means the island you asked for is taken away again the next time
+            // anything reframes.
             onFit = {
-                touched = false
+                touched = true
                 goal = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
             },
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -504,7 +586,10 @@ private fun PatchCard(
 private class DrawKit(buckets: Int) {
     val paths = Array(buckets) { NativePath() }
     val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    val rock = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD93B3D39.toInt() }
+    // Rock and the patch outlines went up with the ground under them. Both
+    // were pitched against a land that has since been lifted off the page,
+    // and a boulder the colour of the grass it sits on is not a boulder.
+    val rock = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xDB4E5148.toInt() }
     val till = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xCC7C5B3D.toInt()
@@ -512,9 +597,17 @@ private class DrawKit(buckets: Int) {
     }
     val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0x5733553D
+        color = 0x66708F76
         pathEffect = DashPathEffect(floatArrayOf(5f, 6f), 0f)
     }
+    /** The ring around the flower that has just been grown. */
+    val markRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFFF0BD3E.toInt()
+        strokeCap = Paint.Cap.ROUND
+    }
+    /** The bloom artwork. Filtered, because it is always drawn scaled down. */
+    val art = Paint(Paint.FILTER_BITMAP_FLAG)
     val tagBack = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF7C5B3D.toInt() }
     val tagText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -536,8 +629,20 @@ private fun DrawScope.drawField(
     base: Double,
     kit: DrawKit,
     tagInk: Color,
+    /** The flower just grown, ringed so it can be found. Null the rest of the time. */
+    mark: Field.Cell?,
+    /** The bloom artwork, by kind. Empty until it has finished decoding. */
+    art: Map<FlowerKind, Bitmap>,
 ) {
     val unit = 1.dp.toPx()
+    // A bloom is never drawn smaller than this, however far off it is.
+    //
+    // The ground's floor is 0.75px, and at that size a patch of one or two
+    // calls is a couple of sub-pixel specks in two hundred cells -- the
+    // flowers were there and simply could not be seen. Held under
+    // [Field.FLOWER_AT] so a distant bloom stays a dot rather than out-growing
+    // the size at which it would have opened into a flower.
+    val bloomFloor = min(1.3 * unit, Field.FLOWER_AT * 0.8)
     val w = size.width.toDouble()
     val h = size.height.toDouble()
     val lens = Field.buildLens(cam, base, h)
@@ -550,6 +655,10 @@ private fun DrawScope.drawField(
     // Flowers and rock are drawn after the bulk, so they sit on top of it.
     val blooms = ArrayList<FloatArray>()
     var tillWidth = -1f
+    // Spent against [Field.GRASS_BUDGET]. Ground that runs out stays dots.
+    var tufts = 0
+    // Where the marked flower came out on screen, and how big, or null.
+    var marked: FloatArray? = null
 
     for (i in cells.indices) {
         val c = cells[i]
@@ -587,15 +696,37 @@ private fun DrawScope.drawField(
                     blooms += floatArrayOf(
                         p.x.toFloat(), p.y.toFloat(), r.toFloat(),
                         c.patch.toFloat(), c.tone.toFloat(), c.paint.toFloat(),
+                        c.bloom.toFloat(),
                     )
                 } else {
-                    if (r < 0.75) r = 0.75
+                    if (r < bloomFloor) r = bloomFloor
                     kit.paths[c.paint].addCircle(p.x.toFloat(), p.y.toFloat(), r.toFloat(), NativePath.Direction.CW)
                 }
+                // Identity, not equality: this cell came out of the same list
+                // the mark was picked from, and comparing every field of every
+                // planted cell every frame is not free.
+                if (c === mark) marked = floatArrayOf(p.x.toFloat(), p.y.toFloat(), r.toFloat())
             }
 
             Field.Kind.DOT -> {
                 if (r < 0.75) r = 0.75
+                // Close enough in, and only on ground the view is actually
+                // looking at, a tuft grows the grass it stands for. The dot
+                // stays underneath as the root of the clump, shrinking as the
+                // blades come up, so the ground thickens rather than swapping
+                // for something else.
+                //
+                // Vegetation only: water and bare dirt keep their dots, being
+                // neither of them grass.
+                val stand = Field.grassStand(lens.tilt, p.y, h)
+                if (stand > 0.02 && r > Field.GRASS_AT &&
+                    c.paint < Field.VEG.size && tufts < Field.GRASS_BUDGET
+                ) {
+                    tufts++
+                    val g = ((r - Field.GRASS_AT) / Field.GRASS_AT).coerceIn(0.0, 1.0).toFloat()
+                    addTuft(kit, c.paint, c.tone, p.x.toFloat(), p.y.toFloat(), r.toFloat(), g, stand.toFloat())
+                    r *= 1.0 - 0.35 * g * stand
+                }
                 kit.paths[c.paint].addCircle(p.x.toFloat(), p.y.toFloat(), r.toFloat(), NativePath.Direction.CW)
             }
         }
@@ -616,8 +747,22 @@ private fun DrawScope.drawField(
     drawPatchOutlines(canvas, patches, cam, lens, w, h, kit, unit)
 
     for (b in blooms) {
-        drawFlower(canvas, patches[b[3].toInt()].flower, b[0], b[1], b[2], b[4], b[5].toInt(), kit)
+        val patch = patches[b[3].toInt()]
+        val kind = Field.kindOf(patch, b[6].toInt())
+        val picture = art[kind]
+        // How far this bloom is into the artwork. Zero until it is big enough
+        // to be worth it, one once the drawn flower has nothing left to add.
+        val shown = if (picture == null) 0f else
+            ((b[2] - Field.ARTWORK_AT) / Field.ARTWORK_FADE).coerceIn(0.0, 1.0).toFloat()
+        if (shown < 1f) {
+            drawFlower(canvas, kind, b[0], b[1], b[2], b[4], b[5].toInt(), kit, 1f - shown)
+        }
+        if (shown > 0f && picture != null) {
+            drawBloom(canvas, picture, b[0], b[1], b[2], shown, kit)
+        }
     }
+
+    marked?.let { drawMark(canvas, it[0], it[1], it[2], kit, unit) }
 
     drawTags(canvas, patches, cam, lens, w, h, kit, tagInk, unit)
 }
@@ -657,11 +802,99 @@ private fun drawPatchOutlines(
 }
 
 /**
+ * One tuft of grass, added to the ground's own colour buckets.
+ *
+ * Blades go into the same paths the dots do, so a field of grass still costs
+ * the dozen fills the field has always cost -- the whole reason this screen
+ * draws on the native canvas. What it costs instead is path building, four
+ * operations a blade, which is why [Field.GRASS_BUDGET] exists.
+ *
+ * Every blade is a function of the cell's own tone, so a tuft is the same tuft
+ * every frame. Grass built from a running random crawls as you pan across it,
+ * which reads as the ground being alive in a way nothing else in Harbor is.
+ *
+ * [grown] runs nought to one across [Field.GRASS_AT] and twice it, and is what
+ * makes the blades rise out of the dot instead of appearing on top of it.
+ * [stand] is the other half of the same idea and comes from the camera rather
+ * than the cell: grass lies back down as the view tips toward plan, and toward
+ * the far end of a tipped one.
+ */
+private fun addTuft(
+    kit: DrawKit,
+    paint: Int,
+    tone: Double,
+    x: Float,
+    y: Float,
+    r: Float,
+    grown: Float,
+    /** How far the blades are out of the ground. See [Field.grassStand]. */
+    stand: Float,
+) {
+    val blades = 4 + (tone * 3).toInt()
+    val reach = r * (1f + 2.2f * grown) * stand
+    val half = r * 0.28f
+    // One step up the vegetation ladder is the lighter green. A blade or two
+    // in it catches the light and gives the clump some depth, and because it
+    // is a bucket that is already being filled it is free.
+    val lit = if (paint > 0) paint - 1 else paint
+    for (b in 0 until blades) {
+        val a = Field.wisp(tone, b).toFloat()
+        val c = Field.wisp(tone, b + 8).toFloat()
+        // Blades rise from about the same root and fan, rather than standing
+        // in a row. A row is a comb; a fan is a tuft.
+        val bx = x + (a - 0.5f) * r * 0.9f
+        val h = reach * (0.6f + a * 0.6f)
+        val lean = (c - 0.5f) * h * 0.85f
+        val path = kit.paths[if (c > 0.62f) lit else paint]
+        path.moveTo(bx - half, y)
+        path.quadTo(bx - half * 0.3f + lean * 0.3f, y - h * 0.55f, bx + lean, y - h)
+        path.quadTo(bx + half * 0.3f + lean * 0.3f, y - h * 0.55f, bx + half, y)
+        path.close()
+    }
+}
+
+/**
+ * One bloom, as the artwork, standing on the cell that grew it.
+ *
+ * Anchored by its foot rather than its middle: the artwork is a flower head
+ * seen face on, and the point it was planted at is the bottom of it. Centring
+ * it the way the drawn flower is centred would sink half of every bloom into
+ * the ground.
+ */
+private fun drawBloom(
+    canvas: android.graphics.Canvas,
+    picture: Bitmap,
+    x: Float,
+    y: Float,
+    r: Float,
+    fade: Float,
+    kit: DrawKit,
+) {
+    // Two radii tall, footed one radius under the cell -- which puts the
+    // middle of the bloom exactly on the point the drawn flower was centred
+    // on, so the handover moves nothing. A bloom that jumped up the screen as
+    // it resolved would make the swap visible, and not seeing the swap is the
+    // whole reason there is a fade.
+    val h = r * 2.0f
+    val w = h * picture.width / picture.height
+    val foot = y + r * 1.0f
+    kit.art.alpha = (255 * fade).toInt()
+    kit.rect.set(x - w / 2f, foot - h, x + w / 2f, foot)
+    canvas.drawBitmap(picture, null, kit.rect, kit.art)
+}
+
+/**
  * One flower.
  *
  * Petals are ellipses walked around the centre, rotated to face outward, in
- * the kind's own colours — the same shapes [FlowerMark] draws in the
- * reflection flow, so a flower looks like itself wherever it appears.
+ * the kind's own colours.
+ *
+ * This is a rosette seen from above, and deliberately *not* the faced
+ * silhouette [FlowerMark] draws. The field is a garden looked down on, and a
+ * bloom eleven pixels across on a view holding hundreds of them has to be one
+ * cheap fill per petal; here a flower is told by its colour, not its outline.
+ * Anything that wants the sheet's actual shape should be drawing at
+ * [FlowerMark]'s size.
  */
 private fun drawFlower(
     canvas: android.graphics.Canvas,
@@ -672,6 +905,8 @@ private fun drawFlower(
     tone: Float,
     paint: Int,
     kit: DrawKit,
+    /** Dimmed as the artwork comes up underneath it. See [Field.ARTWORK_FADE]. */
+    fade: Float = 1f,
 ) {
     val spec = Flowers.spec(kind)
     val petals = spec.petals
@@ -690,7 +925,7 @@ private fun drawFlower(
     val ry = r * 0.60f
     val lift = r * 0.40f
     kit.fill.color = (if (paint % 2 == 1) spec.petal else spec.petalDeep).toInt()
-    kit.fill.alpha = 178
+    kit.fill.alpha = (178 * fade).toInt()
     for (i in 0 until petals) {
         canvas.save()
         canvas.rotate(i * 360f / petals + spin, x, y)
@@ -700,8 +935,41 @@ private fun drawFlower(
     }
 
     kit.fill.color = spec.heart.toInt()
-    kit.fill.alpha = 204
+    kit.fill.alpha = (204 * fade).toInt()
     canvas.drawCircle(x, y, r * 0.22f, kit.fill)
+}
+
+/**
+ * The flower just grown, ringed.
+ *
+ * A patch of twenty is twenty flowers and no answer to "which one was mine" --
+ * and the newest is nowhere in particular, because planting order is a
+ * scatter rather than a spiral. So it is marked: two gold rings, the inner one
+ * tight enough to read as belonging to that bloom and the outer faint one wide
+ * enough to catch the eye from a long way back, which is the framing somebody
+ * pinching out ends up in.
+ *
+ * Gold because gold is what the app uses to mean *this one*, and a ring
+ * because anything drawn over the flower would hide the thing it is pointing
+ * at. It stays until the next flower is grown, when it moves to that one.
+ */
+private fun drawMark(
+    canvas: android.graphics.Canvas,
+    x: Float,
+    y: Float,
+    r: Float,
+    kit: DrawKit,
+    unit: Float,
+) {
+    val inner = kotlin.math.max(r * 2.1f, 9f * unit)
+    kit.markRing.strokeWidth = 1.6f * unit
+    kit.markRing.alpha = 235
+    canvas.drawCircle(x, y, inner, kit.markRing)
+
+    kit.markRing.strokeWidth = 1.1f * unit
+    kit.markRing.alpha = 92
+    canvas.drawCircle(x, y, inner + 5f * unit, kit.markRing)
+    kit.markRing.alpha = 255
 }
 
 /** Whose patch is whose, with colliding labels nudged apart. */

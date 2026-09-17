@@ -77,8 +77,11 @@ object CuePolicy {
      * user swiped away without answering still spent one of their two.
      * [lastCueAt] is not derived from today either, because the cooldown has
      * to survive midnight — a cue at 23:55 must still suppress one at 00:05.
-     * And [hasPendingReminder] spans every day, since a plan made on Tuesday
-     * for Friday is still a plan.
+     * And [hasPendingReminder] spans every day, since a plan made this
+     * evening for tomorrow is still a plan in the morning. It is bounded at
+     * the far end rather than open — a plan whose time has been and gone stops
+     * holding reminders back, closed or not — but that bound is the caller's
+     * to apply, not this policy's. See [Reminders.holding].
      */
     data class DayState(
         val entriesToday: List<LedgerEntry>,
@@ -123,7 +126,7 @@ object CuePolicy {
         /** Too soon after the last cue. */
         IN_COOLDOWN,
 
-        /** They planned a later time and it hasn't been dealt with yet. */
+        /** They planned a later time, and that time is still ahead of them. */
         REMINDER_PENDING,
 
         /** Stopped, but not for long enough to be sure they've settled. */

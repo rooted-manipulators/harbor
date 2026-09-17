@@ -128,9 +128,13 @@ licences allow redistribution in an app binary.
 These have no CSS equivalent and no image files. They are vector paths in
 Kotlin, drawn on a canvas, and to change them you change the geometry.
 
+**Except the flowers, since 17 Sep.** They are artwork now — twenty files in
+`res/drawable-nodpi`, cut by `tools/cut_flowers.py` from the sources in
+`tools/flower-source`. See ADR-012. Everything else in this table still holds.
+
 | What | Where |
 | --- | --- |
-| Flowers (all kinds, and the bloom) | `ui/FlowerMark.kt`, `domain/Flowers.kt` |
+| ~~Flowers~~ — artwork now, see ADR-012 | `res/drawable-nodpi`, `ui/FlowerMark.kt` |
 | The garden: plots, layout, camera | `ui/GardenScreen.kt`, `domain/Garden.kt` |
 | Sky, sun, cloud, weather dimming | `ui/SkyWheel.kt` |
 | Nav icons (home, clock, person) | `ui/HarborShell.kt` |

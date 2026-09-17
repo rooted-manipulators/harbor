@@ -463,3 +463,169 @@ costs almost nothing.
 
 Someone sitting in a lecture who asks for the prompt is making their own
 decision. Consistent with every other gate `MANUAL` bypasses.
+
+---
+
+## ADR-012 — The flowers are artwork, not drawn geometry
+
+**17 Sep 2026. Reverses, for the flowers only, the rule in
+`docs/05-changing-the-ui.md` that every mark in the app is drawn on a canvas.**
+
+### What changed
+
+The twenty flowers ship as image files — `res/drawable-nodpi/flower_*.webp`,
+two cuts of each, made by `tools/cut_flowers.py` from the twenty source PNGs in
+`tools/flower-source`. Nothing draws a flower's shape in code any more.
+
+### Why
+
+Three separate attempts were made to draw them, in order: one petal function
+for all twenty, then a silhouette per flower, then the illustration vectorised
+and its Bézier outlines ported into Compose paths. Each one produced a
+recognisable flower. None produced *the* flower. The artwork carries soft light
+inside the petals and a glow through the throat that a fill cannot reach, and
+the gap was still obvious at the third attempt, which was tracing the real
+outlines rather than approximating them.
+
+At that point continuing to draw them is a preference for a rule over a result.
+The flowers are the reward surface of the whole product — they are what a week
+of calling looks like — and they are the one place in the app where the picture
+being right matters more than the picture being cheap.
+
+### What it costs, accepted knowingly
+
+- **They no longer restyle with the palette.** This was the reason for the
+  original rule and it is a real loss: a future skin changes every other mark
+  for free and cannot touch these. `Flowers.kt` still holds three colours per
+  flower, off the same sheet, for the things that need a colour rather than a
+  picture.
+- **About 1MB of APK**, and heap while they are on screen — a decoded bitmap is
+  width × height × 4 bytes.
+- **They do not scale past their own size.** The cuts are sized for the largest
+  place each is used; going bigger will go soft.
+
+### What is still drawn
+
+The two top-down views — the field's cells and the garden's dots — draw a
+flower a few pixels across, hundreds at a time. There is no shape to recognise
+at that size, only a hue, and the artwork would mean decoding every kind the
+garden holds. Those keep the cheap petals-around-a-centre mark, and the rule in
+`docs/05-changing-the-ui.md` is unchanged for every other icon in the app.
+
+### If this is ever reversed
+
+The last drawn version is the traced one, in the history of
+`ui/FlowerMark.kt` and the deleted `ui/FlowerArt.kt`. It is the closest a
+drawn flower got, and it is the thing to start from rather than starting over.
+
+---
+
+## ADR-013 — The other person has the app too, so Harbor gets a server
+
+**17 Sep 2026. Reverses ADR-003 and ADR-004 (no server dependency, no
+`INTERNET` permission) and ADR-007 (the parent gets no software). Supersedes
+the header note in `0001_init.sql` that there is "deliberately no
+parent-facing role, table, or policy".**
+
+### What changed
+
+Harbor is no longer a kid-and-parent app with one participant and one
+bystander. Everybody who uses it has it. You add your aunt; she is a Harbor
+account; you can ask to see when she is free and she can say yes. Future
+features are collaborative by intent.
+
+That makes a server load-bearing for the first time. Two accounts cannot share
+anything through a `SharedPreferences` file.
+
+### What it costs, accepted knowingly
+
+These are the reasons the old ADRs existed, and they do not stop being true
+because the decision changed.
+
+- **"Nothing leaves this phone" stops being physically true.** It was not a
+  policy before; it was the absence of an `INTERNET` permission and of any HTTP
+  client in the dependency list. Anyone could verify it by reading
+  `app/build.gradle.kts`. From here it is a promise about what the code does,
+  which is a weaker kind of promise, and it has to be kept by review.
+- **A new failure mode: the network.** ADR-003's actual argument was that the
+  cue has to fire on a train with no signal. That argument is untouched and
+  becomes a constraint instead of an architecture: sensing, the policy, the
+  ledger and the cue surface must keep working with the radio off. The device
+  stays authoritative for everything it already owns. Sync is a mirror, never a
+  source of truth, and nothing in the cue path may await it.
+- **Identity.** There was no account. Now there is one, and with it sign-in,
+  sign-out, account deletion, and somebody's phone number on a server.
+- **The study's consent basis moves.** Participants agreed to an app that could
+  not send anything anywhere. That is no longer what they would be running. See
+  "Before this ships", below.
+
+### What is shared, and what is not
+
+Only the *shape* of a week: day, start, end, busy-or-free. `WeekBlock.label`
+is documented "Never leaves the device" and `week_blocks` in `0011` has no
+column for it, which is the cheapest way to keep that promise — there is
+nowhere to put it. "Busy 2–4pm Tuesday" crosses the wire. "Therapy" does not.
+
+Sharing is asked for and granted, never assumed; it is read-only; it is
+revocable, and revoking it takes effect on the next query because the policy is
+evaluated per query and cached nowhere.
+
+Not shared, and not proposed for sharing: the ledger, the garden, cues, or
+anything about whether a call happened. Who you called and how it felt is the
+most private thing in this app and none of it is anybody else's business.
+
+### Identity is an email address
+
+Phone was the first answer and lasted about an hour. It reads well for an app
+about ringing people — the number you would type to add your aunt is the number
+that finds her — but it means paying an SMS provider per sign-in and per retry,
+during a study, before anybody has agreed the feature is worth having.
+
+So: sign in with Google, with Microsoft, or with a code to your inbox.
+
+Google and Microsoft are Supabase's own providers. `azure` is the one that
+covers Outlook, Hotmail and Live, which are one account wearing three names —
+there is no `microsoft` provider and asking for one returns a 400 that reads
+like the account is bad.
+
+**Yahoo is not a Supabase provider and cannot be configured as one.** That is
+why the email code exists, and it is not a lesser third option: it needs no
+provider set up at all and works for Yahoo, for a university address, for
+anybody. It is the route that always works, and the two buttons are the
+convenience.
+
+Provider sign-in goes through the browser, not a WebView. A password field on a
+screen Harbor drew is the exact shape of a phishing page, and both Google and
+Microsoft refuse to load in a WebView for that reason. The browser comes home to
+`harbor://auth`, which is `SupabaseClient.REDIRECT` and the intent filter on
+`MainActivity`; the two have to agree or the sign-in ends on a page that cannot
+be found.
+
+`request_link()` in `0011` now matches on email, case-insensitively, because
+nobody types their own capitals the same way twice and an address that fails to
+match because somebody wrote Gmail with a capital G looks exactly like "she has
+not signed up".
+
+It leaks whether an address is registered, to somebody who already has that
+address. Every invite-by-identifier system leaks exactly that. Writing it down
+is better than implying otherwise.
+
+### Before this ships to anybody in the study
+
+1. **Re-consent.** The information sheet describes an app with no network.
+   Running a syncing build against people who agreed to the other one is not a
+   thing to do quietly.
+2. **Offline first, proven.** A build with the radio off must still sense a
+   walk, decide, fire a cue, record it and write the study file. If that is not
+   true, this change has broken the product to add a feature.
+3. **Account deletion.** `on delete cascade` is in the schema. There is no way
+   to ask for it from the app yet.
+
+### Still open
+
+- Whether the week syncs at all for a user with no links. It has no reason to,
+  and not uploading it by default is the better posture.
+- What the requester sees while a link is `pending`, and whether the addressee
+  is notified in-app or not at all.
+- Whether two accounts that link each way should collapse into one mutual
+  state in the UI, while staying two rows underneath.
