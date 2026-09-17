@@ -1,6 +1,7 @@
 package app.harbor.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 
 /**
  * Harbor's palette, taken from "Harbor Reskin" — the dark glass language.
@@ -99,6 +100,7 @@ val Muted = Color(0xFF9C978F)
  */
 val CardEdge = Color(0x17FFFFFF)
 
+
 /** The drawn line: outline chips, dividers, anything that must read as a rule. */
 val Hairline = Color(0x2EFFFFFF)
 
@@ -127,6 +129,38 @@ val Ember = Color(0xFFE08A3C)
 
 /** The top of the primary action's gradient, which runs [EmberLight] to [Ember]. */
 val EmberLight = Color(0xFFF5B85C)
+/**
+ * A hole you type into: white at eight per cent, composited onto [Paper].
+ *
+ * Composited rather than left as alpha, unlike a card, and for a reason the
+ * note above does not cover: a field is a hole, not a window. It wants to read
+ * as the same depth wherever it sits on the page, including on top of another
+ * translucent thing, and an alpha that stacked with whatever was under it
+ * would make the same field a different colour on two screens.
+ *
+ * Derived rather than written out. The onboarding flow and the week editor had
+ * arrived at `0xFF202124` independently, under two different names, and a
+ * literal that two files have separately worked out by hand is a literal that
+ * will drift the first time [Paper] moves.
+ */
+val Glass = Color.White.copy(alpha = 0.08f).compositeOver(Paper)
+
+/**
+ * A whole card marked live: [Gold] at eight per cent, composited onto [Paper].
+ *
+ * A card filled solid amber would shout down the question above it, so the
+ * accent arrives as a tint and a rim instead. Same reasoning as [Glass] for
+ * compositing, and same reason for deriving it.
+ */
+val ChosenFill = Gold.copy(alpha = 0.08f).compositeOver(Paper)
+
+/**
+ * The rim on a chosen card: [Gold] at twenty per cent.
+ *
+ * Alpha, not composited, because a rim is drawn over whatever it crosses and
+ * is meant to pick that up.
+ */
+val ChosenEdge = Gold.copy(alpha = 0.20f)
 
 /** The cool end of the dusk, behind the cards on Account and Schedule. */
 val Dusk = Color(0xFF2F4A63)

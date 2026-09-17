@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -254,7 +255,12 @@ internal fun Stepper(label: String, value: String, onDown: () -> Unit, onUp: () 
             Text(
                 value,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 10.dp).size(width = 76.dp, height = 20.dp),
+                // Width fixed so the two buttons do not shuffle as the number
+                // changes; height left alone. It was pinned at 20dp, which is
+                // less than a 16sp line once the system font scale is turned
+                // up -- so the one number on this screen that somebody with
+                // large text has come here to read was the one clipped by it.
+                modifier = Modifier.padding(horizontal = 10.dp).width(76.dp),
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
             )
             StepButton("+", onUp)
@@ -262,22 +268,36 @@ internal fun Stepper(label: String, value: String, onDown: () -> Unit, onUp: () 
     }
 }
 
+/**
+ * A round step button: 38dp of circle inside 48dp of target.
+ *
+ * The circle stays the size it was drawn -- 48 would be a heavier mark than
+ * this row wants beside a label -- while the thing you press is the outer box.
+ * Pressing 5dp outside a small circle is the ordinary way a thumb misses, and
+ * these are the controls the study asks people to move.
+ */
 @Composable
 private fun StepButton(glyph: String, onClick: () -> Unit) = Box(
     Modifier
-        .size(38.dp)
-        .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.secondaryContainer)
+        .size(48.dp)
         .clickable(onClick = onClick),
     contentAlignment = Alignment.Center,
 ) {
-    Text(
-        glyph,
-        style = MaterialTheme.typography.titleLarge.copy(
-            fontSize = 17.sp,
-            color = MaterialTheme.colorScheme.primary,
-        ),
-    )
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            glyph,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.primary,
+            ),
+        )
+    }
 }
 
 /** A chip that fills in when chosen, as `.cue-topic` does. */
