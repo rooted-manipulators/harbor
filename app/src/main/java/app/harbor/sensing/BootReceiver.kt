@@ -38,6 +38,10 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
                 Log.i(TAG, "boot re-register: ${ActivityTransitions.register(app)}")
+                // Registrations do not survive a restart and neither does the
+                // service. BOOT_COMPLETED is one of the exemptions that may
+                // still start one from the background.
+                SensingService.start(app)
             } catch (e: Throwable) {
                 // Sensing stays down until the app is next opened. Bad, but a
                 // crash in a boot receiver is worse.

@@ -31,6 +31,9 @@ object Sensing {
     suspend fun enable(context: Context, store: HarborRepository): Boolean {
         if (!ActivityTransitions.register(context)) return false
         store.setSettings(store.settings.value.copy(cuesEnabled = true))
+        // Registration only buys the right to be woken. The service is what
+        // keeps there being a process worth waking -- see SensingService.
+        SensingService.start(context)
         return true
     }
 
@@ -53,6 +56,11 @@ object Sensing {
         if (!store.settings.value.cuesEnabled) return
         if (!ActivityTransitions.hasPermission(context)) return
         ActivityTransitions.register(context)
+        // Same reasoning as the registration: the service dies with the
+        // process when an OEM kills it outright, and START_STICKY is the
+        // system's promise, not a guarantee. Launching is a free chance to
+        // put it back.
+        SensingService.start(context)
     }
 
     /**
@@ -67,6 +75,10 @@ object Sensing {
     suspend fun disable(context: Context, store: HarborRepository) {
         store.setSettings(store.settings.value.copy(cuesEnabled = false))
         ActivityTransitions.unregister(context)
+        // Last, and unconditionally: somebody who just turned reminders off
+        // should watch the line leave the shade. Leaving it there would be the
+        // app saying it had stopped while visibly still running.
+        SensingService.stop(context)
     }
 
     /**
