@@ -66,7 +66,14 @@ import kotlin.math.sin
  * the arc for the hour it is in. Midnight is the top of the ring and noon is
  * the bottom, and because the hand no longer says where on the ring you are,
  * the ring says it itself — a faint track with a notch at midnight and at
- * noon, which is the only thing drawn on a day nobody has marked.
+ * noon, drawn under the arcs.
+ *
+ * **A day with nothing marked has a bare ring**, track and all. The track is
+ * scaffolding for the arcs and it only earns its ink when there are arcs to
+ * scaffold: an empty dial that still drew a circle would look like a day whose
+ * arcs had failed to load, rather than like a day nobody has said anything
+ * about. Which half of the ring is the evening is a question you only have
+ * while you are reading a mark on it.
  *
  * ## The reminder
  *
@@ -165,7 +172,7 @@ internal fun DayClock(
             // distance in minutes would light the mark for nine in the morning
             // while the flower sat over the evening.
             drawTicks(centre, faceR, stir, reminder?.let { DayArcs.degreesAt(it) })
-            drawDayTrack(centre, arcR, arcWidth)
+            if (arcs.isNotEmpty()) drawDayTrack(centre, arcR, arcWidth)
             arcs.forEach { arc -> drawDayArc(centre, arcR, arcWidth, arc) }
             drawHands(centre, faceR, now)
             reminder?.let { drawReminder(centre, arcR, arcWidth, it) }
@@ -294,14 +301,16 @@ private fun degreesApart(a: Float, b: Float): Float {
 }
 
 /**
- * The day the arcs are laid on, when there are none.
+ * The day the arcs are laid on.
  *
  * With a twelve-hour face the hands no longer say where on the ring anything
  * is, so the ring has to. A hairline track with a notch at the top for
  * midnight and one at the bottom for noon is the least that can be drawn and
- * still answer "which half of this is the evening" — and it is deliberately
- * not an arc: an arc is a statement somebody made, and this is only the shape
- * their statements would go on.
+ * still answer "which half of this is the evening".
+ *
+ * Deliberately not an arc — an arc is a statement somebody made, and this is
+ * only the shape their statements go on — and for that reason it is drawn only
+ * when there are some. See the caller: a bare day gets a bare ring.
  */
 private fun DrawScope.drawDayTrack(centre: Offset, radius: Float, width: Float) {
     val box = Rect(centre - Offset(radius, radius), Size(radius * 2, radius * 2))
