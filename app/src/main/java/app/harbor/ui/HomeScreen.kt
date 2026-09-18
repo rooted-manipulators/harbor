@@ -37,7 +37,6 @@ import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Animatable
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.draw.drawWithContent
@@ -54,6 +53,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.cue.Dialer
@@ -184,12 +184,24 @@ fun HomeScreen(
         // so the entire crane shot fired and finished inside one flick. The
         // shot was not broken; there was nowhere to perform it.
         //
-        // The spacer at the bottom of the column is what makes this true, and
-        // it is the price: a full home ends with a stretch of empty ground
-        // under the last card. That reads as the page running out, which is
-        // roughly what it is -- and it buys a move that otherwise only the
-        // busiest users would ever see.
-        val pullOver = with(LocalDensity.current) { fieldHeight.toPx() }
+        // The spacer at the bottom of the column is what makes this true.
+        //
+        // The pull has to finish while the field is still on the screen.
+        //
+        // FieldSky is painted outside this scroll and FieldCanvas inside it,
+        // so scrolling carries the land off the top while its own sky stays
+        // put. A pull measured over a whole field's height therefore performed
+        // to an empty room -- the camera was moving correctly the entire time,
+        // at a thing that had already left.
+        //
+        // Pinning the field for the length of the shot was the obvious answer
+        // and the wrong one: the cards over it are translucent by design, so a
+        // held greeting reads straight through them and the screen turns to
+        // soup. Instead the shot is simply shorter than the exit. At 0.45 the
+        // camera is all the way back with better than half the field still in
+        // frame, and it leaves afterwards, which is the right order.
+        val pullSpan = fieldHeight * 0.45f
+        val pullOver = with(LocalDensity.current) { pullSpan.toPx() }
 
         // `modifier` belongs to the BoxWithConstraints above; applying it
         // here as well would pay the Scaffold's insets twice.
@@ -508,7 +520,7 @@ fun HomeScreen(
                 // The runway. See pullOver above: without it a day-one home
                 // scrolls about a hundred pixels and the pull-back has nowhere
                 // to happen.
-                Spacer(Modifier.height(fieldHeight))
+                Spacer(Modifier.height(pullSpan))
             }
         }
     }
