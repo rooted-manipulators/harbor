@@ -70,6 +70,7 @@ import app.harbor.cue.Dialer
 import app.harbor.data.HarborRepository
 import app.harbor.domain.BlockKind
 import app.harbor.domain.CallStats
+import app.harbor.domain.Reminders
 import app.harbor.domain.Contact
 import app.harbor.domain.DayArcs
 import app.harbor.domain.FlowerKind
@@ -243,6 +244,14 @@ fun PersonScreen(
                 // flower somebody already had every time they made a call.
                 // The garden sorts the same way for the same reason.
                 flowers = theirs.sortedBy { it.occurredAt }.mapNotNull { it.flower },
+                // The plan this person is already holding, as a minute of the
+                // day. Reminders.holding is the same call the home card uses,
+                // so the dial and the card cannot disagree about whether there
+                // is one.
+                reminderAt = Reminders.holding(theirs, Instant.now())
+                    ?.proposedTime
+                    ?.atZone(ZoneId.systemDefault())
+                    ?.let { it.hour * 60 + it.minute },
                 onStage = { staged = true },
             )
 
@@ -306,6 +315,15 @@ private fun DayPanel(
     person: Contact,
     week: List<WeekBlock>,
     flowers: List<FlowerKind>,
+    /**
+     * The minute a reminder is already set for, if there is one.
+     *
+     * The small clock used to pass `reminder = null` unconditionally, so a
+     * reminder somebody had just set left no mark anywhere on this screen --
+     * the dial closed and looked exactly as it had before they touched it.
+     * The plan was in the ledger the whole time; it was simply never drawn.
+     */
+    reminderAt: Int?,
     onStage: () -> Unit,
 ) {
     var showing by remember { mutableStateOf(Panel.Day) }
@@ -333,7 +351,7 @@ private fun DayPanel(
                     .clip(CircleShape)
                     .clickable(onClick = onStage),
             ) {
-                DayClock(arcs = arcs, now = now, reminder = null)
+                DayClock(arcs = arcs, now = now, reminder = reminderAt)
             }
 
             Panel.Flowers -> FlowersGrown(person, flowers, Modifier.fillMaxWidth(0.72f))
@@ -422,9 +440,21 @@ private fun DayStage(
                 )
                 Spacer(Modifier.height(10.dp))
             } else if (picked != null) {
+                // Sets it, rather than arming a second button that does.
+                //
+                // This used to place the marker and leave a "Done" chip
+                // underneath as the thing that actually wrote it -- so closing
+                // the dial in between, which is exactly what pressing "Set
+                // reminder" reads as finishing, threw the plan away silently.
+                // Two steps where the first already says it is done.
+                //
+                // Adjusting now means pressing another stretch rather than
+                // dragging and confirming. That is a real loss of precision
+                // and worth it: a control that looks finished and is not costs
+                // more than one that is coarse.
                 Chip("Set reminder") {
                     val arc = picked ?: return@Chip
-                    reminder = DayArcs.rest(arc, arc.middle)
+                    onSet(DayArcs.rest(arc, arc.middle))
                 }
                 Spacer(Modifier.height(10.dp))
             } else {
