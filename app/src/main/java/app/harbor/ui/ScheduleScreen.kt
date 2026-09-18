@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -428,6 +429,21 @@ private fun WeekEditor(
     // bottom half of the *screen*, and that is the only place it can be and
     // still be a target.
     var dragAt by remember { mutableStateOf<Offset?>(null) }
+    /**
+     * Where the day card stops, in root coordinates.
+     *
+     * The bin used to arm on a flat 220dp band at the foot of the screen, and
+     * the card runs straight through it -- so the day's last hours *were* the
+     * bin, and placing anything in the evening threw it away. The comment
+     * defending the band argued a thumb could not arrive there by accident
+     * "because the band is only live while something is being carried", which
+     * is exactly backwards: you are always carrying something when you place
+     * it at ten at night.
+     *
+     * Measured rather than guessed, so the bin cannot creep back over the
+     * card when the header or the hour rows change height.
+     */
+    var cardBottom by remember { mutableFloatStateOf(Float.MAX_VALUE) }
     var leftTheDay by remember { mutableStateOf(false) }
     var pageOrigin by remember { mutableStateOf(Offset.Zero) }
 
@@ -460,8 +476,8 @@ private fun WeekEditor(
     ) {
         // Over the bin, or out of the day altogether. Either scraps it.
         val armed = dragAt?.let { at ->
-            leftTheDay ||
-                with(density) { (at.y - pageOrigin.y).toDp() } > maxHeight - BIN_BAND
+            // Below the day, or out of it sideways. Never *inside* it.
+            leftTheDay || at.y > cardBottom
         } ?: false
 
         Column(
@@ -552,6 +568,9 @@ private fun WeekEditor(
                         }
                         selected = null
                         commit(next, why = "copied")
+                    },
+                    modifier = Modifier.onGloballyPositioned {
+                        cardBottom = it.positionInRoot().y + it.size.height
                     },
                 )
 
@@ -707,6 +726,7 @@ private fun DayBoard(
     /** Whether the finger has left the day sideways or past its last hour. */
     onLeftTheDay: (Boolean) -> Unit,
     onCopyYesterday: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val hours = LAST_HOUR - FIRST_HOUR
     val density = LocalDensity.current
@@ -728,7 +748,7 @@ private fun DayBoard(
     val yesterday = blocks.filter { it.day == showing.minusDays(1).dayOfWeek }
 
     BoxWithConstraints(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(CARD_HEAD + hoursHeight + CARD_FOOT)
             // Scrolling sideways is the other way to reach a day, and it only
