@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -120,6 +123,20 @@ internal fun CueSurface(
                     ),
                 ),
             )
+            // The bars, kept out of the type.
+            //
+            // This is a full-screen activity on a phone that draws edge to
+            // edge, so 22dp of flat top padding put "harbor" and the time
+            // underneath the clock and the wifi icons. The gradient still runs
+            // the whole height -- the background is applied above this, so it
+            // fills the window and only the content is inset -- which is the
+            // point: this screen is meant to look like a time of day, and a
+            // black strip across the top of it would break that before anybody
+            // read a word.
+            //
+            // systemBars rather than statusBars because the footer is just as
+            // close to the gesture bar at the other end.
+            .windowInsetsPadding(WindowInsets.systemBars)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 26.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
