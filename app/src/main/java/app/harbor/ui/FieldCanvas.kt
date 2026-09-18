@@ -269,6 +269,7 @@ fun FieldCanvas(
     val reducedMotion = LocalReducedMotion.current
     val stirring = remember { Stirring() }
     val chase = remember { Chase() }
+    val flatten = remember { Flatten() }
 
     // Nothing planted yet is its own opening shot, not a smaller version of
     // the usual one.
@@ -411,6 +412,16 @@ fun FieldCanvas(
             // destination and slows the chase right down while it is the thing
             // steering -- [PULL_TAU] against the tenth of a second a tap gets.
             chase.tau = PULL_TAU
+            // Keep the shot in perspective the whole way out.
+            //
+            // Tilt is otherwise a function of zoom, and the entire
+            // flat-to-perspective blend lives between 2.1x and 4.2x -- which
+            // the pull crosses in about a fifth of its travel. The view was
+            // tipping from standing in the field to an overhead map in the
+            // middle of a move that is even everywhere else, and that lurch is
+            // the stutter. Held at the floor it never happens: the same
+            // landscape, from higher up.
+            flatten.floor = 1.0
             goal = Field.Camera(
                 x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
                 y = standY + (Terrain.FIELD_H / 2 - standY) * pull,
@@ -475,10 +486,14 @@ fun FieldCanvas(
                     detectTransformGestures { _, pan, zoom, _ ->
                         if (base <= 0) return@detectTransformGestures
                         touched = true
+                        // Taking hold of the field hands the dial back: a
+                        // pinch really is asking for the plan view.
+                        flatten.floor = 0.0
                         val tilt = Field.tiltFor(goal.zoom, base)
                         val nextZoom = Field.clampZoom(goal.zoom * zoom, base)
                         // A deliberate flight, not the pull: brisk again.
                         chase.tau = TAP_TAU
+                        flatten.floor = 0.0
                         goal = Field.Camera(
                             x = goal.x - pan.x / goal.zoom,
                             // Dragging up the screen has to cover more ground
@@ -497,7 +512,7 @@ fun FieldCanvas(
                             return@detectTapGestures
                         }
                         if (base <= 0 || frame.height == 0) return@detectTapGestures
-                        val lens = Field.buildLens(cam, base, frame.width.toDouble(), frame.height.toDouble())
+                        val lens = Field.buildLens(cam, base, frame.width.toDouble(), frame.height.toDouble(), flatten.floor)
                         val point = Field.Point()
                         var best: Field.Patch? = null
                         var bestDist = 76.0
@@ -520,6 +535,9 @@ fun FieldCanvas(
                         showing = best
                         best?.let {
                             touched = true
+                            // Taking hold of the field hands the dial back: a
+                            // pinch really is asking for the plan view.
+                            flatten.floor = 0.0
                             // A deliberate flight, not the pull: brisk again.
                             chase.tau = TAP_TAU
                             goal = Field.Camera(it.x, it.y, base * 6.5)
@@ -557,7 +575,7 @@ fun FieldCanvas(
             val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirring.speed)
             drawField(
                 built, patches, palette, cam, base, kit, tagInk, newest, art,
-                stir, stirring.headingX, stirring.headingY,
+                stir, stirring.headingX, stirring.headingY, flatten.floor,
             )
         }
 
@@ -565,12 +583,18 @@ fun FieldCanvas(
             FieldControls(
             onIn = {
                 touched = true
+                // Taking hold of the field hands the dial back: a
+                // pinch really is asking for the plan view.
+                flatten.floor = 0.0
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom * 1.45, base))
             },
             onOut = {
                 touched = true
+                // Taking hold of the field hands the dial back: a
+                // pinch really is asking for the plan view.
+                flatten.floor = 0.0
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom / 1.45, base))
@@ -584,6 +608,9 @@ fun FieldCanvas(
             // anything reframes.
             onFit = {
                 touched = true
+                // Taking hold of the field hands the dial back: a
+                // pinch really is asking for the plan view.
+                flatten.floor = 0.0
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
@@ -784,6 +811,16 @@ private const val TAP_TAU = 0.12
  */
 private const val PULL_TAU = 0.45
 
+/**
+ * How much the pull refuses to let the view flatten, 0 to 1.
+ *
+ * A plain object: written from the pull's effect, read while drawing, and
+ * neither should recompose anything.
+ */
+private class Flatten {
+    var floor: Double = 0.0
+}
+
 private class Stirring {
     var at: Long = System.nanoTime()
     var from: Field.Camera? = null
@@ -813,6 +850,8 @@ private fun DrawScope.drawField(
     /** Which way you are travelling, in screen terms, normalised. */
     headingX: Double,
     headingY: Double,
+    /** The least the view may flatten. See Field.buildLens. */
+    tiltFloor: Double,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -825,7 +864,7 @@ private fun DrawScope.drawField(
     val bloomFloor = min(1.3 * unit, Field.FLOWER_AT * 0.8)
     val w = size.width.toDouble()
     val h = size.height.toDouble()
-    val lens = Field.buildLens(cam, base, w, h)
+    val lens = Field.buildLens(cam, base, w, h, tiltFloor)
     val canvas = drawContext.canvas.nativeCanvas
     val p = kit.point
 

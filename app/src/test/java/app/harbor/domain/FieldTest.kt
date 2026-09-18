@@ -754,6 +754,26 @@ class FieldTest {
     }
 
     @Test
+    fun `a pull-back can refuse to flatten`() {
+        // The whole flat-to-perspective blend lives between 2.1x and 4.2x, and
+        // a scroll crosses that in about a fifth of its travel -- so the view
+        // tipped to an overhead map in the middle of an otherwise even move.
+        // Held at the floor it stays the landscape it started as.
+        val cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, 0.5 * 0.7)
+        val free = Field.buildLens(cam, 0.5, 1080.0, 2400.0)
+        val held = Field.buildLens(cam, 0.5, 1080.0, 2400.0, tiltFloor = 1.0)
+        assertEquals("wide out, the view flattens on its own", 0.0, free.tilt, 1e-9)
+        assertEquals("unless something is holding it", 1.0, held.tilt, 1e-9)
+        // And the floor never tips a view further than it already is.
+        val close = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, 0.5 * 27)
+        assertEquals(
+            Field.buildLens(close, 0.5, 1080.0, 2400.0).tilt,
+            Field.buildLens(close, 0.5, 1080.0, 2400.0, tiltFloor = 0.4).tilt,
+            1e-9,
+        )
+    }
+
+    @Test
     fun `making the grid denser does not move the island`() {
         // CELL, COLS and ROWS move together and their product is the world.
         // If density ever moves it, every patch lands somewhere else and every

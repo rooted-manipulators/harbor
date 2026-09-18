@@ -595,11 +595,32 @@ object Field {
      * landscape is untouched, because in landscape the short side already was
      * the height.
      */
-    fun buildLens(camera: Camera, base: Double, width: Double, height: Double): Lens {
+    /**
+     * @param tiltFloor the least the view may flatten, whatever the zoom.
+     *
+     * Zero everywhere except a scroll-driven pull-back. Tilt is otherwise a
+     * function of zoom alone -- pulling back *is* the plan view, which is the
+     * right dial for a pinch, where the hand is asking for a map. A pull-back
+     * is not asking for a map: it is one shot of one place, and a shot that
+     * turns into a floor plan halfway through has cut to a different camera.
+     *
+     * The whole flat-to-perspective blend is squeezed into the zoom range 2.1
+     * to 4.2, which the pull crosses in about a fifth of its travel -- so the
+     * morph arrived as a lurch in the middle of an otherwise even move. Held
+     * at the floor it never happens, and what you get instead is the same
+     * landscape from higher up.
+     */
+    fun buildLens(
+        camera: Camera,
+        base: Double,
+        width: Double,
+        height: Double,
+        tiltFloor: Double = 0.0,
+    ): Lens {
         val rel = max(camera.zoom / base, 0.6)
         val eye = max(34.0, EYE * TILT_TO / rel)
         return Lens(
-            tilt = tiltFor(camera.zoom, base),
+            tilt = max(tiltFor(camera.zoom, base), tiltFloor),
             focal = min(width, height) * 0.92,
             eye = eye,
             back = eye * SET_BACK,
