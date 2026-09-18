@@ -4,16 +4,25 @@ Written for a teammate opening a fresh Claude Code session against this repo.
 Everything in it was checked against the running code, not recalled from
 memory — where something is a belief rather than a checked fact, it says so.
 
-Last corrected **18 Sep 2026**. The tree that the 17 Sep pass called "large
-and uncommitted" is committed; fifty commits landed the next day. Three
-things are true now that were not, and the first one changes how you work
-rather than what the app does:
+Last corrected **19 Sep 2026**. One thing changed since the 18 Sep pass and
+it is the largest change to what the app *does* in a fortnight:
+
+- **There are two triggers now.** A reminder can arrive after a walk, or
+  after a long stretch in one app, and which ones you get is a choice made
+  during onboarding. See *The two triggers*, below. If you read only one
+  section of this file before touching the cue pipeline, read that one — the
+  two are opposite in shape and the difference is easy to reverse by
+  accident.
+
+Still true from the 18 Sep pass:
 
 - **Gradle runs on this machine again**, which means the app can be built,
   installed and looked at without waiting for CI. See *Building and handing
   out a build* — the fix is one environment variable and it is not obvious.
 - **The cue fires from a real walk**, on a real phone. That was the single
-  biggest unproven thing in the previous version of this file.
+  biggest unproven thing in the 17 Sep version of this file. As of 19 Sep it
+  also fires from a real app stretch, measured the same way: on a phone,
+  from logcat, with the prefs read back afterwards.
 - **The sky is hand-mixed per weather** (`ui/WeatherWash.kt`), no longer
   derived from the ported landscape palette.
 
@@ -168,6 +177,15 @@ to get subtly wrong:
   `FieldCanvas.kt` is the camera (pan/zoom/fly-to) and the Compose drawing
   loop. Ported originally by reading the prototype's own JavaScript, which
   is why the geometry code reads as unusually exact.
+- **`sensing/ScrollWatch.kt`** — the second trigger's whole sensing layer,
+  added 19 Sep. Reads `UsageStatsManager` for the package in front and since
+  when, and nothing else. Two things to know before changing it: the stretch
+  is ended by a screen-off or keyguard event rather than by an app pausing,
+  because a pause is usually followed by a resume of the same app half a
+  second later; and the permission is granted in Settings rather than by a
+  dialog, so `hasPermission` is an AppOps check and `request` returns an
+  intent that can legitimately be null on an OEM build that dropped the
+  screen.
 - **`data/StudyFile.kt`** — writes to both the app's private external files
   directory *and* the shared Downloads collection (MediaStore), because the
   private one is invisible to the Files app on Android 11+. This was a real
@@ -304,12 +322,12 @@ each layer:
 
 ## Current state
 
-**18 Sep 2026. Everything below is committed.**
+**19 Sep 2026. Everything below is committed.**
 
-- **Branch:** `dark-reskin`. Tip is `e79d2fc` ("Tip the view over the whole
-  pull, and take the ring off the light"). Fifty commits since `0f50449`,
-  which is where the previous version of this file stopped.
-- **Tests: 297, all passing**, under Gradle (`testDebugUnitTest`) and under
+- **Branch:** `dark-reskin`. Tip is `a766b5f` ("Sense the long stretch, so
+  the scrolling trigger can actually fire"). Eighty-eight commits since
+  `0f50449`, which is where the 17 Sep version of this file stopped.
+- **Tests: 331, all passing**, under Gradle (`testDebugUnitTest`) and under
   the standalone kotlinc recipe in `CLAUDE.md`. Two notes if you use the
   standalone recipe: the test source set needs `-Xfriend-paths` pointed at
   the main output or `internal` is invisible, and anything touching
@@ -330,6 +348,68 @@ each layer:
 | The stir: flowers move as you travel through them | `ui/FieldCanvas.kt` |
 | The weather wash: bowed bands, grain, green haze, per-weather skies | `ui/FieldSky.kt`, `ui/WeatherWash.kt` |
 | The scroll-linked pull-back and its crane shot | `ui/FieldCanvas.kt`, `Field.pullTilt`, `Field.wideZoom` |
+
+**What landed on 19 Sep:**
+
+| What | Where |
+| --- | --- |
+| The second trigger: opt-in, consent, policy gate | `domain/Model.kt`, `domain/CuePolicy.kt`, `ui/OnboardingScreen.kt` |
+| The sensing behind it | `sensing/ScrollWatch.kt`, `sensing/SensingService.kt`, `sensing/SensingStore.kt` |
+| Four a day, two per trigger | `Thresholds.sourceCap`, `0015` |
+| `0012` and `0014` corrected: both named a table that does not exist | `backend/supabase/migrations/` |
+
+---
+
+## The two triggers
+
+A reminder can now arrive two ways, and they are opposite in shape. Getting
+that backwards is the most likely way to break this pipeline, so it is
+written out rather than left in the code.
+
+| | **After a walk** | **After a long stretch in one app** |
+| --- | --- | --- |
+| `TriggerSource` | `WALKING_STOP` | `SESSION_END` |
+| Sensed by | Activity Recognition Transition API, Play services | `UsageStatsManager`, polled |
+| Woken by | Play services, then `SettleAlarm` | `SensingService`, every two minutes |
+| Fires | **after** the activity ends, once `SETTLE` has passed | **during** the stretch, the tick after the threshold |
+| Threshold | `Thresholds.walkingMinutes` (3) | `Thresholds.sessionMinutes` (20) |
+| On by default | yes | **no** — `UserSettings.scrollCues` |
+| Permission | `ACTIVITY_RECOGNITION`, a runtime dialog | `PACKAGE_USAGE_STATS`, a Settings screen with no dialog |
+
+Four things about the second one that are decisions, not implementation
+details, and are argued in ADR-005 as amended:
+
+1. **It is off until somebody takes it.** `CuePolicy` returns
+   `Reason.SOURCE_OFF` for a `SESSION_END` when `scrollCues` is false, and it
+   checks that *before* the caps, so a declined trigger cannot spend a slot
+   the walk could have used.
+2. **It fires mid-stretch.** `SESSION_END` is deliberately outside the
+   `SETTLE` gate — `CuePolicy.waitsOutAStop` is the property that says so,
+   and it used to include it. Waiting for the stretch to end means arriving
+   after the phone is face down. The name stays because it is in every stored
+   ledger row and in the study's wire format.
+3. **It reads nothing but the package in front and since when.**
+   `ScrollWatch` keeps no history; the only thing written is
+   `SensingStore.firedStretch`, one package and one timestamp, so one long
+   session cannot produce a reminder every two minutes. The disclosure on the
+   onboarding screen is written against that file, and the policy text behind
+   its link claims the export carries no app name — which is true, and
+   `StudyExport` is where it would stop being true.
+4. **The caps are split.** Four a day, two per trigger
+   (`Thresholds.sourceCap`). Against one shared ceiling the frequent trigger
+   takes every slot, and a week of running both would end with no comparison
+   at all.
+
+Two things are **not** done and are the obvious next bugs:
+
+- The suggested `sessionMinutes` is 20 and **has no control on any screen**.
+  The walking threshold, the daily cap and the quiet gap all have steppers;
+  this one does not, which makes it a locked default of the kind
+  `docs/01-decisions.md` says there must not be.
+- `ScrollWatch.current` does not know what a launcher is. Twenty minutes in
+  any one app counts, Harbor's own package excepted. That is on purpose — a
+  hardcoded list of "bad" apps is a judgement and goes stale — but nobody has
+  yet watched a week of it to see what it actually catches.
 
 ---
 

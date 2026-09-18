@@ -166,6 +166,51 @@ and do not add Health Connect unless step *history* is wanted elsewhere.
 The app-session trigger (`UsageStatsManager`) is v0.2. It is the
 platform-harder half and the study does not need it to answer its questions.
 
+**Amended 2026-09-19: v0.2 is now, and the study does need it.** The question
+the study is being asked to answer changed: not *does a reminder after a walk
+work*, but *which kind of moment works better*. That is a comparison, and a
+comparison needs two triggers. The second one is the long stretch in one app,
+built in `sensing/ScrollWatch.kt` on `UsageStatsManager`, exactly as this ADR
+named it.
+
+Three things about it are decisions rather than implementation, and are here
+because they are the ones somebody would otherwise quietly reverse.
+
+**It is opt-in, separately from cues.** `UserSettings.scrollCues` is off until
+somebody takes it on the onboarding screen, and `CuePolicy` refuses a
+`SESSION_END` when it is off — before the caps, so a declined trigger cannot
+spend a slot the walk could have used. Reading which app is in front is a
+different promise from reading whether the phone is moving, it is a different
+grant (`PACKAGE_USAGE_STATS`, which has no dialog, only a Settings screen),
+and it gets its own consent. The disclosure is shown only to the people who
+take the option, at reading size, with the detail behind a link that opens in
+place. Do not shrink it: that Harbor can see which app you are in is the whole
+of what is being agreed to.
+
+**It fires during the stretch, not after it.** This is the one that looks like
+a bug if you come to it from the walking trigger. A walk becomes worth
+interrupting when it *ends*, so `CuePolicy.SETTLE` holds it until the
+stillness has lasted. A long stretch in one app is worth interrupting while it
+is still going on — waiting for it to end means arriving after the phone is
+face down, which is nobody's moment. So `SESSION_END` is outside the settle
+gate. It keeps its name because the name is written into every stored ledger
+entry and into the study's wire format; what it marks is the stretch, not the
+end of one.
+
+**It is a poll, in the foreground service.** Android has no "twenty minutes in
+one app" event; the two it does offer — an app launching, the screen going off
+— are both the wrong end. `SensingService` exists anyway (see ADR-008 as
+amended) and now also looks at a clock every two minutes, doing nothing at all
+for anybody who has not turned the trigger on, and nothing while the screen is
+off. That reverses the "this service does no work" rule in that file for this
+one case only.
+
+The caps move with it: four reminders a day, two from each trigger
+(`Thresholds.sourceCap`). Against a single shared ceiling the frequent trigger
+takes every slot and the rare one is never seen, and a week of running both
+would end with no comparison at all — which is the whole reason the second
+trigger exists.
+
 ---
 
 ## ADR-006 — Package name
