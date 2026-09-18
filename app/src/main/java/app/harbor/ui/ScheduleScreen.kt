@@ -471,6 +471,19 @@ private fun WeekEditor(
     // step is a swipe that cannot move.
     val slide = remember { Animatable(0f) }
 
+    // Which of the two editors is showing.
+    //
+    // They are two readings of one week rather than two features: the day is
+    // for drawing a day properly, the grid is for seeing the shape of the
+    // week at once. Neither is a better version of the other, which is why
+    // this is a switch and not a replacement.
+    //
+    // Not remembered across visits on purpose. It is one tap to change, and a
+    // Schedule tab that opened in whichever view you last used would be a
+    // screen that greets different people differently for no reason they
+    // could name.
+    var view by remember { mutableStateOf(WeekView.Day) }
+
     val blocks = draft ?: saved
 
     fun commit(next: List<WeekBlock>, why: String? = null) {
@@ -555,48 +568,69 @@ private fun WeekEditor(
                 // job is the next day and the one before it. The dates on the
                 // strip say the same thing in the place you are already
                 // reading.
-                DayStrip(showing, skin, slide) { showing = it }
+                ViewSwitch(view, skin) { view = it }
 
-                DayBoard(
-                    blocks = blocks,
-                    showing = showing,
-                    planting = planting,
-                    selected = selected,
-                    skin = skin,
-                    carrying = carrying,
-                    carryAt = carryAt,
-                    dropped = dropped,
-                    onPlanted = { dropped = null },
-                    onSelect = { selected = it },
-                    onPreview = { draft = it },
-                    onCommit = { next, landed ->
-                        selected = landed
-                        commit(next)
-                    },
-                    onShow = { showing = it },
-                    armed = armed,
-                    onDragAt = { dragAt = it },
-                    onLeftTheDay = { leftTheDay = it },
-                    onCopyYesterday = {
-                        // A timetable is the same hours on five days far more
-                        // often than it is five different sets, and redrawing
-                        // yesterday is the tedium this screen exists to
-                        // remove. Offered only on an empty day, so there is
-                        // nothing of yours for it to land on top of.
-                        val from = showing.minusDays(1).dayOfWeek
-                        val to = showing.dayOfWeek
-                        var next = blocks
-                        blocks.filter { it.day == from }.forEach {
-                            next = Windows.place(next, it.copy(day = to))
-                        }
-                        selected = null
-                        commit(next, why = "copied")
-                    },
-                    slide = slide,
-                    modifier = Modifier.onGloballyPositioned {
-                        cardBottom = it.positionInRoot().y + it.size.height
-                    },
-                )
+                if (view == WeekView.Day) DayStrip(showing, skin, slide) { showing = it }
+
+                if (view == WeekView.Week) {
+                    WeekGrid(
+                        blocks = blocks,
+                        planting = planting ?: BlockKind.BUSY,
+                        selected = selected,
+                        skin = skin,
+                        carrying = carrying,
+                        carryAt = carryAt,
+                        dropped = dropped,
+                        onPlanted = { dropped = null },
+                        onSelect = { selected = it },
+                        onPreview = { draft = it },
+                        onCommit = { next, landed ->
+                            selected = landed
+                            commit(next)
+                        },
+                    )
+                } else {
+                    DayBoard(
+                        blocks = blocks,
+                        showing = showing,
+                        planting = planting,
+                        selected = selected,
+                        skin = skin,
+                        carrying = carrying,
+                        carryAt = carryAt,
+                        dropped = dropped,
+                        onPlanted = { dropped = null },
+                        onSelect = { selected = it },
+                        onPreview = { draft = it },
+                        onCommit = { next, landed ->
+                            selected = landed
+                            commit(next)
+                        },
+                        onShow = { showing = it },
+                        armed = armed,
+                        onDragAt = { dragAt = it },
+                        onLeftTheDay = { leftTheDay = it },
+                        onCopyYesterday = {
+                            // A timetable is the same hours on five days far more
+                            // often than it is five different sets, and redrawing
+                            // yesterday is the tedium this screen exists to
+                            // remove. Offered only on an empty day, so there is
+                            // nothing of yours for it to land on top of.
+                            val from = showing.minusDays(1).dayOfWeek
+                            val to = showing.dayOfWeek
+                            var next = blocks
+                            blocks.filter { it.day == from }.forEach {
+                                next = Windows.place(next, it.copy(day = to))
+                            }
+                            selected = null
+                            commit(next, why = "copied")
+                        },
+                        slide = slide,
+                        modifier = Modifier.onGloballyPositioned {
+                            cardBottom = it.positionInRoot().y + it.size.height
+                        },
+                    )
+                }
 
                 SmallCopy(
                     if (planting == null) {
@@ -635,6 +669,22 @@ private const val FIRST_HOUR = 0
 private const val LAST_HOUR = 24
 private const val LABEL_EVERY = 2
 private const val SNAP_MINUTES = 30
+/**
+ * Sunday first, as the frames draw it.
+ *
+ * Restored with WeekGrid. It went out with the week view and is the only
+ * thing that view needed which the day view did not.
+ */
+private val DAYS = listOf(
+    DayOfWeek.SUNDAY,
+    DayOfWeek.MONDAY,
+    DayOfWeek.TUESDAY,
+    DayOfWeek.WEDNESDAY,
+    DayOfWeek.THURSDAY,
+    DayOfWeek.FRIDAY,
+    DayOfWeek.SATURDAY,
+)
+
 private val HOUR_HEIGHT = 21.dp
 // Wide enough for "00:00" at nine points on one line. At 42dp it wrapped, and
 // every hour down the day read as "00:0" over "0".
@@ -1507,6 +1557,50 @@ private fun DayStrip(
     }
 }
 
+/** Which reading of the week is on screen. */
+private enum class WeekView { Day, Week }
+
+/**
+ * The switch between the day and the week.
+ *
+ * Two words in a pill rather than an icon pair, because "day" and "week" are
+ * short, exact, and impossible to mistake for each other -- where a calendar
+ * glyph and a grid glyph are two rectangles with lines in them.
+ *
+ * Deliberately small and left-aligned. It is a change of view, not a change
+ * of screen, and a control that announced itself would suggest the two were
+ * different places rather than the same week seen twice.
+ */
+@Composable
+private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(99.dp))
+            .background(skin.tile.copy(alpha = 0.5f))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        WeekView.entries.forEach { option ->
+            val here = option == view
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(if (here) skin.tile else Color.Transparent)
+                    .clickable { onPick(option) }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    if (option == WeekView.Day) "Day" else "Week",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 13.sp,
+                        color = if (here) skin.ink else skin.muted,
+                    ),
+                )
+            }
+        }
+    }
+}
+
 /** Drawn geometry, not an icon. See `drawTabMark` for the pattern. */
 @Composable
 private fun StripArrow(back: Boolean, skin: WeekSkin, onClick: () -> Unit) {
@@ -1648,5 +1742,443 @@ internal fun timeLabel(at: LocalTime): String {
         display.toString() + suffix
     } else {
         display.toString() + ":" + at.minute.toString().padStart(2, '0') + suffix
+    }
+}
+
+/**
+ * The week, as something you draw on.
+ *
+ * Everything on it is painted onto one canvas rather than laid out as boxes,
+ * because a thorn's spikes and a flower's head both sit outside their own time
+ * span and a box would clip them.
+ *
+ * The block under the finger is carried separately from the rest of the list
+ * for the length of a gesture. That is what lets [Windows.place] run once, at
+ * the end, instead of reshuffling the list under a drag that is still going.
+ */
+@Composable
+private fun WeekGrid(
+    blocks: List<WeekBlock>,
+    planting: BlockKind,
+    selected: WeekBlock?,
+    skin: WeekSkin,
+    /** A kind being carried in from the palette, or null. */
+    carrying: BlockKind?,
+    /** Where that finger is, in root coordinates. */
+    carryAt: Offset,
+    /** One let go of, and where. Cleared through [onPlanted] once dealt with. */
+    dropped: Pair<BlockKind, Offset>?,
+    onPlanted: () -> Unit,
+    onSelect: (WeekBlock?) -> Unit,
+    onPreview: (List<WeekBlock>) -> Unit,
+    /** The second argument is null when the block was dropped in the bin. */
+    onCommit: (List<WeekBlock>, WeekBlock?) -> Unit,
+) {
+    val hours = LAST_HOUR - FIRST_HOUR
+    val density = LocalDensity.current
+
+    // Raised while a block is being held below the foot of the grid. The bin
+    // sits directly under it, so dragging something off the bottom of your
+    // week is the gesture, and the pointer stays captured once a drag starts.
+    var overBin by remember { mutableStateOf(false) }
+
+    // Declared out here rather than inside the constraints scope, because the
+    // modifier that measures it is on the box that opens that scope.
+    var gridOrigin by remember { mutableStateOf(Offset.Zero) }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
+            Spacer(Modifier.width(GUTTER))
+            DAYS.forEach { d ->
+                Text(
+                    d.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        color = skin.muted,
+                    ),
+                )
+            }
+        }
+        Spacer(Modifier.size(6.dp))
+
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .height(HOUR_HEIGHT * hours)
+                .onGloballyPositioned { gridOrigin = it.positionInRoot() },
+        ) {
+            val columnWidth = (maxWidth - GUTTER) / DAYS.size
+            val colPx = with(density) { columnWidth.toPx() }
+            val gutterPx = with(density) { GUTTER.toPx() }
+            val hourPx = with(density) { HOUR_HEIGHT.toPx() }
+            val edgePx = with(density) { 14.dp.toPx() }
+            val slackPx = with(density) { 5.dp.toPx() }
+
+            fun dayAt(x: Float): DayOfWeek =
+                DAYS[((x - gutterPx) / colPx).toInt().coerceIn(0, DAYS.size - 1)]
+
+            fun minuteAt(y: Float): Int {
+                val raw = FIRST_HOUR * 60 + (y / hourPx) * 60f
+                val snapped = (raw / SNAP_MINUTES).roundToInt() * SNAP_MINUTES
+                return snapped.coerceIn(FIRST_HOUR * 60, LAST_HOUR * 60)
+            }
+
+            fun topOf(block: WeekBlock): Float =
+                (block.start.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx
+
+            fun bottomOf(block: WeekBlock): Float =
+                (block.end.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx
+
+            fun boxOf(block: WeekBlock): Rect {
+                val x = gutterPx + colPx * DAYS.indexOf(block.day)
+                return Rect(
+                    left = x + colPx * 0.12f,
+                    top = topOf(block),
+                    right = x + colPx * 0.88f,
+                    bottom = bottomOf(block),
+                )
+            }
+
+            // Read through a snapshot rather than closing over `blocks`.
+            //
+            // pointerInput restarts whenever one of its keys changes, so
+            // keying it on the list meant the first preview frame of a drag
+            // tore down the detector that was producing it: a block could be
+            // created but never sized, and every drag ended as a cancel.
+            val latest by rememberUpdatedState(blocks)
+            val nowPlanting by rememberUpdatedState(planting)
+
+            fun hitTest(at: Offset): Pair<WeekBlock, Grab>? {
+                latest.forEach { b ->
+                    val x = gutterPx + colPx * DAYS.indexOf(b.day)
+                    val top = topOf(b)
+                    val bottom = bottomOf(b)
+                    // A half-hour block is only ten points tall, so the hit
+                    // box gets a little slack it does not draw.
+                    if (at.x >= x && at.x < x + colPx &&
+                        at.y >= top - slackPx && at.y <= bottom + slackPx
+                    ) {
+                        val handle = minOf(edgePx, (bottom - top) * 0.4f)
+                        return b to if (at.y > bottom - handle) Grab.ResizeEnd else Grab.Move
+                    }
+                }
+                return null
+            }
+
+            // Where this grid sits on the screen, so a finger that started
+            // its journey on the palette can be found in the week.
+            val origin = gridOrigin
+
+            /**
+             * What an hour let go of at this point would be, or null if the
+             * point is not over the week.
+             *
+             * Shared by the ghost under the finger and by the drop itself, so
+             * what you are shown while you carry it is by construction what
+             * you get when you let go.
+             */
+            fun blockAt(root: Offset, kind: BlockKind): WeekBlock? {
+                if (!root.isSpecified) return null
+                val local = root - gridOrigin
+                val right = gutterPx + colPx * DAYS.size
+                if (local.x < gutterPx || local.x > right) return null
+                if (local.y < -slackPx || local.y > hourPx * hours + slackPx) return null
+                val start = minuteAt(local.y)
+                val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
+                if (end <= start) return null
+                return WeekBlock(
+                    day = dayAt(local.x),
+                    start = minutesToTime(start),
+                    end = minutesToTime(end),
+                    kind = kind,
+                )
+            }
+
+            val ghost = carrying?.let { blockAt(carryAt, it) }
+
+            // Let go. An hour lands wherever the finger was over the week, and
+            // nothing happens if it was let go anywhere else -- the palette is
+            // somewhere to pick one up from, not a bin.
+            LaunchedEffect(dropped) {
+                val drop = dropped ?: return@LaunchedEffect
+                blockAt(drop.second, drop.first)?.let {
+                    onCommit(Windows.place(latest, it), it)
+                }
+                onPlanted()
+            }
+
+            var carried by remember { mutableStateOf<WeekBlock?>(null) }
+            var rest by remember { mutableStateOf<List<WeekBlock>>(emptyList()) }
+            var grab by remember { mutableStateOf(Grab.Move) }
+            var cursor by remember { mutableStateOf(Offset.Zero) }
+            var grabOffset by remember { mutableStateOf(0) }
+
+            Canvas(Modifier.fillMaxSize()) {
+                // Warm bands down every other column, so seven narrow
+                // columns can be counted without reading the labels.
+                for (i in DAYS.indices) {
+                    if (i % 2 == 1) {
+                        drawRect(
+                            color = skin.band,
+                            topLeft = Offset(gutterPx + colPx * i, 0f),
+                            size = Size(colPx, size.height),
+                        )
+                    }
+                }
+
+                val dash = PathEffect.dashPathEffect(floatArrayOf(7f, 5f), 0f)
+                for (h in 0..hours step LABEL_EVERY) {
+                    val y = h * hourPx
+                    drawLine(
+                        color = skin.line,
+                        start = Offset(gutterPx, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = 1.2f,
+                        pathEffect = dash,
+                    )
+                }
+
+                blocks.forEach { b ->
+                    val box = boxOf(b)
+                    when (b.kind) {
+                        BlockKind.BUSY -> drawThorn(box)
+                        BlockKind.FREE -> drawFlowerBlock(box)
+                    }
+                }
+
+                ghost?.let { g ->
+                    val box = boxOf(g)
+                    when (g.kind) {
+                        BlockKind.BUSY -> drawThorn(box)
+                        BlockKind.FREE -> drawFlowerBlock(box)
+                    }
+                    drawRoundRect(
+                        color = skin.ink,
+                        topLeft = Offset(box.left - 3f, box.top - 3f),
+                        size = Size(box.width + 6f, box.height + 6f),
+                        cornerRadius = CornerRadius(box.width * 0.3f),
+                        style = Stroke(width = 2f),
+                    )
+                }
+
+                selected?.takeIf { it in blocks }?.let { b ->
+                    val box = boxOf(b)
+                    drawRoundRect(
+                        color = skin.ink,
+                        topLeft = Offset(box.left - 3f, box.top - 3f),
+                        size = Size(box.width + 6f, box.height + 6f),
+                        cornerRadius = CornerRadius(box.width * 0.3f),
+                        style = Stroke(width = 2f),
+                    )
+                }
+            }
+
+            for (h in FIRST_HOUR..LAST_HOUR step LABEL_EVERY) {
+                Text(
+                    clockLabel(h),
+                    modifier = Modifier
+                        .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
+                        .width(GUTTER)
+                        .padding(start = 2.dp, end = 6.dp),
+                    textAlign = TextAlign.End,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp,
+                        color = skin.muted,
+                    ),
+                )
+            }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(colPx, hourPx) {
+                        detectTapGestures(
+                            onTap = { at -> onSelect(hitTest(at)?.first) },
+                            // Two taps puts an hour down where you tapped.
+                            // Press-and-drag still draws one at whatever
+                            // length you like; this is the quick way to say
+                            // "here", which is most of what anybody does.
+                            onDoubleTap = { at ->
+                                if (hitTest(at) == null) {
+                                    val start = minuteAt(at.y)
+                                    val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
+                                    if (end > start) {
+                                        val block = WeekBlock(
+                                            day = dayAt(at.x),
+                                            start = minutesToTime(start),
+                                            end = minutesToTime(end),
+                                            kind = nowPlanting,
+                                        )
+                                        onCommit(Windows.place(latest, block), block)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    // Picking something up and planting something are two
+                    // different gestures, and used to be one.
+                    //
+                    // Both went through `detectDragGesturesAfterLongPress`, so
+                    // moving a block you could already see meant holding it
+                    // first -- and once the hold was shortened to make planting
+                    // feel quick, an ordinary tap on empty ground outlasted it
+                    // and put down half an hour on the way past. Every tap
+                    // planted something, and nothing could be moved without
+                    // waiting for a timer first.
+                    //
+                    // Split in two. A block that already exists moves as soon
+                    // as the finger moves, because there is nothing ambiguous
+                    // about pushing something that is already there. Only empty
+                    // ground waits, and only long enough to tell planting from
+                    // scrolling the page.
+                    .pointerInput(colPx, hourPx) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val hit = hitTest(down.position)
+
+                            val begin = if (hit != null) {
+                                awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                                    change.consume()
+                                } != null
+                            } else {
+                                heldStill(down)
+                            }
+                            if (!begin) return@awaitEachGesture
+
+                            cursor = down.position
+                            if (hit == null) {
+                                // Plant one and start sizing it at once, so a
+                                // single press-and-drag both puts it down and
+                                // sets how long it runs.
+                                val start = minuteAt(down.position.y)
+                                val end = (start + SNAP_MINUTES).coerceAtMost(LAST_HOUR * 60)
+                                if (end <= start) return@awaitEachGesture
+                                rest = latest
+                                carried = WeekBlock(
+                                    day = dayAt(down.position.x),
+                                    start = minutesToTime(start),
+                                    end = minutesToTime(end),
+                                    kind = nowPlanting,
+                                )
+                                grab = Grab.ResizeEnd
+                                grabOffset = 0
+                            } else {
+                                rest = latest.filterNot { it == hit.first }
+                                carried = hit.first
+                                grab = hit.second
+                                grabOffset =
+                                    minuteAt(down.position.y) - hit.first.start.toMinutes()
+                            }
+                            carried?.let {
+                                onSelect(it)
+                                onPreview(rest + it)
+                            }
+
+                            // Absolute positions rather than accumulated
+                            // deltas, so what is under the finger stays under
+                            // the finger however long the drag runs.
+                            val finished = drag(down.id) { change ->
+                                change.consume()
+                                val held = carried ?: return@drag
+                                cursor = change.position
+                                overBin = cursor.y > size.height
+                                val next = when (grab) {
+                                    Grab.Move -> {
+                                        val length =
+                                            held.end.toMinutes() - held.start.toMinutes()
+                                        val start = (minuteAt(cursor.y) - grabOffset)
+                                            .coerceIn(
+                                                FIRST_HOUR * 60,
+                                                LAST_HOUR * 60 - length,
+                                            )
+                                        held.copy(
+                                            day = dayAt(cursor.x),
+                                            start = minutesToTime(start),
+                                            end = minutesToTime(start + length),
+                                        )
+                                    }
+
+                                    Grab.ResizeEnd -> {
+                                        val end = minuteAt(cursor.y).coerceIn(
+                                            held.start.toMinutes() + SNAP_MINUTES,
+                                            LAST_HOUR * 60,
+                                        )
+                                        held.copy(end = minutesToTime(end))
+                                    }
+                                }
+                                carried = next
+                                onSelect(next)
+                                onPreview(rest + next)
+                            }
+
+                            carried?.let {
+                                // Dropped past the foot of the week: the bin
+                                // takes it and nothing is planted. A gesture
+                                // the system cancelled keeps its block instead,
+                                // because losing work to a stray notification
+                                // is worse than an unwanted half hour.
+                                if (finished && overBin) onCommit(rest, null)
+                                else onCommit(Windows.place(rest, it), it)
+                            }
+                            carried = null
+                            overBin = false
+                        }
+                    },
+            )
+        }
+
+        // The bin, directly under the foot of the week.
+        //
+        // Removing a block used to mean tapping it and then finding a pill
+        // further down the page, which is a two-step answer to a one-step
+        // thought. Dragging something off the bottom of your week and letting
+        // go of it is the same gesture as throwing it away.
+        Spacer(Modifier.size(8.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (overBin) skin.band else Color.Transparent)
+                .border(
+                    1.dp,
+                    if (overBin) skin.ink else skin.line.copy(alpha = 0.5f),
+                    RoundedCornerShape(12.dp),
+                )
+                .padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Canvas(Modifier.size(width = 13.dp, height = 15.dp)) {
+                val w = size.width
+                val h = size.height
+                val ink = skin.muted
+                // A lid, and a tub under it.
+                drawRect(
+                    color = ink,
+                    topLeft = Offset(0f, h * 0.10f),
+                    size = Size(w, h * 0.10f),
+                )
+                drawRect(
+                    color = ink,
+                    topLeft = Offset(w * 0.34f, 0f),
+                    size = Size(w * 0.32f, h * 0.10f),
+                )
+                drawRect(
+                    color = ink,
+                    topLeft = Offset(w * 0.12f, h * 0.26f),
+                    size = Size(w * 0.76f, h * 0.74f),
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            Text(
+                if (overBin) "Let go to remove it" else "Drag one here to remove it",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    color = skin.muted,
+                ),
+            )
+        }
     }
 }
