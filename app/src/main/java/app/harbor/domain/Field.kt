@@ -556,10 +556,17 @@ object Field {
      *
      * So this is a contain fit, the smaller ratio, and then a margin. The
      * island lands inside the view with dark around it.
+     *
+     * The margin was 0.14 and is now 0.05. At the wider setting the island sat
+     * in the middle of the frame with a ring of empty dark around it, which
+     * reads as a map of somewhere rather than the place itself -- and the
+     * flowers, which are the point of pulling back at all, were a few pixels
+     * each. Filling all but a sliver of the frame keeps it a garden seen from
+     * above.
      */
     fun wideZoom(width: Double, height: Double): Double =
         if (width <= 0 || height <= 0) 0.2
-        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 0.86
+        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 0.95
 
     /** 0 is flat overhead, 1 is full perspective. Everything between is real. */
     fun tiltFor(zoom: Double, base: Double): Double =
