@@ -121,13 +121,6 @@ fun HomeScreen(
         .sumOf { Flowers.flowerCount(it.callMinutes) }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
-        // The weather, as the ground of the whole screen.
-        //
-        // Home is the screen the field lives on, so home is the screen the
-        // weather owns. Everything below is drawn over it, and the field adds
-        // only its terrain -- no second sky, no box, no seam.
-        FieldSky(settings.weather, Modifier.fillMaxSize())
-
         // How tall the field can be, given how tall the phone actually is.
         //
         // It was a fixed number, and a fixed number cannot be right: the
@@ -146,6 +139,27 @@ fun HomeScreen(
         // against the bezel, and not so much that the greeting loses the
         // ground it stands on.
         val FieldDrop = 28.dp
+
+        // The weather, as the ground the field stands on -- and sized to the
+        // field rather than to the phone.
+        //
+        // Everything in the wash is a fraction of its own canvas: the light
+        // sits 0.62 of the height out from its centre, the bands land at
+        // eight fractions, the settle to the page finishes at 0.60. Given the
+        // whole screen, all of that scaled to a 2400-pixel canvas while the
+        // field itself only ever occupied the top four hundred and something
+        // -- so the glow came out nearly three times the size it is in the
+        // garden, which hands the same composable a panel.
+        //
+        // Bounding it to the field makes the two screens one picture at two
+        // sizes. Below it is the page, which is where the wash was heading
+        // anyway: its last two stops are already Paper.
+        FieldSky(
+            settings.weather,
+            Modifier
+                .fillMaxWidth()
+                .height(fieldHeight + FieldDrop),
+        )
 
         // `modifier` belongs to the BoxWithConstraints above; applying it
         // here as well would pay the Scaffold's insets twice.
