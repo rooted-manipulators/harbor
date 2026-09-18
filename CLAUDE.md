@@ -197,6 +197,22 @@ Done:
   posts it with a full-screen intent and degrades gracefully; `Ringer` loops
   the contact's sound. See ADR-009.
 
+- `ui/PersonScreen` + `ui/DayClock` + `domain/DayArcs` — a person's page,
+  rebuilt around a dial. The day is drawn as a **twenty-four hour** clock
+  (one turn is one day, so an arc means one stretch of it and not two) with
+  the week's own two marks bent round it: a thorned arc over busy hours, a
+  blooming one over hours kept free, and nothing over hours nobody marked.
+  Press a free arc, drop a flower on it, push it round to pick a time, and
+  Done writes the same `PROPOSED_LATER` row that tapping "later" on a cue
+  writes — so the hold, the card on home and the study's export all work on it
+  already. Dragging it into a thorn or off the end buzzes and will not move.
+  `DayArcs` is pure and has 21 tests; the drawing and the platform live apart
+  from it.
+  **The dial shows *your* week, not theirs.** Harbor holds one week. Reading
+  somebody else's needs `domain/Sharing` (ADR-013), which exists with no
+  caller — the seam for it is one argument wide and is documented at the top
+  of `PersonScreen`. Do not relabel the dial as theirs without wiring that.
+
 - `ui/ContactScreen` — who the cue is about: name, number, ringtone, photo.
   No permissions: the system ringtone picker, `ACTION_GET_CONTENT` for the
   image, and a copy into app storage. Do not "improve" this with

@@ -57,18 +57,18 @@ import kotlin.math.sin
 
 // --- measured off the frames ----------------------------------------------
 
-private val ThornEdge = Color(0xFF4A6743)
-private val ThornDeep = Color(0xFF26462C)
-private val ThornLit = Color(0xFF4C6C34)
-private val SpikeTop = Color(0xFF4E6A50)
-private val SpikeFoot = Color(0xFF33502F)
+internal val ThornEdge = Color(0xFF4A6743)
+internal val ThornDeep = Color(0xFF26462C)
+internal val ThornLit = Color(0xFF4C6C34)
+internal val SpikeTop = Color(0xFF4E6A50)
+internal val SpikeFoot = Color(0xFF33502F)
 
-private val PetalLight = Color(0xFFFFCA8E)
-private val PetalDeep = Color(0xFFFFB987)
-private val ThroatTop = Color(0xFFFF5151)
-private val ThroatFoot = Color(0xFFFF6158)
-private val StemTop = Color(0xFFFF9778)
-private val StemFoot = Color(0xFFFF6E68)
+internal val PetalLight = Color(0xFFFFCA8E)
+internal val PetalDeep = Color(0xFFFFB987)
+internal val ThroatTop = Color(0xFFFF5151)
+internal val ThroatFoot = Color(0xFFFF6158)
+internal val StemTop = Color(0xFFFF9778)
+internal val StemFoot = Color(0xFFFF6E68)
 
 /**
  * A thorn filling [body], with its spikes outside it.
@@ -186,13 +186,28 @@ internal fun DrawScope.drawFlowerBlock(body: Rect) {
         )
     }
 
+    drawBloomHead(Offset(cx, cy), headR)
+}
+
+/**
+ * The head on its own: six lobes, a middle, and a throat across it.
+ *
+ * Split out of [drawFlowerBlock] when the day dial needed the same bloom
+ * without a block to hang it on -- the reminder flower rides an arc rather
+ * than filling an hour, so it has a centre and a radius and no rectangle
+ * anywhere. One drawing in one place, so the flower you drag round a clock is
+ * recognisably the flower you plant on a week.
+ */
+internal fun DrawScope.drawBloomHead(center: Offset, radius: Float) {
+    val cx = center.x
+    val cy = center.y
     val petals = Brush.verticalGradient(
         colors = listOf(PetalLight, PetalDeep),
-        startY = cy - headR,
-        endY = cy + headR,
+        startY = cy - radius,
+        endY = cy + radius,
     )
-    val lobe = headR * 0.44f
-    val orbit = headR * 0.56f
+    val lobe = radius * 0.44f
+    val orbit = radius * 0.56f
     for (i in 0 until 6) {
         val angle = Math.toRadians(i * 60.0 - 90.0)
         drawCircle(
@@ -204,10 +219,10 @@ internal fun DrawScope.drawFlowerBlock(body: Rect) {
             ),
         )
     }
-    drawCircle(brush = petals, radius = headR * 0.62f, center = Offset(cx, cy))
+    drawCircle(brush = petals, radius = radius * 0.62f, center = Offset(cx, cy))
 
-    val throatW = headR * 1.18f
-    val throatH = headR * 0.80f
+    val throatW = radius * 1.18f
+    val throatH = radius * 0.80f
     drawRoundRect(
         brush = Brush.verticalGradient(
             colors = listOf(ThroatTop, ThroatFoot),
