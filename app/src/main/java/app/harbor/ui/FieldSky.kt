@@ -13,9 +13,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Shader
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.core.graphics.ColorUtils
 import androidx.compose.ui.unit.dp
 import app.harbor.domain.Weather
 import app.harbor.ui.theme.Paper
@@ -66,25 +74,69 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         label = "rain",
     )
 
+    // One tile and one pair of paints for the life of the screen. Rebuilding
+    // either per frame would allocate a bitmap sixty times a second behind a
+    // gradient.
+    val grain = remember { Grain(grainTile()) }
+
     Canvas(modifier.fillMaxSize()) {
         val sky = fieldTintOf(weather)
         drawRect(
-            // Sky, then the land's own dark green, then the page. The weather
-            // owns the top of the screen and has finished handing over by the
-            // same point it always did, which is what keeps a storm from
-            // turning the whole app navy and a bright day from washing the
-            // text out.
+            // Light at the top, falling the whole way down into the page --
+            // and the bands are bowed rather than level, because nothing in
+            // weather is level.
             //
-            // The green is the stop that was missing. Every pair of
-            // neighbours now has something in common to travel through -- sky
-            // into haze, haze into ground, ground into page -- instead of a
-            // lit horizon meeting a near-black page with nothing between them.
+            // The bow is the gradient itself, not a wash over it. One radial
+            // whose centre sits just off the top edge and to the right draws
+            // bands that are arcs; a vertical gradient can only stack perfect
+            // horizontals, which is what makes one read as a ramp. The centre
+            // is where the light is, so the palest tone pools there and every
+            // band under it curves around it.
+            //
+            // Eight stops, unevenly spaced. An even ladder is a machine
+            // counting; a band that holds and then gives way quickly is what
+            // light does through air. The pale stops are close together at the
+            // top and the ground stops are further apart below, so the sky
+            // opens and the land settles.
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.00f to sky.high,
+                    0.10f to sky.pale,
+                    0.24f to sky.mid,
+                    0.38f to sky.deep,
+                    0.52f to sky.land,
+                    0.63f to sky.ground,
+                    0.72f to Paper,
+                    1.00f to Paper,
+                ),
+                center = Offset(size.width * 0.66f, -size.height * 0.08f),
+                radius = size.height * 1.30f,
+            ),
+            size = size,
+        )
+
+        // A hint of warmth where the light comes from. At sixteen per cent it
+        // is a suggestion that the sun is up there rather than a second light
+        // source -- the first pass had this at fifty-five and the whole sky
+        // went to milk.
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(sky.high.copy(alpha = 0.16f), Color.Transparent),
+                center = Offset(size.width * 0.66f, -size.height * 0.08f),
+                radius = size.height * 0.81f,
+            ),
+            size = size,
+        )
+
+        // Then flat to the page, straight across.
+        //
+        // The bands are arcs, and an arc arriving at the cards would put more
+        // colour under one corner than the other. This settles the last of it
+        // level so whatever sits below starts from one honest colour.
+        drawRect(
             brush = Brush.verticalGradient(
-                0.00f to sky.top,
-                0.26f to sky.mid,
-                0.48f to sky.horizon,
-                0.60f to sky.ground,
-                0.72f to Paper,
+                0.70f to Color.Transparent,
+                0.84f to Paper,
                 1.00f to Paper,
             ),
             size = size,
@@ -106,6 +158,24 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
 
         if (sky.dim > 0f) {
             drawRect(color = Color(0xFF1E2C3C).copy(alpha = sky.dim), size = size)
+        }
+
+        // Grain last, over everything including the sun and the clouds, so the
+        // whole wash sits in one air rather than a clean sun floating on a
+        // grainy sky. Strongest where the bands are widest and the steps would
+        // show, gone by the time the page has taken over -- Paper is one flat
+        // colour and has no banding to cure, and noise over the cards would
+        // just be dirt on them.
+        grain.sized(size.height)
+        drawIntoCanvas { canvas ->
+            val native = canvas.nativeCanvas
+            val layer = native.saveLayer(0f, 0f, size.width, size.height, null)
+            native.drawRect(0f, 0f, size.width, size.height, grain.tint)
+            // Rubbed out from the bottom rather than stopped at a line. Cut
+            // flat, the grain ends in an edge straight across the picture --
+            // which is the one thing every part of this file exists to avoid.
+            native.drawRect(0f, 0f, size.width, size.height, grain.fade)
+            native.restoreToCount(layer)
         }
     }
 }
@@ -174,19 +244,23 @@ private fun DrawScope.drawFieldRain(phase: Float, alpha: Float) {
 }
 
 private class SkyTint(
-    val top: Color,
-    val mid: Color,
     /**
-     * Where the sky meets the land, and the stop the whole fade turns on.
+     * The lightest tone there is, at the very top.
      *
-     * The old gradient went straight from a dark sky to the page, which two
-     * dark colours can do in one step. A lit sky cannot: without this the
-     * meadow's pale horizon would drop to near-black across a few pixels and
-     * read as a rule drawn across the screen -- the exact seam this file was
-     * written to remove. It is the prototype's third sky stop, which is the
-     * colour its haze fades distance into.
+     * The sky used to run the other way — its own darkest blue overhead and
+     * its palest at the horizon, which is what a sky actually does. This is
+     * the asked-for arrangement instead: lightest at the top of the frame,
+     * darkening the whole way down until it is the page. It reads as a wash
+     * rather than as a view, and the weather is told by which colours the
+     * wash is made of rather than by where the light sits in it.
      */
-    val horizon: Color,
+    val high: Color,
+    val pale: Color,
+    val mid: Color,
+    /** The last of the sky before the land takes over. */
+    val deep: Color,
+    /** Land, a long way off. The first stop that is ground rather than air. */
+    val land: Color,
     /**
      * The dark green the sky lands on before the page takes over.
      *
@@ -213,6 +287,78 @@ private class SkyTint(
 )
 
 /**
+ * The same hue, carrying more of itself and standing a little further back.
+ *
+ * In HSL rather than HSV on purpose: saturating in HSV drags light colours
+ * toward white as much as toward their hue, and every colour in this palette
+ * is a light colour.
+ */
+private fun deepen(colour: Color, saturation: Float, darken: Float): Color {
+    val hsl = FloatArray(3)
+    ColorUtils.colorToHSL(colour.toArgb(), hsl)
+    hsl[1] = (hsl[1] * saturation).coerceIn(0f, 1f)
+    hsl[2] = (hsl[2] * (1f - darken)).coerceIn(0f, 1f)
+    return Color(ColorUtils.HSLToColor(hsl))
+}
+
+/**
+ * A tile of fixed noise, laid over the whole wash.
+ *
+ * Every reference for this gradient has grain in it, and grain is not a
+ * texture here so much as a cure: eight stops across two thousand pixels still
+ * leaves each band a couple of hundred pixels of nearly one colour, and a
+ * phone's dither will draw visible steps across it. Noise at a few per cent
+ * breaks the step up and the eye reads the result as continuous.
+ *
+ * Built once and tiled. A hundred and twenty-eight squared is small enough to
+ * be nothing in memory and large enough that the repeat does not read as a
+ * pattern, and the seed is fixed so the grain is the same grain every launch
+ * rather than crawling between frames.
+ */
+/**
+ * The grain, its paint, and the mask that rubs it out toward the page.
+ *
+ * Held together because the mask depends on the height and the height is only
+ * known while drawing. Rebuilt when that changes and not otherwise, so a
+ * rotation costs one shader and a frame costs none.
+ */
+private class Grain(tile: Bitmap) {
+
+    val tint = android.graphics.Paint().apply {
+        isAntiAlias = false
+        alpha = (255 * 0.55f).toInt()
+        shader = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+    }
+
+    val fade = android.graphics.Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+    }
+
+    private var height = -1f
+
+    fun sized(h: Float) {
+        if (h == height || h <= 0f) return
+        height = h
+        fade.shader = android.graphics.LinearGradient(
+            0f, h * 0.80f, 0f, h * 0.96f,
+            0x00000000, 0xFF000000.toInt(), Shader.TileMode.CLAMP,
+        )
+    }
+}
+
+private fun grainTile(size: Int = 128): Bitmap {
+    val random = java.util.Random(20260918)
+    val pixels = IntArray(size * size)
+    for (i in pixels.indices) {
+        // Grey, and only in the alpha: tinted noise would shift the colour of
+        // whatever band it fell on, and these bands are the whole point.
+        val a = (random.nextInt(46)) shl 24
+        pixels[i] = a or 0x00FFFFFF
+    }
+    return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+}
+
+/**
  * The sky, taken from the prototype's palette rather than written twice.
  *
  * These used to be five hand-mixed dark skies. They are now read from
@@ -236,13 +382,26 @@ private class SkyTint(
 private fun fieldTintOf(weather: Weather): SkyTint {
     val meadow = meadowFor(weather)
     return SkyTint(
-        top = meadow.sky.first,
-        mid = meadow.sky.second,
-        horizon = meadow.sky.third,
+        // Read top to bottom as the wash runs: the haze the prototype fades
+        // distance into is the palest thing in the table, so it goes overhead,
+        // and the sky's own three follow it down in reverse. The land stop is
+        // the furthest hill, which is the colour distance already turns green
+        // into, so the sky does not meet the field without warning.
+        high = meadow.haze,
+        pale = meadow.sky.third,
+        // The two sky stops under the pale top carry the colour, so they are
+        // the ones deepened. The prototype's palette is a daylight sky seen
+        // through air -- correct for a landscape, and far too milky for a wash
+        // that has to hold its own against a near-black page. Deepening only
+        // these keeps the hues the prototype chose and gives them somewhere to
+        // travel between the pale top and the dark ground.
+        mid = deepen(meadow.sky.second, 1.45f, 0.07f),
+        deep = deepen(meadow.sky.first, 1.45f, 0.18f),
+        land = deepen(meadow.hills.last(), 1.30f, 0.25f),
         // Just under half way to the page. Far enough that it reads as dark
         // green rather than as the meadow repeated, close enough that it is
         // still recognisably the ground and not a grey.
-        ground = lerp(meadow.fieldDeep.last(), Paper, 0.45f),
+        ground = lerp(deepen(meadow.fieldDeep.last(), 1.16f, 0.18f), Paper, 0.45f),
         // A sun is only a sun on the two days that have one. On the others the
         // prototype still names a disc, but it is the overcast's bright patch
         // and it belongs at a fraction of the strength.
@@ -254,7 +413,12 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         // Straight from the prototype's own count, scaled to the three this
         // canvas draws.
         cloud = (meadow.cloudCount / 8f).coerceIn(0f, 1f),
-        cloudColour = meadow.cloud,
+        // Clouds were white against a blue overhead. Overhead is now the
+        // palest tone in the palette, and white on near-white is nothing at
+        // all, so they take a third of the sky's own middle and read as shape
+        // rather than as brightness. They are still the lightest thing in the
+        // band they sit in.
+        cloudColour = lerp(meadow.cloud, meadow.sky.second, 0.34f),
         rain = when (weather) {
             Weather.RAIN -> 0.7f
             Weather.STORM -> 1f
