@@ -17,7 +17,7 @@ android {
         // APK whose versionCode is below the installed one, so a participant
         // who gets builds out of order is told no rather than quietly
         // downgraded onto a version that may read their data differently.
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -89,9 +89,30 @@ android {
             optimization {
                 enable = false
             }
-            // Deliberately left unsigned here. Release signing is a separate
-            // decision with a separate key, and it must never inherit the
-            // debug config above by accident.
+            // Signed with the debug identity, deliberately, and this is a
+            // decision rather than the accident the note here used to warn
+            // against.
+            //
+            // What a teammate needs is a build that is not a *test* build.
+            // Studio's Run stamps `testOnly` on its APKs, which is what makes
+            // them refuse to install by tap, and a debug build also ships the
+            // Compose tooling and the debuggable flag. A release build is
+            // none of those things, and that is the whole difference being
+            // asked for.
+            //
+            // It is not the difference between this and a Play release. Play
+            // will refuse this signature for ever, exactly as the debug
+            // config's own note says. The reason to take that now is the
+            // reason that config exists at all: one signature across every
+            // machine and every build means an update installs over the last
+            // one instead of demanding an uninstall, and an uninstall takes
+            // the ledger with it. Handing a tester a differently-signed APK
+            // costs them their garden, which is the thing being measured.
+            //
+            // So this stands until there is a real release key, and taking
+            // that step means everyone reinstalls once, on purpose, on a day
+            // chosen for it.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

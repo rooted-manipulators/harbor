@@ -4,15 +4,25 @@ Written for a teammate opening a fresh Claude Code session against this repo.
 Everything in it was checked against the running code, not recalled from
 memory — where something is a belief rather than a checked fact, it says so.
 
-Last corrected **17 Sep 2026**, against a working tree that is large and
-uncommitted. Two things changed that session which invalidate a lot of what
-older docs say, and both have their own ADR:
+Last corrected **18 Sep 2026**. The tree that the 17 Sep pass called "large
+and uncommitted" is committed; fifty commits landed the next day. Three
+things are true now that were not, and the first one changes how you work
+rather than what the app does:
+
+- **Gradle runs on this machine again**, which means the app can be built,
+  installed and looked at without waiting for CI. See *Building and handing
+  out a build* — the fix is one environment variable and it is not obvious.
+- **The cue fires from a real walk**, on a real phone. That was the single
+  biggest unproven thing in the previous version of this file.
+- **The sky is hand-mixed per weather** (`ui/WeatherWash.kt`), no longer
+  derived from the ported landscape palette.
+
+Still true from 17 Sep, and still the two ADRs to read before touching
+anything:
 
 - **The flowers are artwork now**, not drawn geometry (ADR-012).
 - **Harbor has a server, an account and the `INTERNET` permission**
   (ADR-013), which reverses ADR-003, ADR-004 and ADR-007.
-
-If you read only two things before touching anything, read those two ADRs.
 
 This is a supplement to `CLAUDE.md` and `docs/01-decisions.md`, not a
 replacement. Those two are still the authority; this is the map of how the
@@ -236,12 +246,27 @@ each layer:
   things: the current tab, the primary action, the selected chip. Nowhere
   else gets colour — anything else that wants attention gets brightness or
   weight instead.
-- **The weather is the ground**, on Home specifically. `FieldSky` paints
-  the whole screen; the field's terrain draws directly onto it and is
-  erased into it with `BlendMode.DstIn` at the bottom edge rather than
-  covered by a scrim. Storm runs dark blue to near-black. Every other
-  screen (Schedule, Account) is deliberately flat — they do not get the
-  weather wash.
+- **The weather is the ground**, on Home and in the garden. `FieldSky`
+  paints a wash; the field's terrain draws directly onto it and is erased
+  into it with `BlendMode.DstIn` at the bottom edge rather than covered by a
+  scrim. Every other screen (Schedule, Account) is deliberately flat — they
+  do not get the wash. Three things about it are easy to get wrong:
+  - **It is sized to the field, not to the window.** On Home it is bounded
+    to `fieldHeight + FieldDrop`. Given the whole screen it drew a gradient
+    about three times too large.
+  - **The sky is hand-mixed and the ground is not.** Four sky stops per
+    weather live in `ui/WeatherWash.kt`; the land stops still come from
+    `ui/Meadow.kt`, the ported prototype palette. That split is deliberate:
+    above the horizon nothing is drawn on the wash, so it can be any colour;
+    below it, every stop is seen *between* the field's dots and has to be
+    the colour those gaps should be. `Wash`'s own doc comment has the rest.
+  - **The ladder may only ever get darker.** `noBrighterThan` in
+    `FieldSky.kt` caps each ground stop against the one above it. Without it
+    four of the five weathers had a land stop *lighter* than the sky stop
+    above them — rain by a third of the whole range — and a falloff that
+    brightens again draws a visible ring around the light. It is a rule
+    rather than five retuned colours precisely because the two halves of the
+    ladder go on being edited separately.
 - **Type**: one face, Manjari, bundled as three `.ttf` files in
   `res/font/`. Three weights only — Thin, Regular, Bold, no Medium/SemiBold
   — so every style that used to ask for SemiBold now asks for Bold. See
@@ -279,42 +304,89 @@ each layer:
 
 ## Current state
 
-**17 Sep 2026. The working tree is large, uncommitted, and worth reading before
-you touch anything.**
+**18 Sep 2026. Everything below is committed.**
 
-- **Branch:** `devansh/cue-settle`. Tip is `0f50449` ("Commit the master
-  context, corrected against tonight").
-- **CI:** not run against any of the work below. Gradle cannot run in the
-  sandbox, so **GitHub Actions is still the only thing that genuinely
-  compiles this app.** Everything in the uncommitted diff has been
-  compile-checked with the standalone kotlinc recipe in `CLAUDE.md`, which
-  proves the Kotlin parses and resolves and proves nothing about resource
-  linking, manifest merging, or `BuildConfig`.
-- **`MainActivity.kt` has never been compiled outside Gradle**, in this
-  session or any other — the ad-hoc classpath has never resolved
-  `ComponentActivity`. It is the file most likely to hold a real error.
-- **Tests: 252, all passing.** Run them with the kotlinc recipe. Two notes if
-  you do: the test source set needs `-Xfriend-paths` pointed at the main
-  output or `internal` is invisible, and anything touching `org.json` needs a
-  real implementation on the classpath because Android ships stubs that throw.
-  `app/build.gradle.kts` has `testImplementation(libs.json)` for that reason.
+- **Branch:** `dark-reskin`. Tip is `e79d2fc` ("Tip the view over the whole
+  pull, and take the ring off the light"). Fifty commits since `0f50449`,
+  which is where the previous version of this file stopped.
+- **Tests: 297, all passing**, under Gradle (`testDebugUnitTest`) and under
+  the standalone kotlinc recipe in `CLAUDE.md`. Two notes if you use the
+  standalone recipe: the test source set needs `-Xfriend-paths` pointed at
+  the main output or `internal` is invisible, and anything touching
+  `org.json` needs a real implementation **ahead of `android.jar` on the
+  classpath** — Android ships stubs that throw, and if `android.jar` sorts
+  first you get fifteen `RuntimeException: Stub!` failures that look like a
+  regression and are not. `app/build.gradle.kts` has
+  `testImplementation(libs.json)` so Gradle gets this right by itself.
+- **The two orphans from the last pass are still orphans.** `HomeBud` and
+  `Windows.weatherFor` are built, verified and uncalled.
 
-**Uncommitted, and all of it deliberate:**
+**What landed since 17 Sep**, in the two arcs it happened in:
 
 | What | Where |
 | --- | --- |
-| Flowers as artwork | `res/drawable-nodpi/`, `FlowerMark.kt`, `tools/` |
-| Field LOD: grass, artwork blooms | `domain/Field.kt`, `ui/FieldCanvas.kt` |
-| Schedule gestures reworked | `ui/ScheduleScreen.kt`, `ui/ThornsAndFlowers.kt` |
-| The bud on home | `ui/HomeBud.kt` (**not yet wired into `HomeScreen`**) |
-| Day weight for the mood picker | `domain/Windows.kt` (**not yet wired in**) |
-| The whole backend | `0011`, `Sharing.kt`, `data/Sync*`, `SignInScreen.kt` |
-
-**Two of those are finished components with no caller.** `HomeBud` and
-`Windows.weatherFor` are built and verified and nothing uses them yet. That is
-where to pick up.
+| The cue actually firing: settle alarm, foreground service, battery exemption, onboarding asks | `sensing/SettleAlarm.kt`, `sensing/SensingService.kt`, `ui/OnboardingScreen.kt` |
+| Field density and level of detail, 2.25x the cells on the same island | `domain/Terrain.kt`, `domain/Field.kt` |
+| The stir: flowers move as you travel through them | `ui/FieldCanvas.kt` |
+| The weather wash: bowed bands, grain, green haze, per-weather skies | `ui/FieldSky.kt`, `ui/WeatherWash.kt` |
+| The scroll-linked pull-back and its crane shot | `ui/FieldCanvas.kt`, `Field.pullTilt`, `Field.wideZoom` |
 
 ---
+
+## Building and handing out a build
+
+**Gradle works on this machine, and the reason it looked broken is worth
+writing down, because it will look broken again.**
+
+It failed every time with `java.io.IOException: Unable to establish loopback
+connection`, which reads like a firewall problem and is not. The real cause is
+four frames further down: `Selector.open()` → `sun.nio.ch.PipeImpl` →
+`UnixDomainSockets.connect0` → `SocketException: Invalid argument`. Java's NIO
+selector opens its internal pipe over an AF_UNIX socket placed in
+`java.io.tmpdir`, and that directory is unusable here. Nothing in Gradle can
+work without a selector, so every build, daemon and worker dies at startup.
+
+Both JDKs on this machine fail it — the bundled 23 and Studio's JBR 25 — so it
+is the environment, not the toolchain. The fix is to put the AF_UNIX socket
+somewhere else:
+
+```bash
+export JAVA_TOOL_OPTIONS="-Djdk.net.unixdomain.tmpdir=C:\Windows\Temp"
+./gradlew assembleRelease
+```
+
+`JAVA_TOOL_OPTIONS` rather than `-Dorg.gradle.jvmargs=...`, and this matters:
+the command-line override reaches the *client* and does not reach the daemon
+it forks, so the build gets one step further and then reports "a new daemon
+was started but could not be connected to". The environment variable is
+inherited by every JVM in the tree.
+
+**Which APK to hand somebody.**
+
+- `assembleRelease` → `app/build/outputs/apk/release/app-release.apk`. This
+  is the one to send. Not debuggable, no Compose tooling, installs by tap.
+- `assembleDebug` from the command line is installable but `debuggable`.
+- **Studio's Run button is the one that produces an APK nobody else can
+  install.** It stamps `testOnly='-1'` on it, and `adb install` then refuses
+  with `INSTALL_FAILED_TEST_ONLY` unless you pass `-t`. A teammate tapping
+  the file just sees it fail. This is the whole reason "make a real APK" is
+  a task at all.
+
+**Release is signed with the debug key, deliberately.** `app/build.gradle.kts`
+used to leave release unsigned with a note saying a real release key is a
+separate decision. It still is — but one signature across every build is what
+lets an update install over the last one, and an uninstall takes the ledger
+with it, which is the thing the study measures. Play will refuse this
+signature for ever. Moving to a real release key is a day everybody reinstalls
+once, on purpose.
+
+**Bump `versionCode` for every build that reaches a phone.** It is 3 now. An
+Android device refuses an APK whose `versionCode` is below the installed one,
+so this is what stops a participant being quietly moved backwards onto a build
+that may read their data differently.
+
+---
+
 
 ## Known bugs
 
@@ -338,6 +410,13 @@ where to pick up.
   onboarding now asks for it. **Check this first** when sensing looks
   dead: `adb logcat | grep Freecess`, and
   `adb shell cmd deviceidle whitelist +app.harbor` to rule it out.
+
+  `sensing/SensingService.kt` now stands against this: a foreground service
+  that does **no work at all** and exists only so the process is not a cached
+  one and cannot be frozen. It amends ADR-008 rather than reversing it — the
+  argument there was against a service that polls, and this one does not. The
+  battery exemption is still worth having on top; the two fix different halves
+  of the same problem.
 
 **Fixed already, worth knowing about because the fix is non-obvious and a
 future change could reintroduce the shape of the bug:**
@@ -396,6 +475,16 @@ future change could reintroduce the shape of the bug:**
   hides from both the Files app and MTP/USB file transfer. Fixed by also
   writing to the shared Downloads collection via `MediaStore`.
 
+**Proven since, and the entry it replaces is worth keeping in mind:** a
+reminder now fires from an actual sensed walking-stop, on a real phone, with
+the permissions granted. This file used to list that as the biggest unproven
+thing in the product, verified only through the in-app "show me a reminder
+now" button, which bypasses sensing entirely. It took three fixes that had
+nothing to do with each other — the settle alarm below, the manual-cue
+cooldown below, and the OEM freezing above — and any one of them alone left
+it looking exactly as dead as before. If it ever goes quiet again, suspect
+all three rather than the first one you find.
+
 **Not yet proven, because nothing has driven the real path:**
 
 - **Every single line of the backend.** `0011` has never been parsed by
@@ -407,9 +496,6 @@ future change could reintroduce the shape of the bug:**
   constraint — the reminder must fire on a train with no signal — and nobody
   has put a build in aeroplane mode and walked.
 
-- A reminder firing from an actual sensed walking-stop, on a real phone,
-  with all three permissions granted. Verified only via the in-app "show me
-  a reminder now" test button, which bypasses sensing entirely.
 - The post-call sequence (land on Home → camera flies to the patch →
   flower opens) end to end, off a real phone call. The timings in the code
   are estimates, not calibrated against a real device.
@@ -593,7 +679,10 @@ In the order I would do them:
    subquery into `links` behaves (I believe it does — `links`' own policy
    restricts it to rows where you are an end, which is what the subquery wants,
    and there is no recursion because `links` does not reference `week_blocks`).
-2. **Get a green CI run.** Nothing on this branch has had one.
+2. **Get a green CI run.** Nothing on this branch has had one. Local Gradle
+   works now (see *Building and handing out a build*), so this is no longer
+   the only way to know the app compiles — but it is still the only thing
+   that builds it on a machine that is not this one.
 3. **Wire the two orphans**: `HomeBud` into `HomeScreen`, and
    `Windows.weatherFor` into `WeatherBar` as its opening state.
 4. **Prove offline.** Aeroplane mode, a real walk, a reminder. If that does not
