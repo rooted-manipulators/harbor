@@ -1126,6 +1126,10 @@ private fun AskPermission(
     // list of apps on it -- so somebody who chose scrolling and was never
     // sent there would have chosen a trigger that cannot fire.
     var canSeeApps by remember { mutableStateOf(ScrollWatch.hasPermission(context)) }
+    // The fifth, and also only for the scrolling trigger. Separate from
+    // canTakeScreen: that one is about a locked phone, this one is about a
+    // phone somebody is holding. See CueNotifier.canOpenOverApps.
+    var canOpenOver by remember { mutableStateOf(CueNotifier.hasOverlayGrant(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1134,6 +1138,7 @@ private fun AskPermission(
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
                 canStayAwake = Sensing.isUnrestricted(context)
                 canSeeApps = ScrollWatch.hasPermission(context)
+                canOpenOver = CueNotifier.hasOverlayGrant(context)
                 granted = ActivityTransitions.hasPermission(context)
             }
         }
@@ -1141,7 +1146,7 @@ private fun AskPermission(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val wouldReach = canNotify && canTakeScreen && canStayAwake &&
-        (!settings.scrollCues || canSeeApps)
+        (!settings.scrollCues || (canSeeApps && canOpenOver))
 
     // Only move on by itself when there is nothing left to fix. With a gap
     // open the step waits, shows what it is, and keeps a Continue under it --
@@ -1278,6 +1283,20 @@ private fun AskPermission(
                                 FlowPill("Open usage access") {
                                     ScrollWatch.open(context, intent)
                                 }
+                            }
+                        }
+                        if (settings.scrollCues && !canOpenOver) {
+                            SmallCopy(
+                                "A reminder while you are scrolling arrives as a banner over the " +
+                                    "feed, which is the easiest thing in the world to flick " +
+                                    "away without reading. Let it open properly and it " +
+                                    "takes the screen instead.",
+                                size = 14,
+                            )
+                            FlowPill("Let a reminder open over an app") {
+                                context.startActivity(
+                                    CueNotifier.overlaySettings(context),
+                                )
                             }
                         }
                         if (!canTakeScreen) {

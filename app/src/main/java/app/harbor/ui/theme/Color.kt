@@ -100,6 +100,16 @@ val Muted = Color(0xFF9C978F)
  */
 val CardEdge = Color(0x17FFFFFF)
 
+/**
+ * The lit segment of a segmented control, on a Glass track.
+ *
+ * Lighter than the track rather than tinted gold. Gold is the app's "press
+ * this" colour and a chosen segment is not an action -- it is a statement
+ * about which of three things you are already looking at, and colouring it
+ * like a button would make two of the three read as disabled.
+ */
+val SpanPicked = Color(0x22FFFFFF)
+
 
 /** The drawn line: outline chips, dividers, anything that must read as a rule. */
 val Hairline = Color(0x2EFFFFFF)

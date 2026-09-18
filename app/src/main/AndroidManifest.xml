@@ -92,6 +92,26 @@
       permission it requires is ACTIVITY_RECOGNITION, which Harbor already
       holds and already explains. It grants nothing new.
     -->
+    <!--
+      Putting the cue in front of the app somebody is using.
+
+      A full-screen intent covers the locked or dark phone and does nothing
+      on one that is unlocked and in use: there the system shows a heads-up
+      banner and leaves you where you were. That is right for almost
+      everything and wrong for the scrolling trigger, whose entire job is to
+      interrupt the feed in front of you. A banner over a feed is a thing
+      people flick away without reading.
+
+      This is the only grant that lets an activity start from the background
+      on a phone in somebody's hand. It is heavy, it has a frightening name,
+      and it is the permission every overlay scam needs, so Harbor asks late
+      and only of people who turned the scrolling trigger on. Without it the
+      cue degrades to the banner, which is what every other path already
+      does; it is never a condition of the app working. See
+      cue/CueNotifier.canOpenOverApps.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
 

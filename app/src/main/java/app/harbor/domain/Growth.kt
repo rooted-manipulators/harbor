@@ -44,11 +44,27 @@ object Growth {
         ALL,
         ;
 
+        /** Said in full, where there is room for it. */
         val label: String
             get() = when (this) {
                 WEEK -> "Weekly"
                 MONTH -> "Monthly"
                 ALL -> "All time"
+            }
+
+        /**
+         * One character, for the segmented control.
+         *
+         * The lemniscate rather than "A" or "All": the other two are initials
+         * of a unit of time and there is no unit here, so a third initial
+         * would imply one. It also happens to be the only one of the three
+         * that needs no language.
+         */
+        val mark: String
+            get() = when (this) {
+                WEEK -> "W"
+                MONTH -> "M"
+                ALL -> "\u221E"
             }
     }
 

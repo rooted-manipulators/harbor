@@ -23,8 +23,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +55,9 @@ import app.harbor.ui.theme.Chalk
 import app.harbor.ui.theme.Glass
 import app.harbor.ui.theme.Muted
 import app.harbor.ui.theme.SmallCopy
+import app.harbor.ui.theme.SpanPicked
+import app.harbor.ui.theme.rememberTick
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -106,7 +112,7 @@ fun GardenActivity(
         ActivityHeader(summary, span, onSpan)
 
         if (summary.isEmpty) {
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(18.dp))
             SmallCopy(
                 when (span) {
                     Growth.Span.WEEK -> "Nothing grew this week. These fill in as you call."
@@ -119,14 +125,145 @@ fun GardenActivity(
             return@Column
         }
 
-        Spacer(Modifier.height(22.dp))
-        MostGrown(summary, contacts)
+        Spacer(Modifier.height(18.dp))
+        Deck(summary, contacts)
+    }
+}
 
-        Spacer(Modifier.height(26.dp))
-        EverythingYouGrew(summary)
+/**
+ * The three pictures as one deck of cards, swiped rather than scrolled.
+ *
+ * ## Why a pager and not a column
+ *
+ * They were stacked, and stacking made them a list of charts you scrolled
+ * past on the way to something else. One at a time, at a size that fills the
+ * space, they are three separate looks at the same week and you arrive at
+ * each of them on purpose. It also means the card can be as tall as it wants
+ * without pushing the list of calls off the bottom of the world.
+ *
+ * ## Why the pages are flat
+ *
+ * "Most grown" is per person, so the obvious shape is a pager of people
+ * inside a pager of cards. Nested horizontal pagers are a gesture fight --
+ * the inner one eats the swipe and the outer one only moves when you happen
+ * to be on an edge page, which is the sort of thing that feels broken
+ * without anybody being able to say why. So the people are unrolled into the
+ * same deck: one page each, then the disc, then the bloom of blooms. Every
+ * swipe does one thing and the indicator tells the truth about how many
+ * there are.
+ */
+@Composable
+private fun Deck(summary: Growth.Summary, contacts: List<Contact>) {
+    val pages = remember(summary) {
+        buildList {
+            summary.people.forEach { add(Page.OnePerson(it)) }
+            add(Page.Everything)
+            if (summary.people.size > 1) add(Page.Together)
+        }
+    }
+    val pager = rememberPagerState { pages.size }
+    val tick = rememberTick()
+    val scope = rememberCoroutineScope()
 
-        Spacer(Modifier.height(26.dp))
-        PeopleYouGrowWith(summary, contacts)
+    // The buzz on arrival, not on the first composition.
+    //
+    // settledPage changes once per completed swipe, which is the moment the
+    // card has landed -- buzzing on currentPage would fire halfway through
+    // the drag, while the thing you are being told about has not happened
+    // yet. Skipped for the initial value so opening the screen is silent.
+    var landed by remember { mutableIntStateOf(pager.settledPage) }
+    LaunchedEffect(pager.settledPage) {
+        if (pager.settledPage != landed) {
+            landed = pager.settledPage
+            tick()
+        }
+    }
+
+    HorizontalPager(
+        state = pager,
+        pageSpacing = 12.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) { index ->
+        Card(Modifier.height(CARD_HEIGHT)) {
+            when (val page = pages[index]) {
+                is Page.OnePerson -> MostGrown(page.person, contacts)
+                Page.Everything -> EverythingYouGrew(summary)
+                Page.Together -> PeopleYouGrowWith(summary, contacts)
+            }
+        }
+    }
+
+    Spacer(Modifier.height(16.dp))
+    Ticks(
+        count = pages.size,
+        current = pager.currentPage,
+        onPick = { scope.launch { pager.animateScrollToPage(it) } },
+    )
+
+    Spacer(Modifier.height(18.dp))
+    // The headline number, under the deck rather than on a card, because it
+    // is true of all of them.
+    Text(
+        if (summary.flowers == 1) "1 flower" else "${summary.flowers} flowers",
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Normal,
+            color = Muted,
+        ),
+    )
+}
+
+/** What one card in the deck is showing. */
+private sealed interface Page {
+    data class OnePerson(val person: Growth.Person) : Page
+    data object Everything : Page
+    data object Together : Page
+}
+
+/**
+ * How tall a card is, for every page.
+ *
+ * Fixed rather than measured. A pager sizes itself to the page being shown,
+ * so pages of different heights make the whole panel -- and everything below
+ * it -- jump on each swipe, which is the one thing a deck must not do.
+ */
+private val CARD_HEIGHT = 430.dp
+
+/**
+ * Where you are in the deck, and a way to get somewhere else.
+ *
+ * A tall pill for here and short ticks for the rest, which says *this one of
+ * these* at a glance without asking anybody to count dots. Each one is its
+ * own target: the visible tick is 3dp wide and would be an unfair thing to
+ * ask a thumb for, so the touch area around it is padded out to the minimum
+ * that can be hit reliably while the mark stays small.
+ */
+@Composable
+private fun Ticks(count: Int, current: Int, onPick: (Int) -> Unit) {
+    if (count <= 1) return
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(count) { index ->
+            val here = index == current
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(99.dp))
+                    .clickable { onPick(index) }
+                    .padding(horizontal = 7.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .width(if (here) 6.dp else 3.dp)
+                        .height(if (here) 26.dp else 16.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (here) Chalk else Muted.copy(alpha = 0.55f)),
+                )
+            }
+        }
     }
 }
 
@@ -138,7 +275,7 @@ private fun ActivityHeader(
     span: Growth.Span,
     onSpan: (Growth.Span) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
+    val tick = rememberTick()
 
     Text(
         "Your activity",
@@ -148,139 +285,103 @@ private fun ActivityHeader(
             color = Chalk,
         ),
     )
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(14.dp))
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // Three segments rather than a menu.
+        //
+        // It was a chip that opened a row of three. Two taps to answer a
+        // question with three answers, where all three fit on the line the
+        // chip was sitting on -- and the menu hid which options existed
+        // until you asked. A segmented control is the same pixels and says
+        // everything up front.
         Row(
             Modifier
                 .clip(RoundedCornerShape(99.dp))
                 .background(Glass)
-                .border(1.dp, CardEdge, RoundedCornerShape(99.dp))
-                .clickable { open = !open }
-                .padding(start = 14.dp, end = 11.dp, top = 7.dp, bottom = 7.dp),
+                .padding(3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                span.label,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontSize = 13.sp,
-                    color = Chalk,
-                ),
-            )
-            Spacer(Modifier.width(7.dp))
-            Canvas(Modifier.size(9.dp)) {
-                // A chevron rather than a glyph from a font, for the reason
-                // every other mark in this app is drawn: it takes the ink
-                // colour and stays sharp at nine dp.
-                val w = size.width
-                val h = size.height
-                drawLine(Muted, Offset(0f, h * 0.3f), Offset(w / 2f, h * 0.8f), 1.6.dp.toPx())
-                drawLine(Muted, Offset(w, h * 0.3f), Offset(w / 2f, h * 0.8f), 1.6.dp.toPx())
-            }
-        }
-    }
-
-    if (open) {
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Growth.Span.entries.forEach { option ->
                 val chosen = option == span
-                Text(
-                    option.label,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 13.sp,
-                        color = if (chosen) Chalk else Muted,
-                    ),
-                    modifier = Modifier
+                Box(
+                    Modifier
                         .clip(RoundedCornerShape(99.dp))
-                        .background(if (chosen) Glass else Color.Transparent)
-                        .clickable { onSpan(option); open = false }
-                        .padding(horizontal = 13.dp, vertical = 7.dp),
-                )
+                        .background(if (chosen) SpanPicked else Color.Transparent)
+                        .clickable {
+                            if (!chosen) {
+                                onSpan(option)
+                                tick()
+                            }
+                        }
+                        .padding(horizontal = 20.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        option.mark,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = if (option == Growth.Span.ALL) 17.sp else 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (chosen) Chalk else Muted,
+                        ),
+                    )
+                }
             }
         }
-    }
 
-    Spacer(Modifier.height(10.dp))
-    // The days something actually happened on, not the window's edges. See
-    // Growth.summarise: a week with one call on Friday says Friday.
-    Text(
-        summary.from?.let { "${stamp(it)} – ${stamp(summary.to)}" } ?: "nothing yet",
-        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, color = Muted),
-    )
+        // The days something actually happened on, not the window's edges.
+        // See Growth.summarise: a week with one call on Friday says Friday.
+        Text(
+            summary.from?.let { "${stamp(it)} – ${stamp(summary.to)}" } ?: "nothing yet",
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontSize = 12.sp,
+                color = Muted,
+            ),
+            modifier = Modifier
+                .clip(RoundedCornerShape(99.dp))
+                .background(Glass)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
 }
 
 private fun stamp(date: java.time.LocalDate): String =
-    date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yy"))
+    date.format(java.time.format.DateTimeFormatter.ofPattern("d.M.yy"))
 
 // --- 1. most grown, one page per person ----------------------------------
 
 @Composable
-private fun MostGrown(summary: Growth.Summary, contacts: List<Contact>) {
-    CardLabel("Most grown")
-    Spacer(Modifier.height(10.dp))
-
-    val people = summary.people
-    val pager = rememberPagerState { people.size }
-
-    HorizontalPager(
-        state = pager,
-        pageSpacing = 12.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) { page ->
-        val person = people[page]
-        val who = contacts.firstOrNull { it.id == person.contactId }
-        Card {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (who != null) {
-                    Avatar(who.label, who.tone, size = AvatarSize.SM)
-                    Spacer(Modifier.width(12.dp))
-                }
-                Text(
-                    who?.label ?: "Someone",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = 18.sp,
-                        color = Chalk,
-                    ),
-                )
-            }
-            Spacer(Modifier.height(4.dp))
+private fun ColumnScope.MostGrown(person: Growth.Person, contacts: List<Contact>) {
+    val who = contacts.firstOrNull { it.id == person.contactId }
+    CardTitle("Most grown")
+    Spacer(Modifier.height(14.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (who != null) {
+            Avatar(who.label, who.tone, size = AvatarSize.SM)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column {
+            Text(
+                who?.label ?: "Someone",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
+                    color = Chalk,
+                ),
+            )
             SmallCopy(
                 person.flowers.let { if (it == 1) "1 flower" else "$it flowers" } +
                     ", from " +
                     person.calls.let { if (it == 1) "1 call" else "$it calls" },
                 size = 12,
             )
-            Spacer(Modifier.height(10.dp))
-            Canvas(
-                Modifier
-                    .fillMaxWidth()
-                    // Wider than it was. At 1.35 a person with one kind sat
-                    // in a tall well of empty card, which read as something
-                    // failing to load rather than as one flower.
-                    .aspectRatio(1.7f),
-            ) {
-                drawCluster(person.blooms.take(MOST_GROWN_KINDS))
-            }
         }
     }
-
-    if (people.size > 1) {
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            repeat(people.size) { index ->
-                Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(if (index == pager.currentPage) 7.dp else 5.dp)
-                        .clip(CircleShape)
-                        .background(if (index == pager.currentPage) Chalk else Muted),
-                )
-            }
-        }
+    Canvas(Modifier.fillMaxWidth().weight(1f)) {
+        drawCluster(person.blooms.take(MOST_GROWN_KINDS))
     }
 }
 
@@ -348,19 +449,12 @@ private const val MOST_GROWN_KINDS = 5
 // --- 2. everything, as one disc ------------------------------------------
 
 @Composable
-private fun EverythingYouGrew(summary: Growth.Summary) {
-    CardLabel("Everything you grew")
-    Spacer(Modifier.height(10.dp))
-    Card {
-        Canvas(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(1.15f),
-        ) {
-            drawDisc(summary.everything)
-        }
-        Spacer(Modifier.height(10.dp))
-        SmallCopy(
+private fun ColumnScope.EverythingYouGrew(summary: Growth.Summary) {
+    CardTitle("Everything you grew")
+    Canvas(Modifier.fillMaxWidth().weight(1f)) {
+        drawDisc(summary.everything)
+    }
+    SmallCopy(
             buildString {
                 append(if (summary.flowers == 1) "1 flower" else "${summary.flowers} flowers")
                 append(", ")
@@ -370,9 +464,8 @@ private fun EverythingYouGrew(summary: Growth.Summary) {
                 append(if (kinds == 1) "1 kind" else "$kinds kinds")
                 if (summary.flowers > DISC_MAX) append(". Showing $DISC_MAX of them")
             },
-            size = 12,
-        )
-    }
+        size = 12,
+    )
 }
 
 /**
@@ -437,10 +530,10 @@ private const val DISC_MAX = 90
 // --- 3. a person, as a flower --------------------------------------------
 
 @Composable
-private fun PeopleYouGrowWith(summary: Growth.Summary, contacts: List<Contact>) {
-    CardLabel("People you grow with")
-    Spacer(Modifier.height(10.dp))
-    Card {
+private fun ColumnScope.PeopleYouGrowWith(summary: Growth.Summary, contacts: List<Contact>) {
+    CardTitle("People you grow with")
+    Spacer(Modifier.height(6.dp))
+    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -480,11 +573,15 @@ private fun PeopleYouGrowWith(summary: Growth.Summary, contacts: List<Contact>) 
                 Spacer(Modifier.weight(1f))
             }
         }
-        if (summary.people.size > PEOPLE_SHOWN) {
-            Spacer(Modifier.height(12.dp))
-            SmallCopy("and ${summary.people.size - PEOPLE_SHOWN} more", size = 12)
-        }
     }
+    SmallCopy(
+        if (summary.people.size > PEOPLE_SHOWN) {
+            "The two you grew most with, of ${summary.people.size}"
+        } else {
+            "A petal for every call, coloured by what it grew"
+        },
+        size = 12,
+    )
 }
 
 /**
@@ -586,25 +683,27 @@ private fun DrawScope.drawBloom(spec: app.harbor.domain.FlowerSpec, radius: Floa
     drawCircle(Color(spec.heart), radius * 0.30f, Offset.Zero)
 }
 
+/** The card's own name, inside it, because the card is the whole view now. */
 @Composable
-private fun CardLabel(text: String) = Text(
+private fun CardTitle(text: String) = Text(
     text,
-    modifier = Modifier.fillMaxWidth(),
-    style = MaterialTheme.typography.labelLarge.copy(
-        fontSize = 14.sp,
+    style = MaterialTheme.typography.titleLarge.copy(
+        fontSize = 21.sp,
         fontWeight = FontWeight.Normal,
-        color = Muted,
+        color = Chalk,
     ),
-    textAlign = TextAlign.Center,
 )
 
 @Composable
-private fun Card(content: @Composable ColumnScope.() -> Unit) = Column(
-    Modifier
+private fun Card(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) = Column(
+    modifier
         .fillMaxWidth()
-        .clip(RoundedCornerShape(22.dp))
+        .clip(RoundedCornerShape(26.dp))
         .background(Glass)
-        .border(1.dp, CardEdge, RoundedCornerShape(22.dp))
-        .padding(horizontal = 18.dp, vertical = 18.dp),
+        .border(1.dp, CardEdge, RoundedCornerShape(26.dp))
+        .padding(horizontal = 20.dp, vertical = 20.dp),
     content = content,
 )

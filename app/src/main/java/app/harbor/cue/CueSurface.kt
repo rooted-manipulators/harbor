@@ -485,8 +485,15 @@ private val TriggerSource.opening: String
     get() = when (this) {
         TriggerSource.WALKING_STOP ->
             "You just stopped walking — a good moment, if you want it."
+        // Not "you just put something down". That was written when this
+        // trigger was going to fire after a session ended, and it fires
+        // during one now -- see CuePolicy.waitsOutAStop. Somebody reading it
+        // mid-scroll is being told they stopped, which is the exact thing
+        // the note above this forbids: Harbor may be wrong about whether
+        // this is a good moment, and may never be wrong about what just
+        // happened.
         TriggerSource.SESSION_END ->
-            "You just put something down — a good moment, if you want it."
+            "You have been in there a while — a good moment, if you want it."
         TriggerSource.NOTE ->
             "You were just thinking of them anyway."
         TriggerSource.GAME ->

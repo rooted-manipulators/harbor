@@ -9,6 +9,8 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.PowerManager
+import android.util.Log
 import android.provider.Settings
 import android.os.Build
 import app.harbor.R
@@ -110,7 +112,84 @@ object CueNotifier {
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+
+        // And, where the system allows it, open the surface ourselves.
+        //
+        // The notification above is the backstop and carries the sound; this
+        // is what makes the cue full screen over somebody else's app. The two
+        // cannot double up: CueActivity is singleTask, so the intent that
+        // arrives second lands on the instance the first one started.
+        if (canOpenOverApps(context)) open.openNow(context)
     }
+
+    /**
+     * Start the surface directly, and survive not being allowed to.
+     *
+     * A PendingIntent sent by us rather than by the notification manager, so
+     * it carries the same extras and the same flags either way.
+     */
+    private fun PendingIntent.openNow(context: Context) {
+        try {
+            send()
+        } catch (e: Throwable) {
+            // Background activity starts are exactly the thing Android keeps
+            // tightening, and the check below can be out of date by a
+            // version. A refusal here costs the full-screen surface and
+            // leaves the notification, which is the documented fallback --
+            // it must not take down the receiver that posted it.
+            Log.w(TAG, "could not open the cue over the foreground app", e)
+        }
+    }
+
+    /**
+     * Whether Harbor may put a screen in front of the app somebody is using.
+     *
+     * ## Why this is not the same question as [canTakeTheScreen]
+     *
+     * A full-screen intent covers the locked or dark phone: the system wakes
+     * the device and shows the surface, the way an alarm does. It does
+     * nothing at all when the phone is unlocked and in use -- there the
+     * system shows a heads-up banner and keeps you where you were, which is
+     * correct for almost every app and wrong for this one trigger. The
+     * scrolling cue exists precisely to interrupt the app in front of you,
+     * and a banner over a feed is a thing you flick away without reading.
+     *
+     * The only grant that permits starting an activity from the background
+     * on a phone somebody is holding is "display over other apps"
+     * (`SYSTEM_ALERT_WINDOW`).
+     *
+     * ## What asking for it costs
+     *
+     * It is a heavy permission with a frightening name, and it is the one
+     * every screen-overlay scam needs. Harbor asks for it late, only from
+     * people who turned the scrolling trigger on, and works without it --
+     * the cue degrades to the heads-up banner, which is what every other
+     * path already does. It is never a condition of the app running.
+     *
+     * Not for a Play listing as it stands. Harbor is a one-week study build.
+     * Revisit with ADR-005 if that changes.
+     *
+     * The interactive check is the other half: when the screen is off there
+     * is nothing to interrupt, and the full-screen intent is the better path
+     * because it wakes the device, which a plain activity start does not.
+     */
+    fun canOpenOverApps(context: Context): Boolean {
+        if (!Settings.canDrawOverlays(context)) return false
+        val power = context.getSystemService(PowerManager::class.java)
+        return power == null || power.isInteractive
+    }
+
+    /** Whether the grant exists at all, regardless of the screen being on. */
+    fun hasOverlayGrant(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    /**
+     * The settings screen that grants it. No runtime prompt exists for this
+     * one either.
+     */
+    fun overlaySettings(context: Context): Intent = Intent(
+        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+        Uri.fromParts("package", context.packageName, null),
+    )
 
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
@@ -220,4 +299,6 @@ object CueNotifier {
     }
 
     private const val LEGACY_CHANNEL = "cue"
+
+    private const val TAG = "HarborSensing"
 }

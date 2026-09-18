@@ -103,6 +103,7 @@ fun CuesSetupScreen(
     }
     var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
     var canSeeApps by remember { mutableStateOf(ScrollWatch.hasPermission(context)) }
+    var canOpenOver by remember { mutableStateOf(CueNotifier.hasOverlayGrant(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -110,6 +111,7 @@ fun CuesSetupScreen(
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 canStayAwake = Sensing.isUnrestricted(context)
                 canSeeApps = ScrollWatch.hasPermission(context)
+                canOpenOver = CueNotifier.hasOverlayGrant(context)
                 hasPermission = ActivityTransitions.hasPermission(context)
             }
         }
@@ -272,6 +274,22 @@ fun CuesSetupScreen(
                         QuietAction("Open usage access") {
                             ScrollWatch.open(context, intent)
                         }
+                    }
+                }
+
+                // Granted, but the reminder would arrive as a banner over
+                // the feed rather than taking the screen. Not a failure --
+                // the cue still works -- so this is quieter than the notice
+                // above it.
+                if (settings.scrollCues && canSeeApps && !canOpenOver) {
+                    SmallCopy(
+                        "A reminder while you are scrolling will arrive as a " +
+                            "banner. Letting Harbor open over other apps gives it " +
+                            "the whole screen instead.",
+                        size = 13,
+                    )
+                    QuietAction("Let a reminder open over an app") {
+                        context.startActivity(CueNotifier.overlaySettings(context))
                     }
                 }
             }
