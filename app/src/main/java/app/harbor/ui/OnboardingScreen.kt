@@ -1003,8 +1003,9 @@ private fun AskPermission(
             // eventually earns. It was already a setting; it simply was not on
             // the screen where somebody is deciding whether to let this run.
             Stepper(
-                label = "Quiet gap between them",
-                value = settings.thresholds.cooldownMinutes.toString() + " min",
+                label = "Quiet gap between reminders",
+                // The same words Account uses for the same number.
+                value = gapPhrase(settings.thresholds.cooldownMinutes),
                 onDown = { gap(store, scope, settings, -15) },
                 onUp = { gap(store, scope, settings, +15) },
             )

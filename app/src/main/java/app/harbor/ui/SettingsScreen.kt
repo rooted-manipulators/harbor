@@ -30,6 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -94,7 +98,10 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                SmallCopy("Only used to say hello. It never leaves this phone.")
+                // The caption above already says where the name stays, and
+                // saying it twice on one card reads as insistence rather than
+                // reassurance. This half is the part that is not obvious.
+                SmallCopy("Only used to say hello.")
             }
 
             Surface {
@@ -195,14 +202,61 @@ fun SettingsScreen(
             // card that used to ask somebody to remember to export is gone.
             // The export itself still exists for whoever collects it.
 
-            TextLink("When you are busy", onEditSchedule)
-            TextLink("Set up a daily reminder", onOpenCues)
+            // The way out of this screen, drawn as though it were.
+            //
+            // These four were plain muted text stacked in a column: no rule,
+            // no chevron, nothing to press. They are the whole navigation off
+            // Account and they read as captions that had lost their headings.
+            // A row with a mark on the end is the least that says "this goes
+            // somewhere".
+            Destination("When you are busy", onEditSchedule)
+            Destination("Set up a daily reminder", onOpenCues)
             // Last of the three, because it is the only one that is optional.
             // Harbor works signed out; an account is what lets you ask
             // somebody whether you may see when they are free.
-            TextLink("Your account", onOpenAccount)
+            Destination("Your account", onOpenAccount)
+
+            // Not a fourth destination.
+            //
+            // "Back" sat in that list looking like one, which raised a
+            // question the other three do not: back to where? It is the way
+            // out, it is not a place, and on a tab you reached from the bar it
+            // is barely needed at all. Kept, quiet, and clearly separate.
+            Spacer(Modifier.height(10.dp))
             TextLink("Back", onDone)
         }
+    }
+}
+
+/**
+ * One place this screen goes, as a row you can see is a row.
+ *
+ * Deliberately not a card. The cards above hold settings you change in place;
+ * these go somewhere else, and giving them the same weight would make Account
+ * a wall of identical boxes. A line, a chevron, and a hairline under it is
+ * enough to read as a list of doors.
+ */
+@Composable
+private fun Destination(label: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 15.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
+            )
+            // Drawn, not a library icon -- see docs/05-changing-the-ui.md.
+            val ink = MaterialTheme.colorScheme.onSurfaceVariant
+            Canvas(Modifier.size(9.dp)) {
+                val w = size.width
+                drawLine(ink, Offset(w * 0.15f, 0f), Offset(w * 0.85f, size.height / 2), strokeWidth = 3f)
+                drawLine(ink, Offset(w * 0.85f, size.height / 2), Offset(w * 0.15f, size.height), strokeWidth = 3f)
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.14f))
     }
 }
 
@@ -212,8 +266,13 @@ fun SettingsScreen(
  *
  * "120 min" is the same fact as "2 h" and is harder to hold. Below an hour the
  * minutes are the unit people think in; above it they are not.
+ *
+ * Shared with onboarding rather than copied. The first run used to print
+ * "0 min" for the same setting Account called "off" -- the same number, two
+ * readings, on two screens a minute apart. Zero is not a duration; it is the
+ * gap being switched off, which is what one of them said.
  */
-private fun gapPhrase(minutes: Int): String = when {
+internal fun gapPhrase(minutes: Int): String = when {
     minutes == 0 -> "off"
     minutes < 60 -> "$minutes min"
     minutes % 60 == 0 -> "${minutes / 60} h"

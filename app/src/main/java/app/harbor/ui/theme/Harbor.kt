@@ -471,25 +471,22 @@ fun QuietAction(
  * screen read as a printed page rather than a settings list.
  */
 @Composable
-fun SectionHeader(title: String, meta: String, modifier: Modifier = Modifier) = Row(
+fun SectionHeader(title: String, meta: String, modifier: Modifier = Modifier) = Column(
     modifier.fillMaxWidth(),
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
-    verticalAlignment = Alignment.Bottom,
 ) {
-    // Both halves are given a share of the row rather than pushed to its
-    // ends.
+    // Stacked, after two attempts at sharing a row.
     //
-    // SpaceBetween puts an unbounded Text at each end and lets them overlap
-    // when the two together are wider than the row, which on Account they
-    // were - "What you call yourself" ran straight through its caption.
+    // SpaceBetween let the two overlap outright. Weighting the row 1.7 to 1
+    // stopped the overlap and left the real problem: both halves still wrap,
+    // so a two-line title sat a few pixels from a two-line caption and the
+    // eye could not tell which words belonged to which. On Account that was
+    // "What you call / yourself" against "never leaves this / phone".
     //
-    // The split favours the title 1.7 to 1. It used to be even, which was
-    // right while the caption was 10sp capitals; in sentence case at 13sp the
-    // caption grew, and an even split then wrapped every heading on the screen
-    // onto two lines ("What you call / yourself"). The caption is the half
-    // that can afford to wrap.
-    SectionHeading(title, Modifier.weight(1.7f, fill = false))
-    Eyebrow(meta, Modifier.weight(1f), textAlign = TextAlign.End)
+    // A caption under its heading needs no arithmetic to be legible, reads in
+    // the order it is written, and gives the title the whole width -- which
+    // is usually enough for it to stop wrapping at all.
+    SectionHeading(title)
+    Eyebrow(meta)
 }
 
 /**
