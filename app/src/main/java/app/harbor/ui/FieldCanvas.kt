@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
@@ -66,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
+import kotlin.math.pow
 import kotlin.math.min
 
 /**
@@ -137,6 +139,18 @@ fun FieldCanvas(
      * back, away, and that framing then stays.
      */
     standClose: Boolean = false,
+    /**
+     * How far the page has pulled the camera off the field: 0 is standing in
+     * it, 1 is the whole island.
+     *
+     * A lambda rather than a value, and deliberately so. Whatever drives this
+     * changes every frame of a scroll, and a composable that reads such a
+     * thing recomposes every frame with it -- which on home means recomposing
+     * the largest screen in the app sixty times a second to move a camera.
+     * Read through `snapshotFlow` instead, so the only thing that wakes is the
+     * effect that needs it.
+     */
+    pullBack: () -> Float = { 0f },
     /**
      * What a tap means, when it should not mean "select a patch".
      *
@@ -364,6 +378,35 @@ fun FieldCanvas(
         goal = cam
         delay(520)
         goal = Field.Camera(here.first, here.second, base * Field.BLOOM_ZOOM)
+    }
+
+    // Scrolling the page pulls the camera back off the field.
+    //
+    // Read through snapshotFlow rather than taken as a parameter value: the
+    // scroll changes every frame of a drag, and a composable that reads it
+    // recomposes every frame with it. Home is a large composable. This way the
+    // only thing that wakes is the effect, and what it writes is the goal --
+    // so the chase below does the easing and the pull-back arrives smooth
+    // without an animation of its own.
+    LaunchedEffect(base, frame, standSpot, touched) {
+        if (touched || base <= 0 || frame.width <= 0) return@LaunchedEffect
+        val here = standSpot ?: return@LaunchedEffect
+        val standX = here.first
+        val standY = here.second
+        val standZoom = base * Field.BLOOM_ZOOM
+        snapshotFlow { pullBack().coerceIn(0f, 1f).toDouble() }.collect { pull ->
+            goal = Field.Camera(
+                x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
+                y = standY + (Terrain.FIELD_H / 2 - standY) * pull,
+                // Geometrically, not linearly. Zoom multiplies -- halfway
+                // between 27x and 1x is not 14x, it is about 5x, and a linear
+                // ramp spends most of the scroll crawling through the wide end
+                // where nothing appears to change and then lurches at the
+                // close end. This way every pixel of scroll moves the view by
+                // the same proportion, which is what makes it feel even.
+                zoom = standZoom * (base / standZoom).pow(pull),
+            )
+        }
     }
 
     // The camera chases its goal rather than snapping, which is what makes a

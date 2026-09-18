@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.animation.core.tween
@@ -161,6 +162,21 @@ fun HomeScreen(
                 .height(fieldHeight + FieldDrop),
         )
 
+        // Scrolling down pulls the camera off the field; scrolling back up
+        // puts you in it again.
+        //
+        // The page and the field move as one thing rather than the field being
+        // a picture the page slides over. Reading down the screen is already a
+        // step back from the moment -- from "call her" to what has happened
+        // lately -- and the view follows the attention rather than sitting
+        // still while the attention leaves.
+        //
+        // Over one field's height: any less and the island snaps out while
+        // the first card is still arriving, any more and the whole page has
+        // scrolled by before the view has finished moving.
+        val scroll = rememberScrollState()
+        val pullOver = with(LocalDensity.current) { fieldHeight.toPx() }
+
         // `modifier` belongs to the BoxWithConstraints above; applying it
         // here as well would pay the Scaffold's insets twice.
         Column(
@@ -169,7 +185,7 @@ fun HomeScreen(
                 // No ground of its own: HarborShell paints the ground and the
                 // dusk over it, and a second opaque background here covered
                 // that gradient -- which is what made every screen read flat.
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
         ) {
             // The field, full bleed, with the greeting standing on it.
             //
@@ -233,6 +249,7 @@ fun HomeScreen(
                     // which is what the close opening shot costs otherwise.
                     interactive = true,
                     standClose = true,
+                    pullBack = { scroll.value / pullOver },
                     controls = false,
                     sky = false,
                     arriving = growing != null,
