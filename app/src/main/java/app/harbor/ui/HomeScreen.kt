@@ -141,6 +141,12 @@ fun HomeScreen(
         // half the phone and then lets the first card climb back over it.
         val fieldHeight = (maxHeight * 0.46f).coerceIn(280.dp, 400.dp)
 
+        // How far down the field sits from the top of the phone. Small on
+        // purpose: enough that there is sky above the land rather than land
+        // against the bezel, and not so much that the greeting loses the
+        // ground it stands on.
+        val FieldDrop = 28.dp
+
         // `modifier` belongs to the BoxWithConstraints above; applying it
         // here as well would pay the Scaffold's insets twice.
         Column(
@@ -169,6 +175,23 @@ fun HomeScreen(
                     store,
                     Modifier
                         .fillMaxSize()
+                        // Dropped a little down the screen.
+                        //
+                        // The horizon sits a seventh of the way down whatever
+                        // canvas the field is given, and on home that canvas
+                        // starts at the top of the phone -- so the horizon
+                        // landed just under the status bar, with the land
+                        // pressed against the top edge and nothing above it.
+                        // The garden gives the same field a panel to sit in and
+                        // reads correctly; home was the screen without the
+                        // breathing room.
+                        //
+                        // An offset rather than padding, so only the drawing
+                        // moves. Padding would shorten the canvas, and a
+                        // shorter canvas moves the horizon back up by the same
+                        // fraction -- the field would shrink and stay exactly
+                        // where it was.
+                        .offset(y = FieldDrop)
                         // The field is erased into the page, not covered by it.
                         //
                         // A scrim painted over the bottom of the terrain only
