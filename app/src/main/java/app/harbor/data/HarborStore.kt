@@ -197,7 +197,20 @@ class HarborStore(context: Context) : HarborRepository {
             val ledger = readLedger()
             val cues = readCues()
             CuePolicy.DayState(
-                entriesToday = ledger.filter { it.entryDate == date },
+                // Manual cues excluded here too, for the same reason as the
+                // two counters below: trying the feature must not spend
+                // anything a real walk would need. Without this, tapping
+                // "Call now" on the in-app preview wrote a CALLED row with
+                // triggerSource MANUAL, and CuePolicy's ALREADY_CONNECTED_TODAY
+                // check -- which runs before the daily cap is even looked
+                // at -- read that row and held every sensed reminder for the
+                // rest of the day. From the settings screen that looked
+                // exactly like the daily-cap stepper doing nothing: raising
+                // it to 5 changed nothing, because the gate that actually
+                // fired first was never the cap.
+                entriesToday = ledger.filter {
+                    it.entryDate == date && it.triggerSource != TriggerSource.MANUAL
+                },
                 // Manual cues are excluded on purpose. The daily cap limits
                 // how often Harbor interrupts someone, and a cue they asked
                 // for is not an interruption — it would be perverse for
