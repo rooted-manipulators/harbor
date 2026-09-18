@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -56,6 +58,7 @@ import app.harbor.domain.Field
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.Flowers
 import app.harbor.ui.theme.CardEdge
+import app.harbor.ui.theme.LocalReducedMotion
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
 import app.harbor.domain.Terrain
@@ -240,6 +243,14 @@ fun FieldCanvas(
     }
     var goal by remember { mutableStateOf(cam) }
     var touched by remember { mutableStateOf(false) }
+
+    // What the stir is worked out from, frame to frame. Plain vars rather than
+    // state: they are read and written inside one draw and must never cause a
+    // recomposition, or the ground moving would redraw the ground.
+    val reducedMotion = LocalReducedMotion.current
+    var stirAt by remember { mutableLongStateOf(System.nanoTime()) }
+    var stirFrom by remember { mutableStateOf(cam) }
+    var stirSpeed by remember { mutableDoubleStateOf(0.0) }
 
     // Nothing planted yet is its own opening shot, not a smaller version of
     // the usual one.
@@ -436,7 +447,21 @@ fun FieldCanvas(
                 },
         ) {
             if (cells.isEmpty() || base <= 0) return@Canvas
-            drawField(built, patches, palette, cam, base, kit, tagInk, newest, art)
+            // How fast the view is travelling, in screens a second, which is
+            // the only thing the stir needs to know. Measured here rather than
+            // in the gesture handlers because the camera also moves on its own
+            // -- flying to a new bloom is movement the ground should feel too.
+            val now = System.nanoTime()
+            val seconds = ((now - stirAt) / 1_000_000_000.0).coerceIn(1.0 / 120, 0.25)
+            val moved = hypot(cam.x - stirFrom.x, cam.y - stirFrom.y) * cam.zoom / size.width
+            stirAt = now
+            stirFrom = cam
+            // Eased rather than taken raw: a frame that happens to land between
+            // two gesture events reads as a dead stop, and the ground should
+            // not twitch because the touch stream did.
+            stirSpeed += ((moved / seconds) - stirSpeed) * 0.25
+            val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirSpeed)
+            drawField(built, patches, palette, cam, base, kit, tagInk, newest, art, stir)
         }
 
         if (controls) {
@@ -618,6 +643,9 @@ private class DrawKit(buckets: Int) {
     val stem = NativePath()
     val rect = RectF()
     val point = Field.Point()
+
+    /** Scratch for the stir, so the per-cell offset allocates nothing. */
+    val stirPoint = Field.Point()
 }
 
 private class Tag(val text: String, val x: Float, var y: Float, val stemY: Float)
@@ -634,6 +662,8 @@ private fun DrawScope.drawField(
     mark: Field.Cell?,
     /** The bloom artwork, by kind. Empty until it has finished decoding. */
     art: Map<FlowerKind, Bitmap>,
+    /** How hard the ground is stirring, nought to one. See [Field.stirAmount]. */
+    stir: Double,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -680,6 +710,17 @@ private fun DrawScope.drawField(
 
         var r = c.size * Field.DOT_SCALE * p.s
         if (r < 0.1) continue
+
+        // The ground leans while you travel over it, and is still the instant
+        // you stop. Applied after the cull so a stirring cell cannot escape
+        // its block, and scaled by its own radius so near ground moves further
+        // than far ground -- which is what stops it reading as the whole
+        // picture sliding.
+        if (stir > 0.0) {
+            Field.stirOffset(c.tone, stir, r, kit.stirPoint)
+            p.x += kit.stirPoint.x
+            p.y += kit.stirPoint.y
+        }
 
         when (c.kind) {
             Field.Kind.CROSS -> {

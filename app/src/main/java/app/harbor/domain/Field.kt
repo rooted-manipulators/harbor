@@ -2,6 +2,7 @@ package app.harbor.domain
 
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -172,6 +173,67 @@ object Field {
         if (tipped <= 0.0) return 0.0
         val near = ((screenY / height - GRASS_FROM) / (1.0 - GRASS_FROM)).coerceIn(0.0, 1.0)
         return tipped * near
+    }
+
+    // --- the ground stirring as you move over it ------------------------------
+    //
+    // Bear 71 draws its world as a field of dots and moves between states by
+    // moving the dots: a form scatters, drifts, and settles into the next one,
+    // so you watch it assemble rather than cut to it. Harbor's field already
+    // *is* a field of dots, which is why the idea ports at all.
+    //
+    // What it is not is a particle system. Forty thousand cells cannot each
+    // carry a velocity and a target without the frame budget noticing, and a
+    // garden that kept simmering after you stopped would be the one thing in
+    // this app that never settles. So the stir is a pure function of the cell
+    // and how fast the camera is going: no state, nothing to update, nothing
+    // to leak, and it is exactly zero the moment the camera stops.
+
+    /**
+     * How far a cell may wander, as a fraction of its own radius.
+     *
+     * Small on purpose. The dots are the ground; ground that swims reads as a
+     * rendering fault rather than as life, and the whole effect is meant to be
+     * felt at the edge of noticing rather than watched.
+     */
+    const val STIR = 0.55
+
+    /** Camera speed, in screens a second, at which the stir is at full [STIR]. */
+    const val STIR_AT = 1.6
+
+    /**
+     * How much the ground is stirring, nought to one.
+     *
+     * Rises with how fast the view is moving and falls back to nought as it
+     * slows, so the field ripples while you travel and is perfectly still the
+     * moment you arrive. Squared rather than linear: a slow drag should barely
+     * disturb anything, and the ripple should belong to real movement.
+     */
+    fun stirAmount(screensPerSecond: Double): Double {
+        val t = (screensPerSecond / STIR_AT).coerceIn(0.0, 1.0)
+        return t * t
+    }
+
+    /**
+     * Which way this cell leans while the ground is stirring.
+     *
+     * A cell's direction is its own [Cell.tone] and never changes, so the
+     * field leans in a fixed scatter rather than swirling — the same reason
+     * [wisp] hashes rather than counts. Returned through [out] because this is
+     * called per cell per frame and an allocation there is forty thousand
+     * allocations a frame.
+     */
+    fun stirOffset(tone: Double, amount: Double, radius: Double, out: Point): Point {
+        if (amount <= 0.0) {
+            out.x = 0.0
+            out.y = 0.0
+            return out
+        }
+        val angle = tone * 6.283185307179586
+        val reach = radius * STIR * amount
+        out.x = cos(angle) * reach
+        out.y = sin(angle) * reach
+        return out
     }
 
     /**

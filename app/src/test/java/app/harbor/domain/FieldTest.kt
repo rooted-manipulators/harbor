@@ -600,6 +600,57 @@ class FieldTest {
         }
     }
 
+    // --- the ground stirring as you move over it -----------------------------
+
+    @Test
+    fun `a still camera stirs nothing at all`() {
+        // The one that keeps the garden a place rather than an aquarium. If
+        // this ever returns more than nought, the ground simmers forever.
+        assertEquals(0.0, Field.stirAmount(0.0), 0.0)
+        val out = Field.stirOffset(0.37, Field.stirAmount(0.0), 12.0, Field.Point())
+        assertEquals(0.0, out.x, 0.0)
+        assertEquals(0.0, out.y, 0.0)
+    }
+
+    @Test
+    fun `the stir rises with speed and then stops rising`() {
+        val slow = Field.stirAmount(0.2)
+        val quick = Field.stirAmount(1.0)
+        assertTrue("a faster camera has to stir harder", slow < quick)
+        assertEquals("and it saturates rather than growing forever", 1.0, Field.stirAmount(99.0), 0.0)
+        // Squared, so a slow drag barely disturbs anything.
+        assertTrue("a slow drag should be nearly still", slow < 0.05)
+    }
+
+    @Test
+    fun `a cell never wanders further than its own radius`() {
+        // A dot that can travel further than it is wide stops reading as that
+        // dot leaning and starts reading as a different dot.
+        val radius = 9.0
+        for (step in 0..20) {
+            val tone = step / 20.0
+            val out = Field.stirOffset(tone, 1.0, radius, Field.Point())
+            val reach = kotlin.math.hypot(out.x, out.y)
+            assertTrue("a cell reached $reach on a radius of $radius", reach <= radius)
+            assertEquals("the reach is the radius times STIR", radius * Field.STIR, reach, 1e-9)
+        }
+    }
+
+    @Test
+    fun `a cell leans the same way every time it is asked`() {
+        // Direction comes from the cell's own tone and nothing else. A stir
+        // built on a running clock would make the field swim rather than lean.
+        val first = Field.stirOffset(0.61, 0.8, 7.0, Field.Point())
+        val x = first.x
+        val y = first.y
+        val again = Field.stirOffset(0.61, 0.8, 7.0, Field.Point())
+        assertEquals(x, again.x, 0.0)
+        assertEquals(y, again.y, 0.0)
+        // And two different cells do not lean together.
+        val other = Field.stirOffset(0.14, 0.8, 7.0, Field.Point())
+        assertTrue("two cells leaned identically", x != other.x || y != other.y)
+    }
+
     @Test
     fun `making the grid denser does not move the island`() {
         // CELL, COLS and ROWS move together and their product is the world.
