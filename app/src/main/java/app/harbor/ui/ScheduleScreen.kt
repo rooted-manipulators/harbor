@@ -186,32 +186,26 @@ fun ScheduleScreen(
             TextLink("Back", onDone)
         },
     ) {
-        WeekHeading(skin)
-        WeekPurpose(skin)
+        // Nothing above the grid.
+        //
+        // This screen used to open with a title, a subtitle and three
+        // sentences explaining why it exists -- 870 pixels of a 2340 pixel
+        // phone, so a screen called "drag and drop slots on your calendar"
+        // showed the calendar as the smallest thing on it, cut off at 15:00
+        // with the nav bar over the rest.
+        //
+        // The explanation was not wrong. It was written because testers asked
+        // what the calendar was *for*, and it answered them. But it answered
+        // them once, and then charged every later visit the same 870 pixels.
+        // A tab you return to is not a tab that needs re-introducing, and the
+        // tab is already labelled Schedule.
+        //
+        // The first run still gets the heading -- see WeekSetupScreen, where
+        // somebody is meeting this for the first time and there is no nav bar
+        // to tell them where they are.
     }
 }
 
-/**
- * Why this screen exists, above the thing it is asking you to do.
- *
- * The two lines from the frames say what the gesture is and what Harbor does
- * with it, and testers still asked what the calendar was *for*. It is worth
- * three sentences: a cue arrives on its own, so the only way it knows to stay
- * out of a lecture is this.
- */
-@Composable
-private fun WeekPurpose(skin: WeekSkin) {
-    Text(
-        "Harbor decides on its own when to offer you a call — usually just " +
-            "after a walk. It has no way of knowing you are in a seminar unless " +
-            "you tell it here. Mark the hours you are busy and a reminder will not " +
-            "arrive in the middle of them.",
-        style = MaterialTheme.typography.bodyMedium.copy(
-            fontSize = 13.sp,
-            color = skin.muted,
-        ),
-    )
-}
 
 /**
  * Bringing a week in from a calendar you already keep.
@@ -223,39 +217,20 @@ private fun WeekPurpose(skin: WeekSkin) {
  */
 @Composable
 private fun BringACalendar(skin: WeekSkin) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, skin.line.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "Bring in a calendar",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontSize = 15.sp,
-                    color = skin.muted,
-                ),
-            )
-            Text(
-                "Outlook or Google, instead of drawing it",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp,
-                    color = skin.muted,
-                ),
-            )
-        }
-        Text(
-            "Soon",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 11.sp,
-                color = skin.muted,
-            ),
-        )
-    }
+    // A line, not a card.
+    //
+    // A bordered row with a title, a subtitle and a tag on the right is the
+    // shape of something you press. This one does nothing, and drawing it as
+    // the most substantial object under the grid made the one dead thing on
+    // the screen the most inviting. Stripped to a sentence it reads as what it
+    // is: a note about later, beside the thing that works.
+    Text(
+        "Bringing a week in from Outlook or Google comes later. For now it is drawn here.",
+        style = MaterialTheme.typography.bodySmall.copy(
+            fontSize = 12.sp,
+            color = skin.muted,
+        ),
+    )
 }
 
 /**
