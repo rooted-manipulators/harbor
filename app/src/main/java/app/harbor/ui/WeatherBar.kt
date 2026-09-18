@@ -37,6 +37,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import app.harbor.domain.StudyArm
 import androidx.compose.runtime.LaunchedEffect
 import app.harbor.domain.Windows
@@ -384,10 +387,27 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
             // bee is what it is carrying. Drawn after the disc and outside
             // its clip, or a round mask would take the wings off.
             //
-            // Only in the bees arm. In the garden this composable is exactly
-            // what it was, which is what makes the two comparable.
-            if (LocalStudyArm.current == StudyArm.BEES) {
-                Image(
+            // What the thumb carries, which is the arm.
+            //
+            // ## Why the garden arm has one too
+            //
+            // It did not, and that was the study quietly breaking. The
+            // slider's answer used to paint the sky, so in the garden arm
+            // moving it changed the whole screen -- then the sky became the
+            // hour (see SkyHour) and stopped being the slider's answer, and
+            // nobody noticed that the control had been left saying nothing.
+            // Meanwhile the bees arm had a face on the thumb that changed as
+            // you dragged.
+            //
+            // So the comparison had inverted: the arm being tested was the
+            // responsive one and the control was inert, and any difference
+            // in how much people used the slider would have measured that
+            // rather than the metaphor. Both arms now answer on the thumb,
+            // from the same stored value, at the same size, in the same
+            // place. One shows a sky, one shows a bee, and that difference
+            // is the only difference -- which is what makes them comparable.
+            when (LocalStudyArm.current) {
+                StudyArm.BEES -> Image(
                     painter = painterResource(beeFace(settings.weather)),
                     contentDescription = null,
                     modifier = Modifier
@@ -398,6 +418,22 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                         .offset(x = thumbX - 17.dp, y = (-17).dp)
                         .size(64.dp),
                 )
+
+                StudyArm.GARDEN -> Canvas(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = thumbX - 9.dp, y = (-9).dp)
+                        .size(48.dp),
+                ) {
+                    // The emblems are drawn in a 100 wide by 110 tall box,
+                    // so the fit is by height and the centring is by width.
+                    val k = size.height / 110f
+                    translate((size.width - 100f * k) / 2f, 0f) {
+                        scale(k, pivot = Offset.Zero) {
+                            with(Sky) { drawEmblem(settings.weather) }
+                        }
+                    }
+                }
             }
         }
 

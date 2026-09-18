@@ -114,18 +114,44 @@ fun Specimen(
                 // So the frame holds the invitation instead. Not an error and
                 // not a placeholder: the true sentence about what happens next,
                 // in the shape the flower will eventually fill.
-                Text(
-                    "Their first flower\nopens after your\nfirst call",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
+                // Stacked, not layered, and only here.
+                //
+                // The bee below is placed for an arch with a flower in it,
+                // where bottom left is the one corner free of both the bloom
+                // and the caption. An empty arch has no flower and three
+                // centred lines instead, and at this size they run straight
+                // through a 44dp figure -- which is the arch every
+                // participant sees on their first run, before any call has
+                // happened, and so the bees arm's first sight of its own
+                // mascot. Nudging the text up only made them touch: there is
+                // not room for both in the middle of a frame this small.
+                //
+                // So in this one case the two share a column and neither has
+                // to dodge. The corner stays right for the case that lasts.
+                Column(
+                    Modifier
                         .align(Alignment.Center)
                         .padding(horizontal = 14.dp),
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Their first flower\nopens after your\nfirst call",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign = TextAlign.Center,
+                    )
+                    if (LocalStudyArm.current == StudyArm.BEES) {
+                        Spacer(Modifier.height(6.dp))
+                        Image(
+                            painter = painterResource(R.drawable.bee_standing),
+                            contentDescription = null,
+                            modifier = Modifier.size(38.dp),
+                        )
+                    }
+                }
             }
 
             // The bee keeping them company, in the bees arm only.
@@ -139,7 +165,7 @@ fun Specimen(
             // Bottom left, because the flower is drawn bottom *centre* and the
             // caption sits under the whole arch: the one corner where a 44dp
             // figure lands on neither.
-            if (LocalStudyArm.current == StudyArm.BEES) {
+            if (LocalStudyArm.current == StudyArm.BEES && flower != null) {
                 Image(
                     painter = painterResource(R.drawable.bee_standing),
                     contentDescription = null,

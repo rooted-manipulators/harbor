@@ -84,8 +84,16 @@ internal object Sky {
         }
     }
 
-    /** One weather, drawn in the prototype's 100x110 space. */
-    private fun DrawScope.drawEmblem(weather: Weather) {
+    /**
+     * One weather, drawn in the prototype's 100x110 space.
+     *
+     * Internal rather than private since the slider thumb carries one. These
+     * were drawn for a wheel of skies that no longer turns anywhere -- the
+     * only caller of [drawWheel] is `GardenCanvas`, which nothing calls --
+     * and they are the app's weather, already measured off the prototype.
+     * Better reused than redrawn.
+     */
+    internal fun DrawScope.drawEmblem(weather: Weather) {
         when (weather) {
             Weather.CLEAR -> drawSun()
 
