@@ -169,6 +169,41 @@ internal class SensingStore(context: Context) {
             }.commit()
         }
 
+    /**
+     * The scrolling stretch a reminder has already been fired for.
+     *
+     * [ScrollWatch] is a poll, so a stretch that has crossed the threshold
+     * keeps crossing it every time it is asked. Without this, twenty-one
+     * minutes in one app would produce a reminder, and twenty-four minutes
+     * another, until the day's allowance was gone -- which is the behaviour
+     * this app exists not to have.
+     *
+     * The start time is part of the identity, not just the package: putting
+     * the phone down and picking the same app up again is a new stretch and
+     * may earn its own reminder, subject to every cap in CuePolicy.
+     *
+     * This is the only thing about your apps that Harbor writes down, and it
+     * holds one at a time. See ScrollWatch for what is deliberately not kept.
+     */
+    var firedStretch: ScrollWatch.Stretch?
+        get() {
+            val started = prefs.getLong(KEY_FIRED_STRETCH_AT, ABSENT)
+            if (started == ABSENT) return null
+            val pkg = prefs.getString(KEY_FIRED_STRETCH_PKG, null) ?: return null
+            return ScrollWatch.Stretch(pkg, Instant.ofEpochMilli(started))
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_FIRED_STRETCH_AT)
+                    remove(KEY_FIRED_STRETCH_PKG)
+                } else {
+                    putLong(KEY_FIRED_STRETCH_AT, value.startedAt.toEpochMilli())
+                    putString(KEY_FIRED_STRETCH_PKG, value.packageName)
+                }
+            }.commit()
+        }
+
     companion object {
         /** Set off again before the settle window was up. */
         const val WALKING_RESUMED = "WALKING_RESUMED"
@@ -186,6 +221,8 @@ internal class SensingStore(context: Context) {
         private const val KEY_PENDING_STILL_SINCE = "pending_still_since"
         private const val KEY_PENDING_SOURCE = "pending_source"
         private const val KEY_PENDING_MINUTES = "pending_active_minutes"
+        private const val KEY_FIRED_STRETCH_AT = "fired_stretch_at"
+        private const val KEY_FIRED_STRETCH_PKG = "fired_stretch_package"
         private const val ABSENT = -1L
     }
 }

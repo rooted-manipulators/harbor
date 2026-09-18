@@ -233,9 +233,8 @@ object CuePolicy {
 
         // --- stage 4: kairos ---------------------------------------------
         // Fire on the completed stop, never mid-activity. Handoff, section 7.
-        // Only meaningful for a sensed transition: a note or the daily
-        // question has no stop to wait out.
-        if (signal.source.isSensedTransition) {
+        // Only meaningful for a trigger with a stop to wait out.
+        if (signal.source.waitsOutAStop) {
             if (Duration.between(signal.stillSince, now) < SETTLE) {
                 return Decision.Hold(Reason.TRANSITION_UNSETTLED)
             }
@@ -245,16 +244,31 @@ object CuePolicy {
     }
 
     /**
-     * Whether this source came from watching the user's activity, as opposed
-     * to something the app or the user initiated.
+     * Whether this trigger has a stop that has to be waited out before the
+     * moment is real.
      *
-     * Only these two carry a bout to measure and a transition to settle. When
-     * a new source is added, the compiler will not force you to think about
-     * this one — so think about it here.
+     * A walk does. The transition arrives the instant the phone decides you
+     * are still, which is also the instant you might be waiting at a
+     * crossing, so [SETTLE] holds it until the stillness has lasted long
+     * enough to mean something.
+     *
+     * A scrolling stretch does not, and this used to say it did.
+     *
+     * The two triggers are opposite in shape. A walk becomes worth
+     * interrupting when it *ends*; a long stretch in one app is worth
+     * interrupting while it is still going on — that is the whole of what the
+     * trigger is for, and waiting for it to end would mean arriving after the
+     * phone had been put down, which is nobody's moment. `SESSION_END` keeps
+     * its name because it is written into every stored ledger entry and the
+     * study's wire format, but what it marks is the stretch, not its end.
+     *
+     * When a new source is added, the compiler will not force you to think
+     * about this one — so think about it here.
      */
-    private val TriggerSource.isSensedTransition: Boolean
+    private val TriggerSource.waitsOutAStop: Boolean
         get() = when (this) {
-            TriggerSource.WALKING_STOP, TriggerSource.SESSION_END -> true
+            TriggerSource.WALKING_STOP -> true
+            TriggerSource.SESSION_END,
             TriggerSource.NOTE,
             TriggerSource.GAME,
             TriggerSource.MANUAL,

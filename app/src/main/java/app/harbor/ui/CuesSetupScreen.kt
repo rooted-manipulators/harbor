@@ -59,6 +59,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import app.harbor.sensing.ActivityTransitions
+import app.harbor.sensing.ScrollWatch
 import app.harbor.sensing.Sensing
 import kotlinx.coroutines.launch
 
@@ -101,12 +102,14 @@ fun CuesSetupScreen(
         mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
     }
     var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
+    var canSeeApps by remember { mutableStateOf(ScrollWatch.hasPermission(context)) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 canStayAwake = Sensing.isUnrestricted(context)
+                canSeeApps = ScrollWatch.hasPermission(context)
                 hasPermission = ActivityTransitions.hasPermission(context)
             }
         }
@@ -253,6 +256,22 @@ fun CuesSetupScreen(
                 ) {
                     scope.launch {
                         store.setSettings(settings.copy(scrollCues = !settings.scrollCues))
+                    }
+                }
+
+                // On, but Android has not been told to allow it. Silent
+                // otherwise: the setting would read as working and no
+                // reminder would ever come of it.
+                if (settings.scrollCues && !canSeeApps) {
+                    Notice(
+                        "Android keeps this behind a switch of its own. Until " +
+                            "it is on, Harbor cannot tell which app is in front " +
+                            "and this trigger cannot fire.",
+                    )
+                    ScrollWatch.request(context)?.let { intent ->
+                        QuietAction("Open usage access") {
+                            context.startActivity(intent)
+                        }
                     }
                 }
             }

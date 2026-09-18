@@ -15,6 +15,18 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import app.harbor.MainActivity
 import app.harbor.R
+import app.harbor.data.HarborStore
+import app.harbor.domain.CuePolicy
+import app.harbor.domain.TriggerSource
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.time.Duration
+import java.time.Instant
 
 /**
  * The process that stays alive so a walk can become a reminder.
@@ -40,15 +52,37 @@ import app.harbor.R
  * holding a foreground service is never cached, so it is never frozen, and the
  * transition arrives. The amendment is recorded in `docs/01-decisions.md`.
  *
- * This service does **no work**. It starts nothing, listens to nothing and
- * holds no wake lock — [TransitionReceiver] still does all of it, woken by
- * Play services exactly as before. Its entire job is to be a reason not to
- * freeze the process. Keep it that way: anything that actually runs here is
- * battery spent on every participant's phone, all week.
+ * For the walking trigger this service does **no work**. It starts nothing,
+ * listens to nothing and holds no wake lock — [TransitionReceiver] still does
+ * all of it, woken by Play services exactly as before. Its entire job there is
+ * to be a reason not to freeze the process.
+ *
+ * ## The one thing it does run
+ *
+ * The scrolling trigger has no Play services to wake it. Nothing in Android
+ * will say "this person has been in one app for twenty minutes"; the events
+ * it *will* offer — an app launching, the screen going off — are both the
+ * wrong end of the stretch. So it has to be asked for, and [watch] below is
+ * the asking.
+ *
+ * This is put here rather than in an alarm because the cost is already paid:
+ * a process that must stay unfrozen anyway can look at a clock for a great
+ * deal less than a `setRepeating` costs in wakeups, and the loop stops
+ * entirely for anybody who has not turned the trigger on. The old rule still
+ * holds for everything else — anything that runs here is battery spent on
+ * every participant's phone, all week, so it had better be the only way.
  */
 class SensingService : Service() {
 
+    private val scope = CoroutineScope(SupervisorJob())
+    private var watching: Job? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Typed explicitly rather than left to the manifest: from Android 14
@@ -65,11 +99,85 @@ class SensingService : Service() {
                 0
             },
         )
+        // One loop, however many times the service is started. Every
+        // caller of start() is allowed to call it repeatedly -- launch,
+        // boot, package replace, the settings screen -- and each one arrives
+        // here as another onStartCommand.
+        if (watching?.isActive != true) {
+            watching = scope.launch { watch() }
+        }
+
         // Restarted if the system kills us, which is the whole point.
         return START_STICKY
     }
 
+    /**
+     * Ask, every so often, how long the person has been in one app, and hand
+     * the answer to the policy when it gets long enough.
+     *
+     * Three things keep this cheap. It does nothing at all unless the
+     * scrolling trigger is switched on and its permission granted. It skips
+     * the query outright while the screen is off, which [ScrollWatch] checks
+     * first and which is most of the day. And it fires once per stretch:
+     * [SensingStore.firedStretch] is what stops a poll that keeps seeing the
+     * same twenty-minute session from reporting it again every two minutes.
+     *
+     * Everything after that is [CuePolicy]'s. The caps, the cooldown, the
+     * busy blocks and the off switch are all checked there, by the same code
+     * that judges a walk, which is the point of routing through [CueGate]
+     * rather than posting a notification from here.
+     */
+    private suspend fun watch() {
+        val store = HarborStore(this)
+        val sensing = SensingStore(this)
+
+        while (scope.isActive) {
+            delay(POLL.toMillis())
+
+            val settings = store.settings.value
+            if (!settings.cuesEnabled || !settings.scrollCues) continue
+            if (!ScrollWatch.hasPermission(this)) continue
+
+            val now = Instant.now()
+            val stretch = ScrollWatch.current(this, now) ?: continue
+            val minutes = stretch.minutesAt(now)
+            if (minutes < settings.thresholds.sessionMinutes) continue
+            if (sensing.firedStretch == stretch) continue
+
+            // Written before the policy is asked, not after. A held stretch
+            // must not be re-offered on the next tick either: the policy is
+            // saying no to this stretch, and asking it again in two minutes
+            // is the same question, not a new one.
+            sensing.firedStretch = stretch
+
+            CueGate.consider(
+                this,
+                store,
+                CuePolicy.Signal(
+                    source = TriggerSource.SESSION_END,
+                    activeMinutes = minutes,
+                    // There is no earlier moment this refers to. A walk's
+                    // signal points back at the instant the person went
+                    // still; a stretch is happening now, and now is when it
+                    // is worth interrupting.
+                    stillSince = now,
+                ),
+                now,
+            )
+        }
+    }
+
     companion object {
+
+        /**
+         * How often the scrolling stretch is measured.
+         *
+         * Two minutes against a threshold measured in tens of them. Finer
+         * would buy precision nobody can feel -- a reminder at twenty-one
+         * minutes rather than twenty is the same reminder -- and would cost
+         * it on every phone in the study, all week.
+         */
+        private val POLL: Duration = Duration.ofMinutes(2)
 
         private const val CHANNEL = "sensing"
         private const val NOTIFICATION_ID = 2

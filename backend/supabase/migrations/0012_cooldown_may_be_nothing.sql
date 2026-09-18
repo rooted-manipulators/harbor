@@ -9,14 +9,14 @@
 --
 -- Zero means no enforced gap. The daily cap is the limit that remains.
 
-alter table settings
-  drop constraint if exists settings_cooldown_minutes_check;
+alter table user_settings
+  drop constraint if exists user_settings_cooldown_minutes_check;
 
-alter table settings
-  add constraint settings_cooldown_minutes_check
+alter table user_settings
+  add constraint user_settings_cooldown_minutes_check
   check (cooldown_minutes between 0 and 1440);
 
-alter table settings
+alter table user_settings
   alter column cooldown_minutes set default 0;
 
 -- Note for whoever reads the study export: `cooldown_delta` in 0002 is

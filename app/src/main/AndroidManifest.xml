@@ -14,6 +14,27 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
 
+    <!--
+      The scrolling trigger: how long you have been in one app.
+
+      Not a runtime permission and not one an app may be granted the ordinary
+      way — it is signature-level, and the only way in is the user finding
+      Harbor in Settings > Usage access and turning it on. tools:ignore is
+      therefore not a shortcut round a check; the check is a person, in
+      Settings, doing it deliberately. sensing/ScrollWatch.hasPermission asks
+      AppOps whether they did.
+
+      Declared for everybody and used by almost nobody: it does nothing at all
+      unless UserSettings.scrollCues is on, which is off until somebody takes
+      the option on the onboarding screen. The disclosure they are shown there
+      is written against ScrollWatch, and says what this reads: which app is
+      in front, and for how long. There is no API here for anything on the
+      screen, and Harbor asks for none of the ones that come close.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- Re-register transition updates after a reboot; they do not survive it. -->
     <!--
       Placing the call itself, rather than handing the number to the dialer

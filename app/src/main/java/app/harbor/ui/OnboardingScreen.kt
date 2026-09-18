@@ -83,6 +83,7 @@ import app.harbor.data.HarborRepository
 import app.harbor.domain.Contact
 import app.harbor.domain.Moment
 import app.harbor.sensing.ActivityTransitions
+import app.harbor.sensing.ScrollWatch
 import app.harbor.sensing.Sensing
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
@@ -1120,6 +1121,11 @@ private fun AskPermission(
     }
     var canTakeScreen by remember { mutableStateOf(CueNotifier.canTakeTheScreen(context)) }
     var canStayAwake by remember { mutableStateOf(Sensing.isUnrestricted(context)) }
+    // The fourth, and only for the people who asked for the second trigger.
+    // Usage access has no dialog at all -- it is a screen in Settings with a
+    // list of apps on it -- so somebody who chose scrolling and was never
+    // sent there would have chosen a trigger that cannot fire.
+    var canSeeApps by remember { mutableStateOf(ScrollWatch.hasPermission(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1127,13 +1133,15 @@ private fun AskPermission(
                 canNotify = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 canTakeScreen = CueNotifier.canTakeTheScreen(context)
                 canStayAwake = Sensing.isUnrestricted(context)
+                canSeeApps = ScrollWatch.hasPermission(context)
                 granted = ActivityTransitions.hasPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val wouldReach = canNotify && canTakeScreen && canStayAwake
+    val wouldReach = canNotify && canTakeScreen && canStayAwake &&
+        (!settings.scrollCues || canSeeApps)
 
     // Only move on by itself when there is nothing left to fix. With a gap
     // open the step waits, shows what it is, and keeps a Continue under it --
@@ -1256,6 +1264,20 @@ private fun AskPermission(
                                             context.packageName,
                                         ),
                                 )
+                            }
+                        }
+                        if (settings.scrollCues && !canSeeApps) {
+                            SmallCopy(
+                                "You asked to be caught after a long stretch in one app. Android keeps " +
+                                    "that behind a switch of its own, and until it is on " +
+                                    "Harbor cannot tell which app is in front \u2014 so that " +
+                                    "half of what you chose would quietly never happen.",
+                                size = 14,
+                            )
+                            ScrollWatch.request(context)?.let { intent ->
+                                FlowPill("Open usage access") {
+                                    context.startActivity(intent)
+                                }
                             }
                         }
                         if (!canTakeScreen) {

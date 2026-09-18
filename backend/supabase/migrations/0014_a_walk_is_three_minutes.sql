@@ -21,5 +21,5 @@
 -- **If the study wants ten back, this is the file to reverse**, together with
 -- `Thresholds.SUGGESTED.walkingMinutes` and the two tests that pin it.
 
-alter table settings
+alter table user_settings
   alter column walking_minutes set default 3;

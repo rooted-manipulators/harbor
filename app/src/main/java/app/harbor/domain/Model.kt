@@ -307,7 +307,13 @@ data class Thresholds(
             // moves it, and the study build should raise it again.
             walkingMinutes = 3,
             sessionMinutes = 20,
-            dailyCap = 2,
+            // Four a day, two from each trigger, rather than two that one
+            // trigger eats. See sourceCap above: this is the day it starts
+            // mattering, because it is the day a second sensed trigger
+            // exists. Somebody with only the walk switched on is unchanged in
+            // practice -- its own share is two, exactly what the cap was.
+            dailyCap = 4,
+            sourceCap = 2,
             // No enforced gap. It was two hours, which is a long time to be
             // unable to see the feature work and, as a suggestion nobody could
             // reach, was closer to a rule than a suggestion. The daily cap is

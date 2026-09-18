@@ -185,14 +185,14 @@ class CuePolicyTest {
 
     @Test
     fun the_cap_counts_cues_that_fired_not_entries_that_were_written() {
-        // Two cues fired, only one was answered. The unanswered one still
-        // spent part of the user's budget — this is the whole reason cues are
-        // tracked separately from moments.
+        // The day's worth of cues fired, only one was answered. The
+        // unanswered ones still spent the user's budget — this is the whole
+        // reason cues are tracked separately from moments.
         assertEquals(
             Decision.Hold(Reason.DAILY_CAP_REACHED),
             decide(
                 entriesToday = listOf(entry()),
-                cuesToday = 2,
+                cuesToday = thresholds.dailyCap,
                 lastCueAt = now.minus(Duration.ofHours(9)),
             ),
         )
@@ -206,10 +206,38 @@ class CuePolicyTest {
         assertEquals(
             Decision.Hold(Reason.DAILY_CAP_REACHED),
             decide(
-                settings = settings.copy(thresholds = thresholds.copy(dailyCap = 1)),
+                settings = settings.copy(
+                    thresholds = thresholds.copy(dailyCap = 1, sourceCap = 1),
+                ),
                 cuesToday = 1,
                 lastCueAt = now.minus(Duration.ofHours(9)),
             ),
+        )
+    }
+
+    @Test
+    fun `a scrolling stretch is not made to wait for a stillness that never comes`() {
+        // The two triggers are opposite in shape, and this is where that
+        // shows. A walk is worth interrupting once it has ended, so the
+        // policy waits out SETTLE first. A long stretch in one app is worth
+        // interrupting while it is still going on -- and it is going on, so
+        // there is no stillness to wait for. Held on the same rule, it could
+        // never fire at all: the poll would offer the stretch, the policy
+        // would say "not settled", and by the time anything was settled the
+        // phone would be face down on a table.
+        val scrolling = Signal(
+            source = TriggerSource.SESSION_END,
+            activeMinutes = 25,
+            stillSince = now,
+        )
+        assertEquals(
+            Decision.Fire,
+            decide(signal = scrolling, settings = settings.copy(scrollCues = true)),
+        )
+        // The walk still waits, which is the half of this that must not move.
+        assertEquals(
+            Decision.Hold(Reason.TRANSITION_UNSETTLED),
+            decide(signal = walkSignal(stillFor = Duration.ofSeconds(5))),
         )
     }
 
@@ -280,17 +308,22 @@ class CuePolicyTest {
 
     @Test
     fun `a source cap left unset is just the daily cap`() {
+        // The suggestion sets one now that there are two sensed triggers,
+        // so unset has to be built rather than borrowed.
+        val unset = thresholds.copy(dailyCap = 2, sourceCap = null)
         // One sensed trigger cannot out-compete itself, so nothing should
         // change for an install that never sets this.
-        assertEquals(2, thresholds.copy(dailyCap = 2).perSourceCap)
+        assertEquals(2, unset.perSourceCap)
         // And it must survive copy(): a default that read dailyCap directly
         // would leave a stale source cap behind and fail the requirement.
-        assertEquals(1, thresholds.copy(dailyCap = 1).perSourceCap)
+        assertEquals(1, unset.copy(dailyCap = 1).perSourceCap)
     }
 
     @Test
     fun a_cap_below_one_is_rejected_rather_than_silently_accepted() {
-        val error = runCatching { thresholds.copy(dailyCap = 0) }.exceptionOrNull()
+        val error = runCatching {
+            thresholds.copy(dailyCap = 0, sourceCap = null)
+        }.exceptionOrNull()
         assertEquals(IllegalArgumentException::class.java, error?.javaClass)
     }
 
@@ -308,7 +341,13 @@ class CuePolicyTest {
         // stepper on the sensing screen moves it either way.
         assertEquals(3, Thresholds.SUGGESTED.walkingMinutes)
         assertEquals(20, Thresholds.SUGGESTED.sessionMinutes)
-        assertEquals(2, Thresholds.SUGGESTED.dailyCap)
+        // Four, split two and two, from the day the scrolling trigger
+        // shipped. Not a loosening: each trigger's share is the two the cap
+        // used to be, and somebody running only the walk is unchanged in
+        // practice. It is the split that matters -- see sourceCap, and the
+        // test below it. 0015 carries the column defaults.
+        assertEquals(4, Thresholds.SUGGESTED.dailyCap)
+        assertEquals(2, Thresholds.SUGGESTED.perSourceCap)
         // The one that no longer matches the prototype, which suggested two
         // hours. Deliberate, and recorded in docs/02: a gap nobody could see
         // or change was a rule wearing a suggestion's clothes, and it made the
