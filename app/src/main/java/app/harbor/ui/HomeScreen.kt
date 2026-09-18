@@ -249,7 +249,23 @@ fun HomeScreen(
                     // which is what the close opening shot costs otherwise.
                     interactive = true,
                     standClose = true,
-                    pullBack = { scroll.value / pullOver },
+                    // Measured against whichever is shorter: a field's height,
+                    // or everything the page actually has to scroll.
+                    //
+                    // A fixed distance alone assumes the page is long. Home
+                    // with one contact and nothing lately is barely taller
+                    // than the screen, so the scroll ran out at a fraction of
+                    // a field's height and the pull stopped a quarter of the
+                    // way in -- the island never arrived, and the feature
+                    // looked broken on exactly the phone a new participant
+                    // has. Against the real range, reaching the bottom always
+                    // reaches the island, and a long page still takes a
+                    // field's height to get there rather than snapping out in
+                    // the first inch.
+                    pullBack = {
+                        val span = minOf(scroll.maxValue.toFloat(), pullOver)
+                        if (span <= 0f) 0f else scroll.value / span
+                    },
                     controls = false,
                     sky = false,
                     arriving = growing != null,

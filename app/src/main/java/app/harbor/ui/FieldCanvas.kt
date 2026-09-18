@@ -394,6 +394,10 @@ fun FieldCanvas(
         val standX = here.first
         val standY = here.second
         val standZoom = base * Field.BLOOM_ZOOM
+        // Not `base`. That is a cover fit, so the island still runs off the
+        // edges at the far end of the pull and you never quite see the place
+        // you are being shown. See Field.wideZoom.
+        val wideZoom = Field.wideZoom(frame.width.toDouble(), frame.height.toDouble())
         snapshotFlow { pullBack().coerceIn(0f, 1f).toDouble() }.collect { pull ->
             goal = Field.Camera(
                 x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
@@ -404,7 +408,7 @@ fun FieldCanvas(
                 // where nothing appears to change and then lurches at the
                 // close end. This way every pixel of scroll moves the view by
                 // the same proportion, which is what makes it feel even.
-                zoom = standZoom * (base / standZoom).pow(pull),
+                zoom = standZoom * (wideZoom / standZoom).pow(pull),
             )
         }
     }

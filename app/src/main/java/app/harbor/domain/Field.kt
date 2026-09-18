@@ -545,6 +545,22 @@ object Field {
     fun clampZoom(zoom: Double, base: Double): Double =
         min(base * MAX_REL, max(base, zoom))
 
+    /**
+     * Far enough out to see the whole island with air around it.
+     *
+     * [overviewZoom] is a *cover* fit -- the larger of the two ratios, so the
+     * island fills the canvas and runs off whichever edge does not match. That
+     * is right for a background and wrong for being shown the place: pulled
+     * all the way back you should be able to see where your garden sits in the
+     * island, and at a cover fit the edges are still past the frame.
+     *
+     * So this is a contain fit, the smaller ratio, and then a margin. The
+     * island lands inside the view with dark around it.
+     */
+    fun wideZoom(width: Double, height: Double): Double =
+        if (width <= 0 || height <= 0) 0.2
+        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 0.86
+
     /** 0 is flat overhead, 1 is full perspective. Everything between is real. */
     fun tiltFor(zoom: Double, base: Double): Double =
         Terrain.smooth((zoom / base - TILT_FROM) / (TILT_TO - TILT_FROM))
