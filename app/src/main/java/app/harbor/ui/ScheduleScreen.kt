@@ -459,7 +459,17 @@ private fun WeekEditor(
     // Which day is under the finger. Today, until somebody says otherwise.
     val today = remember { LocalDate.now() }
     var showing by remember { mutableStateOf(today) }
-    var pickingMonth by remember { mutableStateOf(false) }
+    // The swipe lives here rather than in the board, because the strip of
+    // days has to move with the cards and the two are siblings. One
+    // Animatable, read by both, so they cannot drift apart by a frame.
+    //
+    // It carries a *fraction* of one day, -1 to 1, not pixels. The cards and
+    // the strip are different widths, so pixels would have to be converted
+    // anyway -- and the first attempt passed the card's pixel step upwards
+    // from inside the board's layout, which meant writing the parent's state
+    // during the child's composition. That silently stayed zero, and a zero
+    // step is a swipe that cannot move.
+    val slide = remember { Animatable(0f) }
 
     val blocks = draft ?: saved
 
@@ -539,9 +549,13 @@ private fun WeekEditor(
                     }
                 }
 
-                MonthButton(showing, skin) { pickingMonth = true }
-
-                DayStrip(showing, skin) { showing = it }
+                // The month button is gone. It named the month you were
+                // already looking at and opened a picker for jumping to
+                // another one -- a lot of chrome above a control whose whole
+                // job is the next day and the one before it. The dates on the
+                // strip say the same thing in the place you are already
+                // reading.
+                DayStrip(showing, skin, slide) { showing = it }
 
                 DayBoard(
                     blocks = blocks,
@@ -578,6 +592,7 @@ private fun WeekEditor(
                         selected = null
                         commit(next, why = "copied")
                     },
+                    slide = slide,
                     modifier = Modifier.onGloballyPositioned {
                         cardBottom = it.positionInRoot().y + it.size.height
                     },
@@ -610,15 +625,6 @@ private fun WeekEditor(
             )
         }
 
-        if (pickingMonth) {
-            MonthSheet(
-                showing = showing,
-                today = today,
-                skin = skin,
-                onPick = { showing = it; pickingMonth = false },
-                onDismiss = { pickingMonth = false },
-            )
-        }
     }
 }
 
@@ -756,16 +762,16 @@ private fun DayBoard(
     /** Whether the finger has left the day sideways or past its last hour. */
     onLeftTheDay: (Boolean) -> Unit,
     onCopyYesterday: () -> Unit,
+    /** The swipe as a fraction of one day, shared with the strip. */
+    slide: Animatable<Float, *>,
     modifier: Modifier = Modifier,
 ) {
     val hours = LAST_HOUR - FIRST_HOUR
     val density = LocalDensity.current
 
-    // How far sideways one card sits from the next. Measured in the layout
-    // below and read back up here by the gesture, rather than recomputed from
-    // constants that would drift the day the card's share of the width does.
+    // One card's travel. Local, and never leaves: the fraction is what the
+    // strip needs, and the fraction is what slide carries.
     var stepPx by remember { mutableFloatStateOf(0f) }
-    val slide = remember { Animatable(0f) }
     val swipes = rememberCoroutineScope()
     val stillness = LocalReducedMotion.current
     val buzz = LocalHapticFeedback.current
@@ -808,16 +814,16 @@ private fun DayBoard(
             // back with a little overshoot, which is the difference between a
             // control that refused you and one that simply did not agree.
             .pointerInput(showing, stepPx, stillness) {
-                val far = SWIPE_DAY.toPx()
+                val step = stepPx
+                val far = if (step > 0f) SWIPE_DAY.toPx() / step else Float.MAX_VALUE
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        val step = stepPx
                         val went = slide.value
                         swipes.launch {
                             when {
                                 step <= 0f -> slide.snapTo(0f)
                                 went <= -far -> {
-                                    if (!stillness) slide.animateTo(-step, DAY_SETTLE)
+                                    if (!stillness) slide.animateTo(-1f, DAY_SETTLE)
                                     // Felt at the moment it lands, not when
                                     // the finger lifts: the point of it is to
                                     // confirm the day changed, and the day
@@ -827,7 +833,7 @@ private fun DayBoard(
                                     slide.snapTo(0f)
                                 }
                                 went >= far -> {
-                                    if (!stillness) slide.animateTo(step, DAY_SETTLE)
+                                    if (!stillness) slide.animateTo(1f, DAY_SETTLE)
                                     buzz.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onShow(showing.minusDays(1))
                                     slide.snapTo(0f)
@@ -839,12 +845,13 @@ private fun DayBoard(
                     },
                     onDragCancel = { swipes.launch { slide.animateTo(0f, DAY_SPRING) } },
                 ) { _, delta ->
-                    swipes.launch {
-                        // Never further than one day either way: the strip
-                        // holds three cards, and dragging past the third
-                        // would pull emptiness in behind it.
-                        val limit = if (stepPx > 0f) stepPx else 0f
-                        slide.snapTo((slide.value + delta).coerceIn(-limit, limit))
+                    if (step > 0f) {
+                        swipes.launch {
+                            // Never further than one day either way: the strip
+                            // holds three cards, and dragging past the third
+                            // would pull emptiness in behind it.
+                            slide.snapTo((slide.value + delta / step).coerceIn(-1f, 1f))
+                        }
                     }
                 }
             },
@@ -866,7 +873,7 @@ private fun DayBoard(
         // How far through a swipe we are, -1 to 1. The card being pulled
         // towards brightens as it comes and the middle one dims to meet it,
         // so the moment the day commits nothing has to change.
-        val progress = if (stepPx > 0f) (slide.value / stepPx).coerceIn(-1f, 1f) else 0f
+        val progress = slide.value.coerceIn(-1f, 1f)
 
         NeighbourDay(
             blocks = blocks,
@@ -877,7 +884,7 @@ private fun DayBoard(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = -(cardWidth + 16.dp))
-                .offset { IntOffset(slide.value.roundToInt(), 0) },
+                .offset { IntOffset((slide.value * stepPx).roundToInt(), 0) },
             onClick = { onShow(showing.minusDays(1)) },
         )
         NeighbourDay(
@@ -889,7 +896,7 @@ private fun DayBoard(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .offset(x = cardWidth + 16.dp)
-                .offset { IntOffset(slide.value.roundToInt(), 0) },
+                .offset { IntOffset((slide.value * stepPx).roundToInt(), 0) },
             onClick = { onShow(showing.plusDays(1)) },
         )
 
@@ -898,7 +905,7 @@ private fun DayBoard(
                 .align(Alignment.Center)
                 .width(cardWidth)
                 .fillMaxHeight()
-                .offset { IntOffset(slide.value.roundToInt(), 0) }
+                .offset { IntOffset((slide.value * stepPx).roundToInt(), 0) }
                 // Dims on its way out by exactly what the incoming card
                 // gains, so the two cross over rather than swapping.
                 .alpha(1f - 0.5f * kotlin.math.abs(progress))
@@ -1423,47 +1430,6 @@ private fun BinTarget(armed: Boolean, skin: WeekSkin, modifier: Modifier = Modif
 }
 
 /**
- * The month you are in, and the way into the rest of them.
- *
- * A day at a time is a small window on a year, and the strip only reaches two
- * days either side. This is the one control that admits the calendar is
- * bigger than the screen.
- */
-@Composable
-private fun MonthButton(showing: LocalDate, skin: WeekSkin, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(99.dp))
-            .background(skin.tile)
-            .border(1.dp, skin.line.copy(alpha = 0.5f), RoundedCornerShape(99.dp))
-            .clickable(onClick = onClick)
-            .padding(start = 18.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            showing.month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 15.sp,
-                color = skin.ink,
-            ),
-        )
-        Spacer(Modifier.width(12.dp))
-        // Drawn, like every other mark in the app. See `drawTabMark`.
-        Canvas(Modifier.size(width = 11.dp, height = 8.dp)) {
-            drawPath(
-                Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(size.width, 0f)
-                    lineTo(size.width / 2f, size.height)
-                    close()
-                },
-                skin.ink,
-            )
-        }
-    }
-}
-
-/**
  * The days around the one you are on.
  *
  * Two either side, the middle one lit, arrows at the ends. The frames dim the
@@ -1471,38 +1437,69 @@ private fun MonthButton(showing: LocalDate, skin: WeekSkin, onClick: () -> Unit)
  * with five equal tabs.
  */
 @Composable
-private fun DayStrip(showing: LocalDate, skin: WeekSkin, onPick: (LocalDate) -> Unit) {
+private fun DayStrip(
+    showing: LocalDate,
+    skin: WeekSkin,
+    /** The cards' swipe, as a fraction of one day. The strip travels with it. */
+    slide: Animatable<Float, *>,
+    onPick: (LocalDate) -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         StripArrow(back = true, skin = skin) { onPick(showing.minusDays(1)) }
-        Row(
-            Modifier.weight(1f),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for (step in -STRIP_REACH..STRIP_REACH) {
-                val date = showing.plusDays(step.toLong())
-                val chosen = step == 0
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(if (chosen) skin.tile else Color.Transparent)
-                        .clickable { onPick(date) }
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                ) {
-                    Text(
-                        date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 15.sp,
-                            color = when {
-                                chosen -> skin.ink
-                                abs(step) == STRIP_REACH -> skin.muted.copy(alpha = 0.5f)
-                                else -> skin.muted
-                            },
-                        ),
-                    )
+        BoxWithConstraints(Modifier.weight(1f)) {
+            // One day's width on the strip, which is not one day's width on
+            // the cards -- so the strip is moved by the *fraction* of a swipe
+            // rather than by its pixels. A whole swipe moves the strip exactly
+            // one name, which is what makes the two read as one gesture.
+            val pitch = with(LocalDensity.current) {
+                (maxWidth / (STRIP_REACH * 2 + 1)).toPx()
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .offset {
+                        IntOffset((slide.value.coerceIn(-1f, 1f) * pitch).roundToInt(), 0)
+                    },
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (step in -STRIP_REACH..STRIP_REACH) {
+                    val date = showing.plusDays(step.toLong())
+                    val chosen = step == 0
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (chosen) skin.tile else Color.Transparent)
+                            .clickable { onPick(date) }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        val ink = when {
+                            chosen -> skin.ink
+                            abs(step) == STRIP_REACH -> skin.muted.copy(alpha = 0.5f)
+                            else -> skin.muted
+                        }
+                        Text(
+                            date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 15.sp,
+                                color = ink,
+                            ),
+                        )
+                        // The date under the name, which is what the month
+                        // button used to be for. Smaller and quieter: you
+                        // read the day first and check the number second.
+                        Text(
+                            date.dayOfMonth.toString(),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 11.sp,
+                                color = ink.copy(alpha = if (chosen) 0.75f else 0.55f),
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -1535,87 +1532,6 @@ private fun StripArrow(back: Boolean, skin: WeekSkin, onClick: () -> Unit) {
                 },
                 skin.muted,
             )
-        }
-    }
-}
-
-/**
- * The mini calendar: months, and the one date you are looking at.
- *
- * Scrolls rather than steps, because what people do here is find a date a few
- * weeks out, not page through a year one month at a time.
- *
- * Nothing below this screen has ever heard of a date — [WeekBlock] is keyed by
- * day of week, and so is everything the cue pipeline asks. Picking the 14th is
- * picking a Monday; the date is only what makes that easy to say.
- */
-@Composable
-private fun MonthSheet(
-    showing: LocalDate,
-    today: LocalDate,
-    skin: WeekSkin,
-    onPick: (LocalDate) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val first = remember(today) { YearMonth.from(today).minusMonths(12) }
-    val months = remember(first) { (0L until 25L).map { first.plusMonths(it) } }
-    val opensAt = remember(showing, months) {
-        months.indexOf(YearMonth.from(showing)).coerceAtLeast(0)
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
-            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
-    ) {
-        Column(
-            Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 10.dp)
-                .fillMaxWidth()
-                .height(380.dp)
-                .clip(RoundedCornerShape(28.dp))
-                // An opaque ground, and the warm wash over it.
-                //
-                // The wash alone was the whole background, and both its stops
-                // are translucent -- `tile` is white at five percent and the
-                // ember at sixteen -- so the sheet came out about a tenth
-                // opaque and you read the day strip and a row of flowers
-                // straight through the month. A panel that covers the page has
-                // to actually cover it; the warmth is a tint on top, not the
-                // thing holding the light out.
-                .background(skin.ground)
-                .background(
-                    Brush.linearGradient(
-                        listOf(skin.tile, Ember.copy(alpha = 0.16f)),
-                    ),
-                )
-                .border(1.dp, skin.line.copy(alpha = 0.6f), RoundedCornerShape(28.dp))
-                // Pressing the sheet is not pressing past it.
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(horizontal = 12.dp, vertical = 16.dp),
-        ) {
-            Row(Modifier.fillMaxWidth()) {
-                // Sunday first, as the frames draw it.
-                for (letter in listOf("S", "M", "T", "W", "T", "F", "S")) {
-                    Text(
-                        letter,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = 13.sp,
-                            color = skin.ink,
-                        ),
-                    )
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            LazyColumn(state = rememberLazyListState(opensAt)) {
-                items(months) { month ->
-                    MonthGrid(month, showing, today, skin, onPick)
-                }
-            }
         }
     }
 }
