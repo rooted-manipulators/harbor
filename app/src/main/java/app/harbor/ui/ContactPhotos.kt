@@ -1,8 +1,11 @@
 package app.harbor.ui
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.io.File
 import java.util.UUID
 
@@ -43,6 +46,21 @@ internal object ContactPhotos {
     }
 
     /** Removes a stored photo. Called when a contact is deleted. */
+    /**
+     * A stored photo, decoded, or null if it is gone.
+     *
+     * Both the onboarding flow and the contact screen were doing this inline.
+     * It lives here because the failure it has to swallow is the same one
+     * [store] documents: the file can be missing, the volume can be gone, and
+     * a face that will not load is a reason to draw initials rather than a
+     * reason to crash on a screen somebody is halfway through.
+     */
+    fun load(context: Context, ref: String): ImageBitmap? = runCatching {
+        context.contentResolver.openInputStream(Uri.parse(ref)).use { stream ->
+            BitmapFactory.decodeStream(stream)?.asImageBitmap()
+        }
+    }.getOrNull()
+
     fun delete(contactId: UUID, context: Context) {
         File(File(context.filesDir, "contact-photos"), "$contactId.jpg").delete()
     }

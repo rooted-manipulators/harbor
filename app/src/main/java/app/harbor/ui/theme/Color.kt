@@ -197,6 +197,21 @@ val SurfaceGold = Color(0xFFF5C77A)
 val SurfaceOrange = Color(0xFFE9C7A1)
 val SurfaceSky = Color(0xFFC9D8E9)
 
+/**
+ * The ground the consent screen stands on, and the only screen that has one.
+ *
+ * Onboarding is painted on a warm wash, which is right for a flow about
+ * somebody you love and wrong for four paragraphs of what-we-read-and-where-
+ * it-stays. The wash is brightest exactly where that body copy sits, so the
+ * copy went grey-on-orange and stopped being readable on the one screen where
+ * being read is the entire function.
+ *
+ * A deep blue instead: far enough from the wash to be a different place, dark
+ * enough for white type at full contrast, and close enough to [Paper] that
+ * arriving on it does not feel like leaving the app.
+ */
+val TermsGround = Color(0xFF11202F)
+
 // --- the marks ----------------------------------------------------------
 //
 // The same four tones for a mark too small to carry a tint. On a light page

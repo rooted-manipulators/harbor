@@ -8,6 +8,13 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.provider.ContactsContract
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -59,6 +66,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import app.harbor.ui.theme.TermsGround
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -196,7 +204,7 @@ fun OnboardingScreen(
             1 -> YourName(store, scope, ::next)
             2 -> WhoToCall(store, scope, ::next)
             3 -> TheirSound(store, scope, ::next)
-            4 -> TheirPicture(store, ::next)
+            4 -> TheirPicture(store, scope, ::next)
             5 -> WhenFree(::next)
             6 -> AskPermission(store, scope, ::next)
             7 -> AlmostComplete(store, ::next)
@@ -265,11 +273,24 @@ private fun Question(text: String, size: Int = 20) = Text(
 private fun FlowPage(
     petal: Int? = null,
     bloom: Boolean = false,
+    /**
+     * A ground of this page's own, painted over the flow's warm wash.
+     *
+     * Every other page reads fine on that wash because every other page is a
+     * line of type and a button. The consent page is four headings and four
+     * paragraphs of body copy, and body copy is the one thing the wash is
+     * worst under: it is at its brightest exactly where the text sits, and
+     * grey-on-orange at 14sp is the least legible thing in the app. On the one
+     * screen where somebody is agreeing to something, that is not a taste
+     * problem.
+     */
+    ground: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         Modifier
             .fillMaxSize()
+            .then(if (ground != null) Modifier.background(ground) else Modifier)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -483,18 +504,48 @@ private fun WhoToCall(
     scope: CoroutineScope,
     onNext: () -> Unit,
 ) {
+    val context = LocalContext.current
     val contacts by store.contacts.collectAsState()
     val existing = contacts.firstOrNull()
     var name by remember { mutableStateOf(existing?.label.orEmpty()) }
     var number by remember { mutableStateOf(existing?.phoneE164.orEmpty()) }
+    var picked by remember { mutableStateOf<String?>(null) }
+
+    // The address book, without the address book.
+    //
+    // ACTION_PICK against the *phone* table hands back one row's URI and a
+    // one-shot read grant for it, so the name, the number and their photo can
+    // all be read out of it. READ_CONTACTS would let Harbor read every contact
+    // it likes whenever it likes, and asking for it here would be asking for a
+    // thousand rows to save typing one. This reads exactly the row the person
+    // tapped and nothing else is ever visible to us -- which is also what lets
+    // the consent screen two steps later keep saying what it says.
+    val search = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val row = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && row != null) {
+            ContactPick.read(context, row)?.let {
+                if (it.name.isNotBlank()) name = it.name.take(40)
+                if (it.number.isNotBlank()) number = it.number.take(20)
+                picked = it.photo
+            }
+        }
+    }
 
     FlowPage(petal = 1) {
-        Question("Who would you like to call more often")
+        Question("Who would you like to call more often?")
         Spacer(Modifier.height(18.dp))
         Question("You can add more people later", size = 17)
         Spacer(Modifier.height(26.dp))
 
-        ComingSoon("search", "reading your contacts comes later")
+        FlowPill("search your contacts") {
+            search.launch(
+                Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        FlowNote("Harbor only ever sees the one person you tap.")
         Spacer(Modifier.height(22.dp))
 
         FlowField(name, "their name") { name = it.take(40) }
@@ -504,9 +555,20 @@ private fun WhoToCall(
         Spacer(Modifier.height(36.dp))
         FlowNext(enabled = name.isNotBlank() && number.isNotBlank()) {
             scope.launch {
+                val who = existing ?: Contact(UUID.randomUUID(), name.trim(), number.trim())
+                // Their contact photo, copied in the same step that learned
+                // their number, so the next screen already has a face on it.
+                val photo = picked?.let { src ->
+                    withContext(Dispatchers.IO) {
+                        ContactPhotos.store(context, who.id, Uri.parse(src))
+                    }
+                } ?: who.photoRef
                 store.upsertContact(
-                    (existing ?: Contact(UUID.randomUUID(), name.trim(), number.trim()))
-                        .copy(label = name.trim(), phoneE164 = number.trim()),
+                    who.copy(
+                        label = name.trim(),
+                        phoneE164 = number.trim(),
+                        photoRef = photo,
+                    ),
                 )
                 onNext()
             }
@@ -549,7 +611,11 @@ private fun TheirSound(
         Question("What sound do you associate\nwith this person?")
         Spacer(Modifier.height(30.dp))
 
-        ComingSoon("search Spotify", "Spotify comes later")
+        // Spotify is not built and cannot be faked. It needs a registered
+        // app, an OAuth round trip and a network call before it can return a
+        // single track, so the honest thing is to say when, rather than show a
+        // search box that never searches.
+        ComingSoon("search Spotify", "coming after the first study week")
         Spacer(Modifier.height(16.dp))
 
         FlowPill(if (who?.cueSoundRef == null) "Choose a sound from this phone" else "Change their sound") {
@@ -575,21 +641,72 @@ private fun TheirSound(
 
 /** Still petal three: the second half of choosing somebody, not a question of its own. */
 @Composable
-private fun TheirPicture(store: HarborRepository, onNext: () -> Unit) {
+private fun TheirPicture(
+    store: HarborRepository,
+    scope: CoroutineScope,
+    onNext: () -> Unit,
+) {
+    val context = LocalContext.current
     val contacts by store.contacts.collectAsState()
     val who = contacts.firstOrNull()
+
+    // The same picker and the same private copy ContactScreen already uses. A
+    // photo URI's read grant does not reliably survive a reboot and the cue
+    // may fire days later, so the file is copied into Harbor's own storage and
+    // that copy is what the cue loads. See ContactPhotos.
+    val pickPhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { chosen ->
+        val target = who ?: return@rememberLauncherForActivityResult
+        if (chosen != null) {
+            scope.launch {
+                val ref = withContext(Dispatchers.IO) {
+                    ContactPhotos.store(context, target.id, chosen)
+                }
+                if (ref != null) store.upsertContact(target.copy(photoRef = ref))
+            }
+        }
+    }
+
+    val face by produceState<ImageBitmap?>(null, who?.photoRef) {
+        val ref = who?.photoRef
+        value = if (ref == null) null else withContext(Dispatchers.IO) {
+            ContactPhotos.load(context, ref)
+        }
+    }
 
     FlowPage(petal = 2) {
         Spacer(Modifier.height(20.dp))
         if (who != null) {
-            Avatar(who.label, who.tone, size = AvatarSize.XL)
+            val shot = face
+            if (shot != null) {
+                Image(
+                    bitmap = shot,
+                    contentDescription = "The photo you chose for " + who.label,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(AvatarSize.XL.dp.dp)
+                        .clip(CircleShape),
+                )
+            } else {
+                Avatar(who.label, who.tone, size = AvatarSize.XL)
+            }
             Spacer(Modifier.height(14.dp))
             Question(who.label, size = 19)
         }
         Spacer(Modifier.height(30.dp))
-        ComingSoon("Add a picture !", "choosing a photo comes later")
-        Spacer(Modifier.height(16.dp))
-        ComingSoon("Keep their profile picture", "needs your contacts")
+        FlowPill(if (who?.photoRef == null) "Add a picture" else "Change the picture") {
+            pickPhoto.launch("image/*")
+        }
+        Spacer(Modifier.height(10.dp))
+        FlowNote(
+            if (who?.photoRef == null) {
+                "Their own contact photo comes across by itself if you found " +
+                    "them with search."
+            } else {
+                "Copied into Harbor, on this phone. It is never uploaded."
+            },
+        )
         Spacer(Modifier.height(40.dp))
         FlowNext(enabled = true) { onNext() }
     }
@@ -656,10 +773,29 @@ private fun WhenFree(onNext: () -> Unit) {
                     "While doomscrolling",
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, color = PillInk),
                 )
+                Spacer(Modifier.width(10.dp))
+                // A tag, not only a greyed-out row. Disabled styling by itself
+                // reads as "broken" or "not for you"; this says the one thing
+                // that is actually true about it.
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(PillInk.copy(alpha = 0.18f))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        "COMING LATER",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            color = PillInk,
+                        ),
+                    )
+                }
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "would mean Harbor watching which apps you open. Not yet, and not quietly.",
+                "Not in this version. It would mean Harbor watching which apps " +
+                    "you open, and that is not a thing to switch on quietly.",
                 style = MaterialTheme.typography.labelSmall.copy(color = PillInk),
             )
         }
@@ -840,6 +976,19 @@ private fun AskPermission(
                 onDown = { daily(store, scope, settings, -1) },
                 onUp = { daily(store, scope, settings, +1) },
             )
+            // The third dial, and the one people actually ask for.
+            //
+            // A daily cap answers "how many", and on its own it allows all of
+            // them inside ten minutes. This is the one that says "not again
+            // just yet", which is the complaint anything that interrupts you
+            // eventually earns. It was already a setting; it simply was not on
+            // the screen where somebody is deciding whether to let this run.
+            Stepper(
+                label = "Quiet gap between them",
+                value = settings.thresholds.cooldownMinutes.toString() + " min",
+                onDown = { gap(store, scope, settings, -15) },
+                onUp = { gap(store, scope, settings, +15) },
+            )
             SmallCopy(
                 "Suggestions, not rules — move them now or later. You already " +
                     "agreed nothing about this leaves your phone; this is just " +
@@ -951,7 +1100,7 @@ private fun AskPermission(
  * itself. This screen states the current behaviour instead of the old one.
  */
 @Composable
-private fun TermsPopup(onAgree: () -> Unit) = FlowPage {
+private fun TermsPopup(onAgree: () -> Unit) = FlowPage(ground = TermsGround) {
     Question("A few things, once", size = 20)
     Spacer(Modifier.height(22.dp))
 
@@ -999,6 +1148,23 @@ private fun walking(
         settings.copy(
             thresholds = settings.thresholds.copy(
                 walkingMinutes = (settings.thresholds.walkingMinutes + by).coerceIn(1, 120),
+            ),
+        ),
+    )
+}
+
+private fun gap(
+    store: HarborRepository,
+    scope: kotlinx.coroutines.CoroutineScope,
+    settings: app.harbor.domain.UserSettings,
+    by: Int,
+) = scope.launch {
+    store.setSettings(
+        settings.copy(
+            thresholds = settings.thresholds.copy(
+                // Zero is a real setting and means the gap is off, so the
+                // floor is zero rather than one step of it.
+                cooldownMinutes = (settings.thresholds.cooldownMinutes + by).coerceIn(0, 240),
             ),
         ),
     )
@@ -1120,7 +1286,7 @@ private fun FirstRunTutorial(onDone: () -> Unit) {
             "Set it yourself on Home, clear to stormy. Nothing reads it off " +
                 "you — it's yours to change whenever your week does.",
         "Two numbers you set, not Harbor" to
-            "Walk before a reminder, and reminders a day. What you saw on the " +
+            "Walk before a reminder, reminders a day, and the quiet gap " +
                 "last screen was a suggestion, not a rule — move either one, " +
                 "any time, under Account.",
         "A reminder is not a call" to

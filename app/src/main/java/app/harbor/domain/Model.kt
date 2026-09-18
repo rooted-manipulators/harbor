@@ -261,7 +261,19 @@ data class Thresholds(
          * Study question 3 is how far people move away from this.
          */
         val SUGGESTED = Thresholds(
-            walkingMinutes = 10,
+            // Three, not ten.
+            //
+            // Ten minutes of *continuous* walking followed by a stop is a
+            // deliberate walk, and it is the right shape for the real study.
+            // It is also a threshold almost nobody crosses while somebody is
+            // watching them use the app, which meant every test session only
+            // ever saw the preview reminder and never the real one -- the one
+            // piece of behaviour most worth watching a stranger meet.
+            //
+            // Three is still a walk rather than a step to the kettle, and it
+            // is reachable inside a session. The stepper on the same screen
+            // moves it, and the study build should raise it again.
+            walkingMinutes = 3,
             sessionMinutes = 20,
             dailyCap = 2,
             // No enforced gap. It was two hours, which is a long time to be

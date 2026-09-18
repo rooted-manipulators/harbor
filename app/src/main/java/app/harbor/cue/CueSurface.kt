@@ -55,6 +55,8 @@ import app.harbor.domain.TriggerSource
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import app.harbor.ui.theme.MarkSky
 import app.harbor.ui.theme.Paper
 import app.harbor.ui.theme.SmallCopy
 import java.time.Duration
@@ -91,7 +93,12 @@ internal fun CueSurface(
     BackHandler(enabled = step == CueStep.Cue) { onDismiss() }
 
     val who = contact?.label ?: "someone at home"
-    val usual = usualMinutes ?: 12
+    // Null stays null. This used to fall back to twelve, so a contact added
+    // ninety seconds ago was announced with "calls with Mom usually run ~12
+    // min" -- a statistic about a relationship Harbor had never once observed.
+    // It is the first thing somebody reads about a person they just added, and
+    // it was invented. Everything that quoted it is conditional now.
+    val usual = usualMinutes
 
     Column(
         Modifier
@@ -173,20 +180,23 @@ internal fun CueSurface(
                 // under it already says the true, smaller thing.
                 CueSub(source.opening)
 
-                // .cue-length — the ask, with a stated size
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        "calls with $who usually run ~$usual min",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 13.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    )
+                // .cue-length: the ask, with a stated size, but only once
+                // there have been enough calls to know one.
+                if (usual != null) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "calls with $who usually run ~$usual min",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 13.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.size(2.dp))
@@ -194,7 +204,17 @@ internal fun CueSurface(
                 // .cue-paths — three ways through, equal weight, no default
                 CuePath(
                     main = "Call now",
-                    sub = "~$usual min, usually",
+                    sub = usual?.let { "~$it min, usually" },
+                    // The one path with a colour under it.
+                    //
+                    // Three identical cards is three equal options, and these
+                    // three are not equal: one of them is the entire point of
+                    // the screen and the other two are ways of not doing it.
+                    // Amber is spoken for -- the tab, the primary button, the
+                    // selected chip -- and it would also make a reminder shout
+                    // at somebody who has just stopped walking. A little blue
+                    // lifts the call off the other two without raising a voice.
+                    lead = true,
                     mark = PathMark.Phone,
                     enabled = contact?.phoneE164 != null,
                 ) {
@@ -352,13 +372,21 @@ private fun CuePath(
     sub: String? = null,
     mark: PathMark? = null,
     enabled: Boolean = true,
+    /** The one path worth taking, tinted so the eye lands on it first. */
+    lead: Boolean = false,
     onClick: () -> Unit,
 ) {
+    // Eight per cent of the palette's own blue over the card's own surface,
+    // rather than a second surface colour. Laid over the weather wash it stays
+    // a tint of whatever is behind it -- so the card lifts in every weather
+    // instead of matching one of them and disappearing into another.
+    val base = MaterialTheme.colorScheme.surface
+    val ground = if (lead) lerp(base, MarkSky.copy(alpha = base.alpha), 0.22f) else base
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(ground)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 15.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
