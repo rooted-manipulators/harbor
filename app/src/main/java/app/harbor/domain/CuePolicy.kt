@@ -72,6 +72,16 @@ object CuePolicy {
     /**
      * Everything about the user's recent history that bears on the decision.
      *
+     * [entriesToday] leaves out anything from a manual test cue, same as
+     * [cuesToday] and [lastCueAt] below and for the identical reason: a
+     * "Show me a reminder now" tap must not spend anything a real walk would
+     * need. It is this policy's only reader of a connection made today
+     * (stage 3's `ALREADY_CONNECTED_TODAY`), and that check runs ahead of the
+     * daily cap — so a manual test call left uncounted here used to suppress
+     * every sensed reminder for the rest of the day regardless of what the
+     * cap was set to, which from the settings screen looked exactly like the
+     * cap doing nothing. See the caller.
+     *
      * The three counters are separate on purpose. [cuesToday] is not
      * `entriesToday.size`: the cap counts cues that *fired*, and a cue the
      * user swiped away without answering still spent one of their two.
