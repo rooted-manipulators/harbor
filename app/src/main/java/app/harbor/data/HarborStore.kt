@@ -333,6 +333,19 @@ class HarborStore(context: Context) : HarborRepository {
         arm
     }
 
+    override suspend fun seedQuietNightsOnce(): Boolean = withContext(Dispatchers.IO) {
+        if (prefs.getBoolean(KEY_NIGHTS_SEEDED, false)) {
+            false
+        } else {
+            val week = _weekBlocks.value
+            write { putBoolean(KEY_NIGHTS_SEEDED, true) }
+            // Appended rather than replacing: somebody may already have drawn
+            // their week in onboarding before ever opening this screen.
+            setWeekBlocks(week + Windows.quietNights())
+            true
+        }
+    }
+
     override suspend fun hasClaimedArm(): Boolean =
         withContext(Dispatchers.IO) { prefs.getString(KEY_ARM, null) != null }
 
@@ -440,6 +453,9 @@ class HarborStore(context: Context) : HarborRepository {
          * an ordinal so that reordering the enum cannot silently move every
          * participant into the other arm.
          */
+        /** Set the first time a week editor is opened. See seedQuietNightsOnce. */
+        const val KEY_NIGHTS_SEEDED = "nights_seeded"
+
         const val KEY_ARM = "study_arm"
 
         /** The code as typed, trimmed. Empty means asked and skipped. */

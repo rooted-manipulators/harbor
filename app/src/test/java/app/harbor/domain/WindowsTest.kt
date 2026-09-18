@@ -7,6 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import org.junit.Assert.assertNotEquals
 import java.time.LocalDate
 
@@ -411,6 +413,28 @@ class WindowsTest {
             assertTrue("a fuller day guessed lighter at " + hours + "h", here >= last)
             last = here
         }
+    }
+
+    @Test
+    fun `the quiet nights actually cover the night`() {
+        val nights = Windows.quietNights()
+        // Two per day because a WeekBlock cannot cross midnight.
+        assertEquals(14, nights.size)
+        assertTrue(nights.all { it.kind == BlockKind.BUSY })
+
+        val mon = { h: Int, m: Int ->
+            ZonedDateTime.of(LocalDate.of(2026, 9, 21), LocalTime.of(h, m), ZoneId.of("UTC"))
+        }
+        // The hours somebody should not be rung in.
+        assertTrue("3am is not quiet", Windows.busyAt(nights, mon(3, 0)))
+        assertTrue("midnight is not quiet", Windows.busyAt(nights, mon(0, 0)))
+        assertTrue("11pm is not quiet", Windows.busyAt(nights, mon(23, 0)))
+        // The minute the old 23:59 end would have left open.
+        assertTrue("23:59 is not quiet", Windows.busyAt(nights, mon(23, 59)))
+        // And the day is left alone.
+        assertFalse("9am should be free", Windows.busyAt(nights, mon(9, 0)))
+        assertFalse("8am should be free", Windows.busyAt(nights, mon(8, 0)))
+        assertFalse("9:59pm should be free", Windows.busyAt(nights, mon(21, 59)))
     }
 
 }

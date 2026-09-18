@@ -393,6 +393,14 @@ private fun WeekEditor(
     val scope = rememberCoroutineScope()
     val saved by store.weekBlocks.collectAsState()
 
+    // The nights, the first time anybody opens a week.
+    //
+    // Here rather than at install, so they arrive on a screen where they can
+    // be seen and argued with. Both editors run through this composable, so
+    // whichever one somebody reaches first is the one that seeds them, and
+    // the marker means it never happens twice. See Windows.quietNights.
+    LaunchedEffect(Unit) { store.seedQuietNightsOnce() }
+
     // Held locally only while a gesture is in flight. Writing every frame of a
     // drag through to storage would be a prefs write per pointer event.
     var draft by remember { mutableStateOf<List<WeekBlock>?>(null) }

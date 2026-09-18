@@ -2,6 +2,7 @@ package app.harbor.domain
 
 import java.time.DayOfWeek
 import java.time.Duration
+import app.harbor.domain.BlockKind
 import java.time.LocalTime
 import java.time.ZonedDateTime
 
@@ -43,6 +44,38 @@ object Windows {
 
     /** After this, neither does anybody else. */
     val DAY_END: LocalTime = LocalTime.of(22, 0)
+
+    /**
+     * The week somebody starts with: every night marked busy.
+     *
+     * ## Why this exists
+     *
+     * Harbor has no quiet hours. [CuePolicy] has no notion of night at all --
+     * these two constants are used to weigh a day and to find free stretches,
+     * and neither of them has ever gated a cue. So a participant who walked
+     * for three minutes at two in the morning and stopped would be rung, at
+     * full ringtone volume, at two in the morning.
+     *
+     * ## Why it is blocks rather than a rule
+     *
+     * A hidden "no cues at night" in the policy would work and would be
+     * invisible: nobody could see it, question it, or move it. These are
+     * ordinary busy blocks. They appear on the week the first time it is
+     * opened, they are drawn like anything else, and somebody who works nights
+     * can drag them off. The rule and the thing you can see are the same
+     * object, which is the whole argument.
+     *
+     * Two blocks a night because [WeekBlock] requires `start < end` and so
+     * cannot cross midnight. `LocalTime.MAX` rather than 23:59 so the late
+     * block runs to the very end of the day -- `covers` is exclusive at the
+     * end, and 23:59 would leave a minute of the night open.
+     */
+    fun quietNights(): List<WeekBlock> = DayOfWeek.entries.flatMap { day ->
+        listOf(
+            WeekBlock(day, LocalTime.MIDNIGHT, DAY_START, BlockKind.BUSY, "Night"),
+            WeekBlock(day, DAY_END, LocalTime.MAX, BlockKind.BUSY, "Night"),
+        )
+    }
 
     /** Shorter than this is a gap between classes, not room for a call. */
     val LEAST: Duration = Duration.ofMinutes(20)

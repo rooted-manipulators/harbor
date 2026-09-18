@@ -52,6 +52,17 @@ interface HarborRepository {
 
     suspend fun setWeekBlocks(blocks: List<WeekBlock>)
 
+    /**
+     * Put the quiet nights on the week, once ever.
+     *
+     * Once, and the marker is what makes that true: somebody who drags them
+     * off should not find them back the next time they open the screen. A
+     * deleted night is a decision, not an accident to be corrected.
+     *
+     * @return true if they were added by this call.
+     */
+    suspend fun seedQuietNightsOnce(): Boolean
+
     suspend fun setDailyAnswer(day: LocalDate, answer: String)
 
     /**
