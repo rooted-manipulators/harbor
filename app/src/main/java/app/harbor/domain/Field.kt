@@ -645,6 +645,81 @@ object Field {
     // --- the cells --------------------------------------------------------
 
     /**
+     * How many cells on a side make one block.
+     *
+     * The field is built block by block rather than row by row so that a frame
+     * can skip whole blocks instead of projecting every cell to find out it is
+     * off screen. See [Built] and [onScreen].
+     *
+     * Twelve is a compromise between the two costs it sits between. Bigger
+     * blocks mean fewer corner projections per frame but coarser skipping, so
+     * more cells survive the test and get projected for nothing; smaller
+     * blocks skip tightly but the per-block test starts to cost what it saves.
+     * At twelve the whole grid is about a hundred and fifty blocks, which is
+     * around a thousand corner projections a frame against the forty thousand
+     * cells it is deciding about.
+     */
+    const val BLOCK = 12
+
+    /**
+     * One square of the grid, and the run of [Built.cells] that falls in it.
+     *
+     * [zTop] is the highest ground in the block. The test projects the block's
+     * corners at both the floor and that height, because a block low on the
+     * screen can still push cells up into view over a rise.
+     */
+    data class Block(
+        val x0: Double,
+        val y0: Double,
+        val x1: Double,
+        val y1: Double,
+        val zTop: Double,
+        val from: Int,
+        val to: Int,
+    )
+
+    /** The field, and the index that lets a frame draw only part of it. */
+    data class Built(val cells: List<Cell>, val blocks: List<Block>)
+
+    /**
+     * Whether any of [block] could land on a [width] by [height] screen.
+     *
+     * Conservative on purpose: it projects the eight corners of the block's
+     * box and asks whether that rectangle touches the screen. The projection
+     * maps straight lines to straight lines and [project] floors the depth, so
+     * nothing folds behind the eye and the corners really do bound the block.
+     *
+     * [margin] is the same slack the per-cell test uses, so a cell whose dot
+     * overhangs the edge is not dropped by the block test first.
+     */
+    fun onScreen(
+        block: Block,
+        camera: Camera,
+        lens: Lens,
+        width: Double,
+        height: Double,
+        margin: Double,
+        point: Point,
+    ): Boolean {
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var minY = Double.MAX_VALUE
+        var maxY = -Double.MAX_VALUE
+        for (corner in 0 until 8) {
+            val x = if (corner and 1 == 0) block.x0 else block.x1
+            val y = if (corner and 2 == 0) block.y0 else block.y1
+            val z = if (corner and 4 == 0) 0.0 else block.zTop
+            project(x, y, z, camera, lens, width, height, point)
+            if (point.x < minX) minX = point.x
+            if (point.x > maxX) maxX = point.x
+            if (point.y < minY) minY = point.y
+            if (point.y > maxY) maxY = point.y
+        }
+        return maxX >= -margin && minX <= width + margin &&
+            maxY >= -margin && minY <= height + margin
+    }
+
+    /**
      * Build the whole field, once.
      *
      * Tens of thousands of cells, each decided by the terrain under it: water
@@ -653,11 +728,31 @@ object Field {
      * somebody's patch covers it. Everything is a pure function of position,
      * so this is rebuilt rather than stored, and always comes out the same.
      */
-    fun cells(patches: List<Patch>): List<Cell> {
+    fun cells(patches: List<Patch>): List<Cell> = build(patches).cells
+
+    /**
+     * The same field, with its blocks.
+     *
+     * Cells come out grouped by block rather than in rows. Nothing about a
+     * cell changes — [plant] ranks by a per-cell hash and [newestBloom] reads
+     * a counter, so neither depends on the order — and blocks are emitted in
+     * rows of increasing y, which keeps the far-to-near order the drawing
+     * relies on to let near ground overlap far ground.
+     */
+    fun build(patches: List<Patch>): Built {
         val out = ArrayList<Cell>(Terrain.COLS * Terrain.ROWS / 2)
+        val blocks = ArrayList<Block>()
         val candidates = Array(patches.size) { ArrayList<Candidate>() }
-        for (row in 0 until Terrain.ROWS) {
-            for (col in 0 until Terrain.COLS) {
+        for (blockRow in 0 until (Terrain.ROWS + BLOCK - 1) / BLOCK) {
+            for (blockCol in 0 until (Terrain.COLS + BLOCK - 1) / BLOCK) {
+                val rowFrom = blockRow * BLOCK
+                val rowTo = min(Terrain.ROWS, rowFrom + BLOCK)
+                val colFrom = blockCol * BLOCK
+                val colTo = min(Terrain.COLS, colFrom + BLOCK)
+                val from = out.size
+                var zTop = 0.0
+                for (row in rowFrom until rowTo) {
+                    for (col in colFrom until colTo) {
                 val jx = (Terrain.hash2(col, row, Terrain.SEED + 5) - 0.5) * Terrain.CELL * 0.5
                 val jy = (Terrain.hash2(col, row, Terrain.SEED + 6) - 0.5) * Terrain.CELL * 0.5
                 val x = col * Terrain.CELL + jx
@@ -722,9 +817,24 @@ object Field {
                 }
 
                 out += Cell(x, y, z, kind, min(size, 2.4), paint, patch, chance)
+                if (z > zTop) zTop = z
+                    }
+                }
+                // A block with no land in it still gets an entry, with an
+                // empty run. Dropping them would make the list's own indices
+                // stop meaning anything, and an empty run costs one test.
+                blocks += Block(
+                    x0 = colFrom * Terrain.CELL,
+                    y0 = rowFrom * Terrain.CELL,
+                    x1 = colTo * Terrain.CELL,
+                    y1 = rowTo * Terrain.CELL,
+                    zTop = zTop,
+                    from = from,
+                    to = out.size,
+                )
             }
         }
         plant(out, patches, candidates)
-        return out
+        return Built(out, blocks)
     }
 }

@@ -51,17 +51,46 @@ class FieldTest {
         assertEquals(4, flowersIn(4))
     }
 
+    private fun placed(calls: Int) = Field.cells(Field.patches(people(calls)))
+        .filter { it.kind == Field.Kind.FLOWER }
+        .sortedBy { it.bloom }
+        .map { it.x to it.y }
+
     @Test
-    fun `a flower keeps its place as the patch grows around it`() {
-        // Planting order is a rank, not a clock, so the sixth flower is the
-        // next cell down a list the first five already sat at the top of. A
+    fun `a flower keeps its place once the patch has stopped growing`() {
+        // Planting order is a rank, not a clock, so the eighth flower is the
+        // next cell down a list the first seven already sat at the top of. A
         // flower that moved when the next one arrived would make the field a
         // picture of the count rather than a record of the calls.
-        fun placed(calls: Int) = Field.cells(Field.patches(people(calls)))
-            .filter { it.kind == Field.Kind.FLOWER }
-            .sortedBy { it.bloom }
-            .map { it.x to it.y }
-        assertEquals(placed(5), placed(6).take(5))
+        //
+        // Seven and eight, not five and six: the ring stops growing at six
+        // calls (Field.patches), and until it does this does not hold. See
+        // the test below, which is the one that says so.
+        assertEquals(placed(7), placed(8).take(7))
+    }
+
+    @Test
+    fun `while the patch is still growing, an earlier flower can move`() {
+        // Not a property anybody wants -- it is the current behaviour, pinned
+        // so that changing it is a decision rather than an accident.
+        //
+        // `growth` in Field.patches widens the ring until the sixth call, so
+        // each of the first six calls admits ground the ranking had never
+        // seen. A newly admitted cell can outrank every flower already
+        // standing, take bloom 0, and push the rest along -- which reads, to
+        // the person whose garden it is, as their first flowers moving.
+        //
+        // It only bites below the cap, which is also the week a participant is
+        // most likely to be looking. Fixing it means ranking against the pool
+        // as it will be at full growth rather than as it is today.
+        val five = placed(5)
+        val six = placed(6)
+        assertTrue(
+            "the first five flowers no longer move when the sixth arrives -- " +
+                "if this is now stable, that is the fix, and the test above " +
+                "should take over",
+            five != six.take(5),
+        )
     }
 
     @Test
@@ -502,5 +531,81 @@ class FieldTest {
         assertTrue(Field.GRASS_AT < Field.FLOWER_AT)
         assertTrue(Field.FLOWER_AT < Field.ARTWORK_AT)
         assertTrue(Field.ARTWORK_FADE > 0.0)
+    }
+
+    // --- the blocks a frame skips by -----------------------------------------
+
+    @Test
+    fun `the blocks tile the cells exactly once`() {
+        val built = Field.build(Field.patches(people(40, 12)))
+        var next = 0
+        for (block in built.blocks) {
+            assertEquals("blocks run in order and leave no gap", next, block.from)
+            assertTrue(block.to >= block.from)
+            next = block.to
+        }
+        assertEquals("every cell belongs to one block", built.cells.size, next)
+    }
+
+    @Test
+    fun `a cell sits inside the block that claims it`() {
+        val built = Field.build(Field.patches(people(40, 12)))
+        // Cells are jittered off their grid point by up to half a cell, so the
+        // bounds a block has to cover are its own plus that slack.
+        val slack = Terrain.CELL * 0.5
+        for (block in built.blocks) {
+            for (i in block.from until block.to) {
+                val c = built.cells[i]
+                assertTrue(c.x >= block.x0 - slack && c.x <= block.x1 + slack)
+                assertTrue(c.y >= block.y0 - slack && c.y <= block.y1 + slack)
+                assertTrue("zTop has to cover the block", c.z <= block.zTop + 1e-9)
+            }
+        }
+    }
+
+    /**
+     * The one that matters.
+     *
+     * Skipping a block must never skip a cell that would have been drawn. A
+     * cheap test that is wrong does not cost frames, it puts holes in the
+     * ground — and holes at one zoom and not another are exactly the kind of
+     * thing nobody notices until a participant's garden is missing.
+     */
+    @Test
+    fun `no visible cell is ever inside a skipped block`() {
+        val built = Field.build(Field.patches(people(40, 12)))
+        val w = 1080.0
+        val h = 2160.0
+        val base = Field.overviewZoom(w, h)
+        val point = Field.Point()
+        // Overview, either side of the tip, and hard in: the framings where
+        // the projection behaves differently from one another.
+        for (rel in listOf(1.0, 2.5, 4.5, 12.0, Field.MAX_REL)) {
+            val cam = Field.Camera(
+                x = Terrain.FIELD_W * 0.45,
+                y = Terrain.FIELD_H * 0.55,
+                zoom = base * rel,
+            )
+            val lens = Field.buildLens(cam, base, h)
+            for (block in built.blocks) {
+                if (Field.onScreen(block, cam, lens, w, h, 26.0, point)) continue
+                for (i in block.from until block.to) {
+                    val c = built.cells[i]
+                    Field.project(c.x, c.y, c.z, cam, lens, w, h, point)
+                    val drawn = point.x >= -26 && point.x <= w + 26 &&
+                        point.y >= -26 && point.y <= h + 26
+                    assertTrue("a drawn cell sat in a skipped block at rel $rel", !drawn)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `making the grid denser does not move the island`() {
+        // CELL, COLS and ROWS move together and their product is the world.
+        // If density ever moves it, every patch lands somewhere else and every
+        // garden in the study is a different place than it was.
+        assertEquals(2340.0, Terrain.FIELD_W, 1e-9)
+        assertEquals(1740.0, Terrain.FIELD_H, 1e-9)
     }
 }

@@ -222,9 +222,10 @@ fun FieldCanvas(
 
     // Tens of thousands of cells, each sampling several octaves of noise.
     // Fast, but not fast enough to sit on the frame that shows the screen.
-    val cells by produceState(initialValue = emptyList<Field.Cell>(), patches) {
-        value = withContext(Dispatchers.Default) { Field.cells(patches) }
+    val built by produceState(initialValue = Field.Built(emptyList(), emptyList()), patches) {
+        value = withContext(Dispatchers.Default) { Field.build(patches) }
     }
+    val cells = built.cells
 
     // The patch whose card is open, or null. Cleared by tapping open country.
     var showing by remember { mutableStateOf<Field.Patch?>(null) }
@@ -435,7 +436,7 @@ fun FieldCanvas(
                 },
         ) {
             if (cells.isEmpty() || base <= 0) return@Canvas
-            drawField(cells, patches, palette, cam, base, kit, tagInk, newest, art)
+            drawField(built, patches, palette, cam, base, kit, tagInk, newest, art)
         }
 
         if (controls) {
@@ -622,7 +623,7 @@ private class DrawKit(buckets: Int) {
 private class Tag(val text: String, val x: Float, var y: Float, val stemY: Float)
 
 private fun DrawScope.drawField(
-    cells: List<Field.Cell>,
+    built: Field.Built,
     patches: List<Field.Patch>,
     palette: LongArray,
     cam: Field.Camera,
@@ -660,7 +661,19 @@ private fun DrawScope.drawField(
     // Where the marked flower came out on screen, and how big, or null.
     var marked: FloatArray? = null
 
-    for (i in cells.indices) {
+    // Whole blocks first, then the cells inside the ones that survive.
+    //
+    // The per-cell test below is what actually decides, and it has not
+    // changed; this only stops the field paying to project forty thousand
+    // cells in order to throw away the ninety-odd per cent of them that are
+    // nowhere near the screen. Zoomed out almost every block is visible and
+    // this costs a few hundred corner projections for nothing; zoomed in,
+    // which is where the cost was, nearly all of them go at once.
+    val cells = built.cells
+    for (block in built.blocks) {
+        if (block.from == block.to) continue
+        if (!Field.onScreen(block, cam, lens, w, h, 26.0, p)) continue
+    for (i in block.from until block.to) {
         val c = cells[i]
         Field.project(c.x, c.y, c.z, cam, lens, w, h, p)
         if (p.x < -26 || p.x > w + 26 || p.y < -26 || p.y > h + 26) continue
@@ -730,6 +743,7 @@ private fun DrawScope.drawField(
                 kit.paths[c.paint].addCircle(p.x.toFloat(), p.y.toFloat(), r.toFloat(), NativePath.Direction.CW)
             }
         }
+    }
     }
 
     for (bucket in kit.paths.indices) {
