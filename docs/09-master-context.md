@@ -400,12 +400,8 @@ details, and are argued in ADR-005 as amended:
    takes every slot, and a week of running both would end with no comparison
    at all.
 
-Two things are **not** done and are the obvious next bugs:
+One thing is **not** done and is the obvious next bug:
 
-- The suggested `sessionMinutes` is 20 and **has no control on any screen**.
-  The walking threshold, the daily cap and the quiet gap all have steppers;
-  this one does not, which makes it a locked default of the kind
-  `docs/01-decisions.md` says there must not be.
 - `ScrollWatch.current` does not know what a launcher is. Twenty minutes in
   any one app counts, Harbor's own package excepted. That is on purpose — a
   hardcoded list of "bad" apps is a judgement and goes stale — but nobody has

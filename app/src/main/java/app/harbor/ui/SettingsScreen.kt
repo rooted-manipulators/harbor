@@ -110,8 +110,13 @@ fun SettingsScreen(
                 SectionHeader("When a reminder can come", "suggestions, not rules")
                 SmallCopy(
                     "A reminder is Harbor offering you one person, on its own, at a " +
-                        "moment it thinks you have room - usually just after a " +
-                        "walk ends. It shows their face and plays their sound, " +
+                        "moment it thinks you have room - just after a walk " +
+                        if (settings.scrollCues) {
+                            "ends, or partway through a long stretch in one app. "
+                        } else {
+                            "ends. "
+                        } +
+                        "It shows their face and plays their sound, " +
                         "and the only thing it ever does is offer. Ignoring one " +
                         "costs nothing and there is no streak to break.",
                 )
@@ -135,6 +140,41 @@ fun SettingsScreen(
                         )
                     },
                 )
+                // The other trigger's threshold, and only for the people
+                // who have it.
+                //
+                // It shipped without a control anywhere, which made 20
+                // minutes exactly the locked default the gap below spent a
+                // paragraph arguing against -- and it is the number most
+                // worth moving, since what counts as "a long stretch" is
+                // more personal than what counts as a walk.
+                //
+                // Five at a time. One-minute steps over a range that runs to
+                // three hours is a stepper nobody finishes using.
+                if (settings.scrollCues) {
+                    Stepper(
+                        label = "Time in one app",
+                        value = settings.thresholds.sessionMinutes.toString() + " min",
+                        onDown = {
+                            thresholds(
+                                settings.thresholds.copy(
+                                    sessionMinutes =
+                                        (settings.thresholds.sessionMinutes - 5)
+                                            .coerceAtLeast(1),
+                                ),
+                            )
+                        },
+                        onUp = {
+                            thresholds(
+                                settings.thresholds.copy(
+                                    sessionMinutes =
+                                        (settings.thresholds.sessionMinutes + 5)
+                                            .coerceAtMost(180),
+                                ),
+                            )
+                        },
+                    )
+                }
                 Stepper(
                     label = "Most reminders a day",
                     value = settings.thresholds.dailyCap.toString(),
