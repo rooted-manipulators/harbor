@@ -67,6 +67,13 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.unit.IntOffset
+import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -640,6 +647,27 @@ private val DayCardShape = RoundedCornerShape(26.dp)
 private val SWIPE_DAY = 56.dp
 
 /**
+ * Completing a swipe: brisk, and with no bounce at the end.
+ *
+ * The card is going somewhere it was always going to go, so the motion should
+ * read as arrival rather than as a decision. An overshoot here would suggest
+ * the day had been thrown.
+ */
+private val DAY_SETTLE = tween<Float>(durationMillis = 230, easing = FastOutSlowInEasing)
+
+/**
+ * Falling short: a spring, with enough give to be felt.
+ *
+ * This is the one that has to be nice. A swipe that did not reach the
+ * threshold is the app declining, and a linear slide back reads as a refusal
+ * where a spring reads as the card simply settling where it belongs.
+ */
+private val DAY_SPRING = spring<Float>(
+    dampingRatio = Spring.DampingRatioMediumBouncy,
+    stiffness = Spring.StiffnessMediumLow,
+)
+
+/**
  * How much of the screen's foot the bin takes, and therefore how far down a
  * block has to come before letting go of it scraps it.
  *
@@ -730,6 +758,14 @@ private fun DayBoard(
 ) {
     val hours = LAST_HOUR - FIRST_HOUR
     val density = LocalDensity.current
+
+    // How far sideways one card sits from the next. Measured in the layout
+    // below and read back up here by the gesture, rather than recomputed from
+    // constants that would drift the day the card's share of the width does.
+    var stepPx by remember { mutableFloatStateOf(0f) }
+    val slide = remember { Animatable(0f) }
+    val swipes = rememberCoroutineScope()
+    val stillness = LocalReducedMotion.current
     val hoursHeight = HOUR_HEIGHT * hours
 
     // The block under the finger, and the rest of the week without it.
@@ -755,21 +791,60 @@ private fun DayBoard(
             // ever sees the gestures the day itself did not want: a press on a
             // block consumes, and a press on empty ground that moves before the
             // plant hold is up does not.
-            .pointerInput(showing) {
-                var travelled = 0f
+            // The day follows the finger and then keeps going.
+            //
+            // It used to count how far a drag had travelled and swap the day
+            // on release -- nothing moved until the new day was simply
+            // *there*. The neighbours were already drawn a card's width to
+            // either side, which is a carousel in every respect except that
+            // it never moved, so this is mostly a matter of letting it.
+            //
+            // The slide carries all three cards, so the day you are pulling
+            // towards arrives from where you can already see it waiting. Past
+            // the threshold it completes on its own; short of it, it springs
+            // back with a little overshoot, which is the difference between a
+            // control that refused you and one that simply did not agree.
+            .pointerInput(showing, stepPx, stillness) {
                 val far = SWIPE_DAY.toPx()
                 detectHorizontalDragGestures(
-                    onDragStart = { travelled = 0f },
                     onDragEnd = {
-                        if (travelled <= -far) onShow(showing.plusDays(1))
-                        else if (travelled >= far) onShow(showing.minusDays(1))
+                        val step = stepPx
+                        val went = slide.value
+                        swipes.launch {
+                            when {
+                                step <= 0f -> slide.snapTo(0f)
+                                went <= -far -> {
+                                    if (!stillness) slide.animateTo(-step, DAY_SETTLE)
+                                    onShow(showing.plusDays(1))
+                                    slide.snapTo(0f)
+                                }
+                                went >= far -> {
+                                    if (!stillness) slide.animateTo(step, DAY_SETTLE)
+                                    onShow(showing.minusDays(1))
+                                    slide.snapTo(0f)
+                                }
+                                stillness -> slide.snapTo(0f)
+                                else -> slide.animateTo(0f, DAY_SPRING)
+                            }
+                        }
                     },
-                    onDragCancel = { travelled = 0f },
-                ) { _, delta -> travelled += delta }
+                    onDragCancel = { swipes.launch { slide.animateTo(0f, DAY_SPRING) } },
+                ) { _, delta ->
+                    swipes.launch {
+                        // Never further than one day either way: the strip
+                        // holds three cards, and dragging past the third
+                        // would pull emptiness in behind it.
+                        val limit = if (stepPx > 0f) stepPx else 0f
+                        slide.snapTo((slide.value + delta).coerceIn(-limit, limit))
+                    }
+                }
             },
     ) {
         val cardWidth = maxWidth * CARD_SHARE
         val widthPx = with(density) { cardWidth.toPx() }
+        // The same distance the neighbours are offset by, so a completed
+        // swipe lands the next card exactly where the centre one was.
+        stepPx = with(density) { (cardWidth + 16.dp).toPx() }
         val gutterPx = with(density) { GUTTER.toPx() }
         val hourPx = with(density) { HOUR_HEIGHT.toPx() }
         val insetPx = with(density) { 7.dp.toPx() }
@@ -786,7 +861,8 @@ private fun DayBoard(
             width = cardWidth,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .offset(x = -(cardWidth + 16.dp)),
+                .offset(x = -(cardWidth + 16.dp))
+                .offset { IntOffset(slide.value.roundToInt(), 0) },
             onClick = { onShow(showing.minusDays(1)) },
         )
         NeighbourDay(
@@ -796,7 +872,8 @@ private fun DayBoard(
             width = cardWidth,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .offset(x = cardWidth + 16.dp),
+                .offset(x = cardWidth + 16.dp)
+                .offset { IntOffset(slide.value.roundToInt(), 0) },
             onClick = { onShow(showing.plusDays(1)) },
         )
 
@@ -805,6 +882,7 @@ private fun DayBoard(
                 .align(Alignment.Center)
                 .width(cardWidth)
                 .fillMaxHeight()
+                .offset { IntOffset(slide.value.roundToInt(), 0) }
                 .clip(DayCardShape)
                 .background(skin.card)
                 .border(1.dp, skin.line.copy(alpha = 0.45f), DayCardShape),
