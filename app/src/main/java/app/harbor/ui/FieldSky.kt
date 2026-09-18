@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import app.harbor.domain.Weather
@@ -68,14 +69,21 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
     Canvas(modifier.fillMaxSize()) {
         val sky = fieldTintOf(weather)
         drawRect(
-            // Three stops, ending on the ground colour. The weather owns the
-            // top of the screen and hands over to the page before the cards
-            // start, which is what keeps a storm from turning the whole app
-            // navy and a bright day from washing the text out.
+            // Sky, then the land's own dark green, then the page. The weather
+            // owns the top of the screen and has finished handing over by the
+            // same point it always did, which is what keeps a storm from
+            // turning the whole app navy and a bright day from washing the
+            // text out.
+            //
+            // The green is the stop that was missing. Every pair of
+            // neighbours now has something in common to travel through -- sky
+            // into haze, haze into ground, ground into page -- instead of a
+            // lit horizon meeting a near-black page with nothing between them.
             brush = Brush.verticalGradient(
                 0.00f to sky.top,
                 0.26f to sky.mid,
                 0.48f to sky.horizon,
+                0.60f to sky.ground,
                 0.72f to Paper,
                 1.00f to Paper,
             ),
@@ -179,6 +187,24 @@ private class SkyTint(
      * colour its haze fades distance into.
      */
     val horizon: Color,
+    /**
+     * The dark green the sky lands on before the page takes over.
+     *
+     * The fourth stop, and the one that makes the bottom of the gradient a
+     * fade rather than a handover. Sky to [Paper] in one step is two very
+     * different colours meeting: a lit horizon and a near-black page have
+     * nothing in common to pass through, and the eye finds the join whatever
+     * the distance between the stops. Going through the ground's own colour
+     * gives it something to travel along -- the sky settles into the land, and
+     * the land settles into the app.
+     *
+     * Taken from the weather's own [Meadow.fieldDeep] rather than invented, so
+     * a storm's is duller than a bright day's for the same reason its sky is,
+     * and then carried part of the way to [Paper]. The palette's darkest green
+     * is still a mid green; left as it is, it merely moves the seam down the
+     * screen to where green meets black.
+     */
+    val ground: Color,
     val sun: Float,
     val cloud: Float,
     val cloudColour: Color,
@@ -213,6 +239,10 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         top = meadow.sky.first,
         mid = meadow.sky.second,
         horizon = meadow.sky.third,
+        // Just under half way to the page. Far enough that it reads as dark
+        // green rather than as the meadow repeated, close enough that it is
+        // still recognisably the ground and not a grey.
+        ground = lerp(meadow.fieldDeep.last(), Paper, 0.45f),
         // A sun is only a sun on the two days that have one. On the others the
         // prototype still names a disc, but it is the overcast's bright patch
         // and it belongs at a fraction of the strength.
