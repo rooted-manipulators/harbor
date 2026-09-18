@@ -699,14 +699,17 @@ private fun TheirPicture(
             pickPhoto.launch("image/*")
         }
         Spacer(Modifier.height(10.dp))
-        FlowNote(
-            if (who?.photoRef == null) {
-                "Their own contact photo comes across by itself if you found " +
-                    "them with search."
-            } else {
-                "Copied into Harbor, on this phone. It is never uploaded."
-            },
-        )
+        // One line, true either way.
+        //
+        // This used to promise that their contact photo came across by itself
+        // if you found them with search. It does on some phones and not on
+        // this one: the picker's grant covers the row it returned, and the
+        // photo lives behind a *separate* display_photo URI that the grant
+        // does not reach, so Samsung's provider refuses it with a
+        // SecurityException asking for READ_CONTACTS. Harbor tries anyway,
+        // because some providers do hand it over -- but a promise that fails
+        // silently on the device in front of you is worse than no promise.
+        FlowNote("Copied into Harbor, on this phone. It is never uploaded.")
         Spacer(Modifier.height(40.dp))
         FlowNext(enabled = true) { onNext() }
     }
