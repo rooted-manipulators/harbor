@@ -220,9 +220,16 @@ class CuePolicyTest {
     @Test
     fun the_suggested_calibration_matches_the_prototype() {
         // These are the numbers the study measures drift against, and they
-        // are duplicated in 0001_init.sql as column defaults. If you retune
-        // one, retune both.
-        assertEquals(10, Thresholds.SUGGESTED.walkingMinutes)
+        // are duplicated in the schema as column defaults. If you retune one,
+        // retune both -- 0014 carries this one.
+        //
+        // Three, not the prototype's ten. Ten is a deliberate walk and the
+        // right number for the study; it is also a threshold nobody crosses
+        // while somebody is watching them use the app, so no test session ever
+        // saw a reminder fire on its own. Watching a stranger meet the real
+        // trigger is worth more right now than matching the prototype, and the
+        // stepper on the sensing screen moves it either way.
+        assertEquals(3, Thresholds.SUGGESTED.walkingMinutes)
         assertEquals(20, Thresholds.SUGGESTED.sessionMinutes)
         assertEquals(2, Thresholds.SUGGESTED.dailyCap)
         // The one that no longer matches the prototype, which suggested two

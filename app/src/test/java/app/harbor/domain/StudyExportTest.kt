@@ -169,7 +169,7 @@ class StudyExportTest {
         assertTrue(json.contains("\"resolution\":\"called\""))
         // 3: where people moved their thresholds, as in force at the time.
         assertTrue(json.contains("\"threshold_snapshot\""))
-        assertTrue(json.contains("\"walking_minutes\":10"))
+        assertTrue(json.contains("\"walking_minutes\":3"))
     }
 
     @Test
