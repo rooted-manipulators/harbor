@@ -162,6 +162,24 @@ val ChosenFill = Gold.copy(alpha = 0.08f).compositeOver(Paper)
  */
 val ChosenEdge = Gold.copy(alpha = 0.20f)
 
+// --- the day dial -------------------------------------------------------
+//
+// Illustration, like the garden's flowers and the field's terrain, and exempt
+// from the one-accent rule for the same reason those are: this is a drawn
+// object on the page rather than a piece of chrome, and the rule exists to
+// stop the *interface* shouting. A dial in card grey with an amber hand would
+// obey the letter of it and look like a settings row.
+//
+// Measured off the reference frames. Warm violet lit from the middle, so the
+// hands and the tick marks read white against it and the peach of a free arc
+// sits beside it as a different temperature rather than a different shade.
+
+/** The middle of the face. */
+val DialLit = Color(0xFFA862B4)
+
+/** Its rim. */
+val DialDeep = Color(0xFF59286D)
+
 /** The cool end of the dusk, behind the cards on Account and Schedule. */
 val Dusk = Color(0xFF2F4A63)
 

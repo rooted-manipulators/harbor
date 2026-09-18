@@ -89,6 +89,20 @@ enum class Moment {
     /** The week was edited. `detail` is what was placed or removed. */
     WEEK_EDITED,
 
+    /**
+     * Somebody set themselves a reminder to call, from a person's page.
+     * `value` is the minute of the day they chose.
+     *
+     * A third way a call can come to happen, and the study's second question
+     * is exactly which of the three does the work. The other two are already
+     * counted: [CUE_SHOWN] into [CALL_STARTED] is Harbor's own prompt, and a
+     * [CALL_STARTED] with no cue behind it is somebody who simply decided to.
+     * This one is somebody deciding *in advance*, which is neither, and
+     * without it a reminder that worked would be indistinguishable from a
+     * call nobody planned.
+     */
+    REMINDER_SET,
+
     /** The mood was set. `detail` is the weather. */
     WEATHER_SET,
 
