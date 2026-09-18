@@ -48,18 +48,25 @@ import kotlin.math.sin
  * point — see [DayArcs], where all of the arithmetic lives and where the note
  * on why it lives apart from the drawing is.
  *
- * ## Why the hands look wrong for a second
+ * ## An ordinary clock inside a ring that is not one
  *
- * This is a twenty-four hour dial: the hour hand goes round once a day rather
- * than twice, so eight in the morning is a third of the way round and eight at
- * night is two thirds. That is a real convention rather than an invention — it
- * is how a twenty-four hour watch works — and it is the only way an arc can
- * mean one stretch of one day. On a twelve-hour face a nine o'clock lecture
- * also covers the evening, and a reminder dragged onto it could be either.
+ * The **face** is a plain twelve-hour clock: twelve marks, an hour hand round
+ * twice a day, a minute hand round once an hour. It is telling the time, and a
+ * clock that reads as a clock is worth more there than a clever one — the
+ * first pass made the whole dial twenty-four hours and it cost exactly what
+ * you would expect, a face nobody could read at a glance.
  *
- * The minute hand keeps the ordinary scale, one turn an hour, because it is
- * placing nothing on the day and because a minute hand on a day's scale would
- * barely move.
+ * The **ring** outside it is a whole day, one turn for twenty-four hours,
+ * because that is the only scale on which an arc means one stretch of one day.
+ * On a twelve-hour ring a nine o'clock lecture would also cover the evening
+ * and a reminder dragged onto it could be either.
+ *
+ * So the two scales sit one inside the other, which is an old watch idea
+ * rather than a new one, and the seam is real: the hour hand does not point at
+ * the arc for the hour it is in. Midnight is the top of the ring and noon is
+ * the bottom, and because the hand no longer says where on the ring you are,
+ * the ring says it itself — a faint track with a notch at midnight and at
+ * noon, which is the only thing drawn on a day nobody has marked.
  *
  * ## The reminder
  *
@@ -148,12 +155,17 @@ internal fun DayClock(
             val centre = Offset(size.width / 2f, size.height / 2f)
             val outer = size.minDimension / 2f
 
-            val faceR = outer * 0.70f
+            val faceR = outer * 0.66f
             val arcR = outer * 0.87f
-            val arcWidth = outer * 0.15f
+            val arcWidth = outer * 0.16f
 
             drawFace(centre, faceR)
-            drawTicks(centre, faceR, stir, reminder)
+            // The marks wake up about where the flower *is*, which is a place
+            // on the ring rather than a time on the face. Measuring the
+            // distance in minutes would light the mark for nine in the morning
+            // while the flower sat over the evening.
+            drawTicks(centre, faceR, stir, reminder?.let { DayArcs.degreesAt(it) })
+            drawDayTrack(centre, arcR, arcWidth)
             arcs.forEach { arc -> drawDayArc(centre, arcR, arcWidth, arc) }
             drawHands(centre, faceR, now)
             reminder?.let { drawReminder(centre, arcR, arcWidth, it) }
@@ -196,14 +208,29 @@ private fun gapBetween(a: Int, b: Int): Int {
     return minOf(raw, DayArcs.DAY_MINUTES - raw)
 }
 
-/** A point on the dial: [minute] of the day, [radius] out from [centre]. */
-private fun on(centre: Offset, radius: Float, minute: Int): Offset {
-    val rad = Math.toRadians(DayArcs.degreesAt(minute).toDouble() - 90.0)
+/**
+ * A point [radius] out from [centre], [degrees] clockwise from the top.
+ *
+ * Not `at`: that name is a parameter on [minuteOf] and a function on [DayArcs]
+ * that means a time, and three of those in one file is two too many.
+ */
+private fun pointAt(centre: Offset, radius: Float, degrees: Float): Offset {
+    val rad = Math.toRadians(degrees.toDouble() - 90.0)
     return Offset(
         centre.x + (radius * cos(rad)).toFloat(),
         centre.y + (radius * sin(rad)).toFloat(),
     )
 }
+
+/**
+ * A point on the **ring**: [minute] of the day, [radius] out from [centre].
+ *
+ * Named for the day rather than for the dial, because the face has its own
+ * scale now and a helper called `on` would happily put an evening arc over the
+ * morning without anybody noticing at the call site.
+ */
+private fun onDay(centre: Offset, radius: Float, minute: Int): Offset =
+    pointAt(centre, radius, DayArcs.degreesAt(minute))
 
 /** Degrees of arc, as the minutes of day they cover. */
 private fun degreesToMinutes(degrees: Float): Int =
@@ -223,37 +250,76 @@ private fun DrawScope.drawFace(centre: Offset, radius: Float) {
 }
 
 /**
- * Twenty-four marks, four of them long.
+ * Twelve marks, four of them long: an ordinary clock face.
  *
- * [stir] is how awake they are and [near] is the minute they are awake
- * *about*. While the reminder is being pushed round, the marks it is passing
- * stand up and brighten and the ones behind it settle back — the same
- * information the time readout gives, said in the shape of the dial, so an eye
- * following the flower never has to leave it to know where it has got to.
+ * [stir] is how awake they are and [nearDeg] is the angle they are awake
+ * *about* — where the flower is on the ring, not what time it says. The two
+ * differ now that the face and the ring run on different scales, and the angle
+ * is the one that matters: the marks that stand up and brighten should be the
+ * marks the flower is passing, so that an eye following it never has to leave
+ * it to know where it has got to. Lighting the mark for the *hour* would send
+ * an evening flower's glow round to the morning side of the face.
  */
-private fun DrawScope.drawTicks(centre: Offset, faceR: Float, stir: Float, near: Int?) {
-    for (hour in 0 until 24) {
-        val minute = hour * 60
-        val major = hour % 6 == 0
+private fun DrawScope.drawTicks(centre: Offset, faceR: Float, stir: Float, nearDeg: Float?) {
+    for (hour in 0 until 12) {
+        val deg = hour * 30f
+        val major = hour % 3 == 0
 
-        // Nought when the flower is on the other side of the dial, one when it
-        // is right here. Three hours of reach, so a handful of marks move
+        // Nought when the flower is across the dial from this mark, one when
+        // it is right beside it. Ninety degrees of reach, so a handful move
         // together rather than one blinking on its own.
-        val reach = if (near == null) 0f else {
-            (1f - gapBetween(minute, near) / 180f).coerceAtLeast(0f)
+        val reach = if (nearDeg == null) 0f else {
+            (1f - degreesApart(deg, nearDeg) / 90f).coerceAtLeast(0f)
         }
         val woken = stir * reach
 
-        val length = faceR * (if (major) 0.17f else 0.11f) * (1f + 0.55f * woken)
-        val from = faceR * 0.87f
+        val length = faceR * (if (major) 0.19f else 0.12f) * (1f + 0.55f * woken)
+        val from = faceR * 0.88f
         drawLine(
             color = Color.White.copy(
-                alpha = ((if (major) 0.85f else 0.42f) + 0.15f * woken).coerceAtMost(1f),
+                alpha = ((if (major) 0.88f else 0.45f) + 0.12f * woken).coerceAtMost(1f),
             ),
-            start = on(centre, from, minute),
-            end = on(centre, from - length, minute),
-            strokeWidth = (if (major) 3.2f else 2.2f) * (1f + 0.5f * woken),
+            start = pointAt(centre, from, deg),
+            end = pointAt(centre, from - length, deg),
+            strokeWidth = (if (major) 3.4f else 2.2f) * (1f + 0.5f * woken),
             cap = StrokeCap.Round,
+        )
+    }
+}
+
+/** The shorter way round a circle between two angles, in degrees. */
+private fun degreesApart(a: Float, b: Float): Float {
+    val raw = abs(a - b) % 360f
+    return minOf(raw, 360f - raw)
+}
+
+/**
+ * The day the arcs are laid on, when there are none.
+ *
+ * With a twelve-hour face the hands no longer say where on the ring anything
+ * is, so the ring has to. A hairline track with a notch at the top for
+ * midnight and one at the bottom for noon is the least that can be drawn and
+ * still answer "which half of this is the evening" — and it is deliberately
+ * not an arc: an arc is a statement somebody made, and this is only the shape
+ * their statements would go on.
+ */
+private fun DrawScope.drawDayTrack(centre: Offset, radius: Float, width: Float) {
+    val box = Rect(centre - Offset(radius, radius), Size(radius * 2, radius * 2))
+    drawArc(
+        color = Color.White.copy(alpha = 0.07f),
+        startAngle = 0f,
+        sweepAngle = 360f,
+        useCenter = false,
+        topLeft = box.topLeft,
+        size = box.size,
+        style = Stroke(width = width),
+    )
+    for (deg in listOf(0f, 180f)) {
+        drawLine(
+            color = Color.White.copy(alpha = 0.22f),
+            start = pointAt(centre, radius - width / 2f, deg),
+            end = pointAt(centre, radius + width / 2f, deg),
+            strokeWidth = 1.6f,
         )
     }
 }
@@ -291,8 +357,8 @@ private fun DrawScope.drawDayArc(
         BlockKind.FREE -> drawArc(
             brush = Brush.linearGradient(
                 colors = listOf(PetalLight, StemTop, StemFoot),
-                start = on(centre, radius, arc.from),
-                end = on(centre, radius, arc.to),
+                start = onDay(centre, radius, arc.from),
+                end = onDay(centre, radius, arc.to),
             ),
             startAngle = start,
             sweepAngle = sweep,
@@ -330,9 +396,9 @@ private fun DrawScope.drawThornSpikes(
     val path = Path()
     var minute = arc.from + every / 2
     while (minute < arc.to) {
-        val tip = on(centre, outer + reach, minute)
-        val left = on(centre, outer - 1f, minute - halfMinutes)
-        val right = on(centre, outer - 1f, minute + halfMinutes)
+        val tip = onDay(centre, outer + reach, minute)
+        val left = onDay(centre, outer - 1f, minute - halfMinutes)
+        val right = onDay(centre, outer - 1f, minute + halfMinutes)
         path.moveTo(left.x, left.y)
         path.lineTo(tip.x, tip.y)
         path.lineTo(right.x, right.y)
@@ -343,29 +409,28 @@ private fun DrawScope.drawThornSpikes(
 }
 
 /**
- * An hour hand on the day's scale and a minute hand on the hour's.
+ * An ordinary pair of hands, on the face's own twelve-hour scale.
  *
- * See the note at the top of the file: the pairing is a twenty-four hour
- * watch's, not a mistake.
+ * Neither of these has anything to do with the ring. See the note at the top
+ * of the file: the hour hand pointing away from the arc for the hour it is in
+ * is the accepted cost of a face that reads as a clock.
  */
 private fun DrawScope.drawHands(centre: Offset, faceR: Float, now: LocalTime) {
-    val minuteOfDay = now.hour * 60 + now.minute
-    val half = DayArcs.DAY_MINUTES / 2
+    val hourDeg = DayArcs.faceDegreesAt(now.hour * 60 + now.minute)
+    val minuteDeg = now.minute * 6f
 
     drawLine(
         color = Color(0xFFF6E7CE),
-        start = on(centre, faceR * 0.12f, minuteOfDay + half),
-        end = on(centre, faceR * 0.50f, minuteOfDay),
-        strokeWidth = faceR * 0.075f,
+        start = pointAt(centre, faceR * 0.12f, hourDeg + 180f),
+        end = pointAt(centre, faceR * 0.50f, hourDeg),
+        strokeWidth = faceR * 0.078f,
         cap = StrokeCap.Round,
     )
-    // One turn an hour, so it has to be put back on the dial's own scale.
-    val minuteHand = now.minute * DayArcs.DAY_MINUTES / 60
     drawLine(
         color = Color(0xFFFFF6E6),
-        start = on(centre, faceR * 0.12f, minuteHand + half),
-        end = on(centre, faceR * 0.76f, minuteHand),
-        strokeWidth = faceR * 0.05f,
+        start = pointAt(centre, faceR * 0.12f, minuteDeg + 180f),
+        end = pointAt(centre, faceR * 0.76f, minuteDeg),
+        strokeWidth = faceR * 0.052f,
         cap = StrokeCap.Round,
     )
     drawCircle(Color(0xFFF6E7CE), radius = faceR * 0.055f, center = centre)
@@ -378,7 +443,7 @@ private fun DrawScope.drawReminder(
     width: Float,
     minute: Int,
 ) {
-    val at = on(centre, radius, minute)
+    val at = onDay(centre, radius, minute)
     val head = width * 0.85f
     // A little light under it, so it reads as sitting on the arc rather than
     // as a hole punched through it.

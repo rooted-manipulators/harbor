@@ -198,15 +198,21 @@ Done:
   the contact's sound. See ADR-009.
 
 - `ui/PersonScreen` + `ui/DayClock` + `domain/DayArcs` — a person's page,
-  rebuilt around a dial. The day is drawn as a **twenty-four hour** clock
-  (one turn is one day, so an arc means one stretch of it and not two) with
-  the week's own two marks bent round it: a thorned arc over busy hours, a
+  rebuilt around a dial. **Two scales, one inside the other:** an ordinary
+  twelve-hour clock face, and around it a ring that is a whole day — one turn
+  for twenty-four hours, midnight at the top. The arcs go on the ring, because
+  that is the only scale on which an arc means one stretch of one day; a
+  twelve-hour ring would draw a 9am lecture over the evening too. The week's
+  own two marks are what is bent round it: a thorned arc over busy hours, a
   blooming one over hours kept free, and nothing over hours nobody marked.
+  `DayArcs.degreesAt` is the ring's scale and `faceDegreesAt` is the face's —
+  mixing them puts an evening reminder over the morning, so they are named
+  apart rather than separated by an argument.
   Press a free arc, drop a flower on it, push it round to pick a time, and
   Done writes the same `PROPOSED_LATER` row that tapping "later" on a cue
   writes — so the hold, the card on home and the study's export all work on it
   already. Dragging it into a thorn or off the end buzzes and will not move.
-  `DayArcs` is pure and has 21 tests; the drawing and the platform live apart
+  `DayArcs` is pure and has 24 tests; the drawing and the platform live apart
   from it.
   **The dial shows *your* week, not theirs.** Harbor holds one week. Reading
   somebody else's needs `domain/Sharing` (ADR-013), which exists with no

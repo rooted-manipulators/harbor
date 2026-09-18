@@ -18,19 +18,25 @@ import java.time.LocalTime
  * what makes a gesture that has to *feel* right something you can also prove
  * is right.
  *
- * ## The dial is twenty-four hours, not twelve
+ * ## Two scales, and which one is which
  *
  * A twelve-hour face puts nine in the morning and nine at night in the same
  * place. For hands that is a convention everybody has absorbed; for an *arc*
  * it is a lie — a lecture from 9 to 11 would draw over the evening as well,
- * and a reminder dragged into it could be either. So one turn is one day,
- * midnight at the top, noon at the bottom, and the hands run at half the
- * speed a wristwatch's do.
+ * and a reminder dragged onto it could be either.
  *
- * The cost is real and worth naming: the face no longer reads as the clock
- * everybody already knows, and somebody glancing at it will misread the time
- * at least once. The alternative is a schedule that cannot be drawn without
- * ambiguity, which is worse on a screen whose whole job is the schedule.
+ * So the two things get the two scales they each need. The **ring** outside
+ * the face is a whole day: one turn is twenty-four hours, midnight at the top
+ * and noon at the bottom, which is the only mapping under which an arc means
+ * one stretch of one day. The **face** inside it is an ordinary twelve-hour
+ * clock, because it is telling the time and not placing anything, and a
+ * familiar clock is worth more there than a consistent one.
+ *
+ * [degreesAt] is the ring's and [faceDegreesAt] is the face's. Everything that
+ * has to line up with an arc — a press, a drag, the reminder — uses the first.
+ * Only the hands and the hour marks use the second. Mixing them up puts a
+ * nine-o'clock reminder over the morning, so they are named apart rather than
+ * separated by an argument.
  *
  * ## What an arc is not
  *
@@ -104,9 +110,24 @@ object DayArcs {
             ).sortedBy { it.from }
     }
 
-    /** Where [minute] sits on the dial: degrees clockwise from midnight. */
+    /** Half a turn of the face, which is a whole turn of it. */
+    const val FACE_MINUTES: Int = 12 * 60
+
+    /** Where [minute] sits on the ring: degrees clockwise from midnight. */
     fun degreesAt(minute: Int): Float =
         minute.toFloat() / DAY_MINUTES * 360f
+
+    /**
+     * Where [minute] sits on the twelve-hour face: degrees clockwise from
+     * twelve o'clock.
+     *
+     * Wraps at noon, which is the whole reason this is a different function
+     * from [degreesAt] rather than a scale factor on it — half past nine in the
+     * evening and half past nine in the morning are the same place here, and
+     * are emphatically not the same place on the ring.
+     */
+    fun faceDegreesAt(minute: Int): Float =
+        (minute.mod(FACE_MINUTES)).toFloat() / FACE_MINUTES * 360f
 
     /**
      * The inverse, wrapped.

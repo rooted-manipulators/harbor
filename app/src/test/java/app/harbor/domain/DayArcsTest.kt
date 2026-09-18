@@ -115,6 +115,33 @@ class DayArcsTest {
     }
 
     @Test
+    fun `the face is a twelve hour clock and the ring is not`() {
+        // Noon is a whole turn of the face and half a turn of the ring, which
+        // is the one sentence this whole split comes down to.
+        assertEquals(0f, DayArcs.faceDegreesAt(0), 0.001f)
+        assertEquals(0f, DayArcs.faceDegreesAt(12 * 60), 0.001f)
+        assertEquals(180f, DayArcs.degreesAt(12 * 60), 0.001f)
+    }
+
+    @Test
+    fun `morning and evening share a place on the face and not on the ring`() {
+        assertEquals(
+            DayArcs.faceDegreesAt(9 * 60 + 30),
+            DayArcs.faceDegreesAt(21 * 60 + 30),
+            0.001f,
+        )
+        assertTrue(
+            DayArcs.degreesAt(9 * 60 + 30) != DayArcs.degreesAt(21 * 60 + 30),
+        )
+    }
+
+    @Test
+    fun `three in the afternoon is a quarter past the hour hand`() {
+        assertEquals(90f, DayArcs.faceDegreesAt(15 * 60), 0.001f)
+        assertEquals(270f, DayArcs.faceDegreesAt(21 * 60), 0.001f)
+    }
+
+    @Test
     fun `an angle and a minute are the same fact`() {
         for (minute in 0 until DayArcs.DAY_MINUTES step 37) {
             assertEquals(minute, DayArcs.minuteAt(DayArcs.degreesAt(minute)))
