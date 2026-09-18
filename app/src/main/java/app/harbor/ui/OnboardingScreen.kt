@@ -240,7 +240,7 @@ private fun Steps(
             2 -> WhoToCall(store, scope, next)
             3 -> TheirSound(store, scope, next)
             4 -> TheirPicture(store, scope, next)
-            5 -> WhenFree(next)
+            5 -> WhenFree(store, scope, next)
             6 -> AskPermission(store, scope, next)
             7 -> AlmostComplete(store, next)
             8 -> GoodJob(next)
@@ -830,16 +830,38 @@ private fun TheirPicture(
  * The design attributes walking to Google Fit. Harbor reads it on-device
  * through the Activity Recognition Transition API instead, which needs no
  * account and no network (ADR-008), so the option stays and the attribution
- * goes. Watching which apps you use is a different promise entirely and is not
- * something this app is going to start doing quietly, so it is drawn and left
- * off.
+ * goes.
+ *
+ * Scrolling used to be drawn here and left off, with a note saying that
+ * watching which apps you use was a different promise and not one this app
+ * would start making quietly. It is now a promise Harbor offers to make --
+ * loudly, on this screen, and only if you take it. The old note stands as the
+ * reason the disclosure below is written the way it is.
  */
 @Composable
-private fun WhenFree(onNext: () -> Unit) {
+private fun WhenFree(
+    store: HarborRepository,
+    scope: CoroutineScope,
+    onNext: () -> Unit,
+) {
+    val settings by store.settings.collectAsState()
+    // Walking is on for everybody and is not offered as a choice here -- it is
+    // what the app is, and CuePolicy has no switch for it. Scrolling is the
+    // one being opted into.
+    val scrolling = settings.scrollCues
+
+    var showPolicy by remember { mutableStateOf(false) }
+
+    fun setScrolling(on: Boolean) {
+        scope.launch { store.setSettings(store.settings.value.copy(scrollCues = on)) }
+    }
+
     FlowPage(petal = 3) {
         Question("When should Harbor catch you?")
         Spacer(Modifier.height(10.dp))
-        Question("Pick the moment you would not mind being asked", size = 16)
+        // Both, now that there are two. The old line said "pick the moment",
+        // which was true when only one of them worked.
+        Question("Either, or both", size = 16)
         Spacer(Modifier.height(26.dp))
 
         Row(
@@ -852,7 +874,10 @@ private fun WhenFree(onNext: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(Modifier.width(210.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Canvas(Modifier.size(26.dp)) { drawOptionMark(OptionMark.WALKING, FlowInk) }
                 Spacer(Modifier.width(12.dp))
                 Column {
@@ -875,47 +900,130 @@ private fun WhenFree(onNext: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(PillIdle)
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .background(if (scrolling) SelectedCard else PillIdle)
+                .then(
+                    if (scrolling) {
+                        Modifier.border(1.dp, SelectedEdge, RoundedCornerShape(20.dp))
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Canvas(Modifier.size(26.dp)) { drawOptionMark(OptionMark.DOOMSCROLL, PillInk) }
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "While doomscrolling",
-                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, color = PillInk),
-                )
-                Spacer(Modifier.width(10.dp))
-                // A tag, not only a greyed-out row. Disabled styling by itself
-                // reads as "broken" or "not for you"; this says the one thing
-                // that is actually true about it.
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(PillInk.copy(alpha = 0.18f))
-                        .padding(horizontal = 10.dp, vertical = 3.dp),
+            // The toggle is the header row, not the whole card. When the card
+            // carried it, every tap on the disclosure -- including the one on
+            // "Privacy policy" -- was a tap that turned the option back off.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { setScrolling(!scrolling) }
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Weight rather than a fixed 210dp, which was narrow
+                // enough to break "after a long stretch in one app" and leave
+                // "app" alone on its own line.
+                Row(
+                    Modifier.weight(1f).padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Canvas(Modifier.size(26.dp)) {
+                        drawOptionMark(OptionMark.DOOMSCROLL, if (scrolling) FlowInk else PillInk)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Question(
+                            "While scrolling",
+                            size = 18,
+                            // "Doomscrolling" is a judgement, and this screen
+                            // is asking permission rather than making a point.
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "after a long stretch in one app",
+                            style = MaterialTheme.typography.labelSmall.copy(color = PillInk),
+                        )
+                    }
+                }
+                if (scrolling) {
+                    Box(
+                        Modifier.size(24.dp).clip(CircleShape).background(FlowGround),
+                        contentAlignment = Alignment.Center,
+                    ) { Question("✓", size = 15) }
+                }
+            }
+
+            // The disclosure, and only for the people it applies to.
+            //
+            // It appears when the option is taken rather than sitting under a
+            // choice most people will not make -- a consent nobody has opted
+            // into is noise, and noise is what teaches people to skip the
+            // ones that matter.
+            //
+            // At normal reading size on purpose. The instruction was to make
+            // it fine print under a "privacy policy" label; the fact that
+            // Harbor can see which app you are in and for how long is the
+            // whole of what is being agreed to, and shrinking it below the
+            // text around it is how a participant ends up able to say, fairly,
+            // that they never agreed. The *detail* goes behind the link. The
+            // sentence does not.
+            if (scrolling) {
+                Column(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 4.dp)) {
                     Text(
-                        "COMING LATER",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 10.sp,
+                        "Harbor will see which app is in front and for how long. " +
+                            "Not what is on the screen, and nothing leaves the phone.",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
                             color = PillInk,
                         ),
                     )
+                    // Opens in place rather than going somewhere. A policy on
+                    // another screen is a policy read after the decision, and
+                    // the decision is on this one.
+                    TextLink(if (showPolicy) "Close" else "Privacy policy") {
+                        showPolicy = !showPolicy
+                    }
+                    if (showPolicy) {
+                        Text(
+                            POLICY,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = PillInk,
+                            ),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Not in this version. It would mean Harbor watching which apps " +
-                    "you open, and that is not a thing to switch on quietly.",
-                style = MaterialTheme.typography.labelSmall.copy(color = PillInk),
-            )
         }
 
         Spacer(Modifier.height(40.dp))
         FlowNext(enabled = true) { onNext() }
     }
 }
+
+/**
+ * What is behind "Privacy policy" on [WhenFree].
+ *
+ * Every sentence here is a claim about code that has to stay true. The third
+ * one in particular: [app.harbor.domain.StudyExport] writes `trigger_source`,
+ * which says a scrolling session ended, and has no field for an app name. If
+ * one is ever added, this paragraph is wrong and has to change with it.
+ */
+private const val POLICY =
+    "Harbor asks Android which app is in front and how long it has been " +
+        "there. That is the whole of the reading.\n\n" +
+        "It cannot see messages, posts, photos, what you type, or anything " +
+        "else on the screen, and it keeps no history of the apps you open." +
+        "\n\n" +
+        "Nothing about your apps is sent anywhere. The study file records " +
+        "that a reminder appeared, what you chose to do, and which kind of " +
+        "moment prompted it \u2014 a walk, or a long stretch of scrolling " +
+        "\u2014 never the app you were in.\n\n" +
+        "You can switch this off in Settings at any time, and withdraw the " +
+        "permission itself from Android's settings."
 
 /**
  * Two marks, drawn rather than imported — see [app.harbor.ui.drawTabMark] for
@@ -980,14 +1088,18 @@ private fun AskPermission(
     scope: CoroutineScope,
     onNext: () -> Unit,
 ) {
+    val settings by store.settings.collectAsState()
+
     var agreedToTerms by remember { mutableStateOf(false) }
     if (!agreedToTerms) {
-        TermsPopup(onAgree = { agreedToTerms = true })
+        TermsPopup(
+            scrolling = settings.scrollCues,
+            onAgree = { agreedToTerms = true },
+        )
         return
     }
 
     val context = LocalContext.current
-    val settings by store.settings.collectAsState()
 
     var granted by remember { mutableStateOf(ActivityTransitions.hasPermission(context)) }
     var refused by remember { mutableStateOf(false) }
@@ -1213,15 +1325,26 @@ private fun AskPermission(
  * itself. This screen states the current behaviour instead of the old one.
  */
 @Composable
-private fun TermsPopup(onAgree: () -> Unit) = FlowPage(ground = TermsGround) {
+private fun TermsPopup(
+    /** Whether the scrolling trigger was taken on the screen before this one. */
+    scrolling: Boolean,
+    onAgree: () -> Unit,
+) = FlowPage(ground = TermsGround) {
     Question("A few things, once", size = 20)
     Spacer(Modifier.height(22.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionHeading("What Harbor reads")
         FlowNote(
-            "Whether your phone thinks you're walking or still. Not where " +
-                "you are, not what you're doing, not which apps you use.",
+            if (scrolling) {
+                "Whether your phone thinks you're walking or still, and — " +
+                    "because you asked for scrolling reminders — which app is " +
+                    "in front and for how long. Not where you are, and not " +
+                    "what is on your screen."
+            } else {
+                "Whether your phone thinks you're walking or still. Not where " +
+                    "you are, not what you're doing, not which apps you use."
+            },
         )
         SectionHeading("Where it stays")
         FlowNote(

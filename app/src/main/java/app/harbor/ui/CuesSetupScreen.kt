@@ -172,10 +172,18 @@ fun CuesSetupScreen(
 
             Surface {
                 SectionHeading("What Harbor reads")
+                // Reads back what is switched on rather than describing the
+                // walk-only app. See TermsPopup, which carries the same pair.
                 SmallCopy(
-                    "Whether your phone thinks you are walking or still. Not " +
-                        "where you are, not what you are doing, not which apps " +
-                        "you use.",
+                    if (settings.scrollCues) {
+                        "Whether your phone thinks you are walking or still, " +
+                            "and which app is in front and for how long. Not " +
+                            "where you are, and not what is on your screen."
+                    } else {
+                        "Whether your phone thinks you are walking or still. " +
+                            "Not where you are, not what you are doing, not " +
+                            "which apps you use."
+                    },
                 )
 
                 SectionHeading("Where it stays")
@@ -209,6 +217,44 @@ fun CuesSetupScreen(
                         "${settings.thresholds.dailyCap} a day$spacing. You choose " +
                         "those numbers, and you can turn this off whenever you like.",
                 )
+            }
+
+            // Which moments are live, and the only place the scrolling one
+            // can be switched off once onboarding is behind you.
+            //
+            // The policy text on the onboarding screen promises this screen by
+            // name -- "you can switch this off in Settings at any time" -- so
+            // this block is load-bearing for a consent claim, not a
+            // convenience. If it moves, that sentence moves with it.
+            SoftSurface {
+                SectionHeading("When a reminder can arrive")
+                SmallCopy(
+                    "After a walk of at least " +
+                        "${settings.thresholds.walkingMinutes} minutes. This one " +
+                        "is always on \u2014 it is what Harbor is for.",
+                    size = 13,
+                )
+                SmallCopy(
+                    if (settings.scrollCues) {
+                        "And after a long stretch in one app. Harbor reads which " +
+                            "app is in front and for how long, never what is on " +
+                            "the screen."
+                    } else {
+                        "Harbor is not watching how long you spend in other apps."
+                    },
+                    size = 13,
+                )
+                QuietAction(
+                    if (settings.scrollCues) {
+                        "Stop watching for long stretches"
+                    } else {
+                        "Also catch me after a long stretch"
+                    },
+                ) {
+                    scope.launch {
+                        store.setSettings(settings.copy(scrollCues = !settings.scrollCues))
+                    }
+                }
             }
 
             // Without someone to call, a cue can only say "someone at home" and

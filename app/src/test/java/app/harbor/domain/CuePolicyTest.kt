@@ -214,6 +214,33 @@ class CuePolicyTest {
     }
 
     @Test
+    fun `a trigger nobody asked for never fires`() {
+        // Scrolling is opt-in, and the opt-in is the consent: Harbor reads
+        // which app is in front only for people who said yes on the
+        // onboarding screen. A SESSION_END arriving for anybody else is a
+        // reading that should not have happened, so the policy refuses it
+        // before the caps -- a refused trigger must not spend a slot the
+        // walking one could have used.
+        assertEquals(
+            Decision.Hold(Reason.SOURCE_OFF),
+            decide(source = TriggerSource.SESSION_END, lastCueAt = null),
+        )
+        assertEquals(
+            Decision.Fire,
+            decide(
+                settings = settings.copy(scrollCues = true),
+                source = TriggerSource.SESSION_END,
+                lastCueAt = null,
+            ),
+        )
+        // And it is the scrolling trigger alone that the switch governs.
+        assertEquals(
+            Decision.Fire,
+            decide(source = TriggerSource.WALKING_STOP, lastCueAt = null),
+        )
+    }
+
+    @Test
     fun `one trigger cannot eat the whole day's allowance`() {
         // The reason this exists: a walking stop happens once or twice a day,
         // a phone-in-hand session ends dozens of times. Against a shared
@@ -221,6 +248,10 @@ class CuePolicyTest {
         // seen -- so a week of running both would end with a hundred of one
         // and four of the other.
         val split = settings.copy(
+            // Switched on, because this test is about the ceiling rather than
+            // the switch -- scrollCues defaults to off and would otherwise
+            // hold every SESSION_END below for the wrong reason.
+            scrollCues = true,
             thresholds = thresholds.copy(dailyCap = 4, sourceCap = 2),
         )
         // Two from this source already, and the day is only half spent.

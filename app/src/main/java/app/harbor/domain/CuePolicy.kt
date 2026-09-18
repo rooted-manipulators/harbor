@@ -118,6 +118,8 @@ object CuePolicy {
     }
 
     enum class Reason {
+        /** This trigger exists but the person has not turned it on. */
+        SOURCE_OFF,
         /**
          * This trigger has had its share of the day, though the day as a whole
          * has room. Distinct from [DAILY_CAP_REACHED] because they mean
@@ -199,6 +201,12 @@ object CuePolicy {
         }
         if (day.entriesToday.any { it.resolution.isConnection }) {
             return Decision.Hold(Reason.ALREADY_CONNECTED_TODAY)
+        }
+        // A trigger somebody has not switched on may not fire, whatever
+        // else is true. Checked before the caps so a declined trigger never
+        // spends a slot the other one could have used.
+        if (signal.source == TriggerSource.SESSION_END && !settings.scrollCues) {
+            return Decision.Hold(Reason.SOURCE_OFF)
         }
         if (day.cuesToday >= thresholds.dailyCap) {
             return Decision.Hold(Reason.DAILY_CAP_REACHED)

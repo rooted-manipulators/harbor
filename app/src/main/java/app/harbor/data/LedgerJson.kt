@@ -57,6 +57,7 @@ internal object LedgerJson {
 
     fun settings(s: UserSettings): JSONObject = thresholds(s.thresholds)
         .put("cues_enabled", s.cuesEnabled)
+        .put("scroll_cues", s.scrollCues)
         .put("sound", s.sound.wire)
         .put("weather", s.weather.wire)
         .put("weather_set_on", s.weatherSetOn?.toString())
@@ -66,6 +67,7 @@ internal object LedgerJson {
     fun settings(o: JSONObject): UserSettings = UserSettings(
         thresholds = thresholds(o),
         cuesEnabled = o.optBoolean("cues_enabled", false),
+        scrollCues = o.optBoolean("scroll_cues", false),
         sound = o.optStringOrNull("sound")
             ?.let { CueSound.entries.fromWire(it) } ?: CueSound.CHIME,
         weather = o.optStringOrNull("weather")

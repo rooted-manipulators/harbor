@@ -336,6 +336,22 @@ data class UserSettings(
     val sound: CueSound = CueSound.CHIME,
 
     /**
+     * Whether a scrolling session may offer a reminder, as well as a walk.
+     *
+     * Off until somebody turns it on, and turning it on is a separate consent
+     * from the one that covers walking: reading which app is in front is a
+     * different thing from reading whether the phone is moving, and
+     * `PACKAGE_USAGE_STATS` is a different grant. See ADR-005, which named
+     * `UsageStatsManager` for this and put it after the walk.
+     *
+     * Kept beside [cuesEnabled] rather than folded into it, because the study
+     * needs to tell three states apart: never offered it, offered and
+     * declined, offered and later switched off. The first is a participant
+     * the trigger never reached; the other two are findings.
+     */
+    val scrollCues: Boolean = false,
+
+    /**
      * How life feels at the moment.
      *
      * Weather rather than a rating, because weather happens to you and

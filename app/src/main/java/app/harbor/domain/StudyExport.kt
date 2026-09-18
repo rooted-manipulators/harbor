@@ -155,6 +155,10 @@ object StudyExport {
 
         "settings" to obj(
             "cues_enabled" to bool(bundle.settings.cuesEnabled),
+            // Which triggers were live. Without it a week with no scrolling
+            // cues cannot be read: it looks the same whether the person never
+            // turned it on or never scrolled.
+            "scroll_cues" to bool(bundle.settings.scrollCues),
             "sound" to str(bundle.settings.sound.wire),
             "weather" to str(bundle.settings.weather.wire),
             // Whether the weather above is theirs or ours. Without it the
