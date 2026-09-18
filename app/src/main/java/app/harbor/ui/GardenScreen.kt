@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -52,6 +54,7 @@ import app.harbor.domain.Contact
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.Flowers
 import app.harbor.domain.Garden
+import app.harbor.domain.Growth
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
 import app.harbor.domain.Tone
@@ -110,6 +113,14 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         .filter { it.resolution == Resolution.CALLED && it.flower != null }
         .sortedByDescending { it.occurredAt }
 
+    // What the three pictures above the list are counted from. Recomputed
+    // when the span changes or the ledger arrives, and never during a draw:
+    // see Growth, which is where all of the arithmetic lives.
+    var span by remember { mutableStateOf(Growth.Span.WEEK) }
+    val summary = remember(entries, span) {
+        Growth.summarise(entries, span, java.time.LocalDate.now())
+    }
+
     Column(modifier.fillMaxSize()) {
         // Standing at the newest flower rather than out at the overview:
         // this screen is opened right after growing one, and that is what
@@ -124,6 +135,21 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            // The pictures first, then the list.
+            //
+            // Same argument as the field being above the list: the question
+            // people arrive with is "how is it going", which a shape answers
+            // in a glance, and the question they arrive at is "what was that
+            // one", which only words can answer. Scrolling between them is
+            // cheaper than choosing between them.
+            GardenActivity(
+                summary = summary,
+                contacts = contacts,
+                span = span,
+                onSpan = { span = it },
+            )
+            Spacer(Modifier.height(30.dp))
+
             // One row per call, but the count is of flowers, which is what
             // the field above is showing.
             val bloomed = grown.sumOf { Flowers.flowerCount(it.callMinutes) }
