@@ -409,7 +409,7 @@ class FieldTest {
     @Test
     fun `an untipped camera is a plain overhead map`() {
         val cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, 0.5)
-        val lens = Field.buildLens(cam, 0.5, 2000.0)
+        val lens = Field.buildLens(cam, 0.5, 1080.0, 2000.0)
         val out = Field.Point()
         Field.project(cam.x + 100, cam.y, 0.5, cam, lens, 1080.0, 2000.0, out)
         assertEquals(0.0, lens.tilt, 1e-9)
@@ -421,7 +421,7 @@ class FieldTest {
     fun `once tipped, further away is smaller`() {
         val base = 0.5
         val cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base * Field.TILT_TO)
-        val lens = Field.buildLens(cam, base, 2000.0)
+        val lens = Field.buildLens(cam, base, 1080.0, 2000.0)
         val near = Field.Point()
         val far = Field.Point()
         // The eye sits behind the camera at increasing y, so depth is
@@ -586,7 +586,7 @@ class FieldTest {
                 y = Terrain.FIELD_H * 0.55,
                 zoom = base * rel,
             )
-            val lens = Field.buildLens(cam, base, h)
+            val lens = Field.buildLens(cam, base, w, h)
             for (block in built.blocks) {
                 if (Field.onScreen(block, cam, lens, w, h, 26.0, point)) continue
                 for (i in block.from until block.to) {
@@ -732,6 +732,25 @@ class FieldTest {
         }
         assertTrue("there was no partial band at all, so the edge is a line", sawMiddle)
         assertEquals("and it reaches nothing well before the frame edge", 0.0, last, 1e-9)
+    }
+
+    @Test
+    fun `the lens is the same lens whichever way the phone is held`() {
+        // It was not. Focal length came off the height alone, so a phone
+        // turned upright was shooting the same field at four times the focal
+        // length -- 27 degrees across against 101 -- which is the difference
+        // between a telescope and standing in a place. The field filled the
+        // frame in landscape and ran out as a strip in portrait, and nothing
+        // about the camera had moved.
+        val cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, 1.0)
+        val portrait = Field.buildLens(cam, 0.5, 1080.0, 2400.0)
+        val landscape = Field.buildLens(cam, 0.5, 2400.0, 1080.0)
+        assertEquals(
+            "one lens, whichever way up",
+            portrait.focal,
+            landscape.focal,
+            1e-9,
+        )
     }
 
     @Test

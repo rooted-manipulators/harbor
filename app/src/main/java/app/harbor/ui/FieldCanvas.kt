@@ -420,7 +420,7 @@ fun FieldCanvas(
                             return@detectTapGestures
                         }
                         if (base <= 0 || frame.height == 0) return@detectTapGestures
-                        val lens = Field.buildLens(cam, base, frame.height.toDouble())
+                        val lens = Field.buildLens(cam, base, frame.width.toDouble(), frame.height.toDouble())
                         val point = Field.Point()
                         var best: Field.Patch? = null
                         var bestDist = 76.0
@@ -714,7 +714,7 @@ private fun DrawScope.drawField(
     val bloomFloor = min(1.3 * unit, Field.FLOWER_AT * 0.8)
     val w = size.width.toDouble()
     val h = size.height.toDouble()
-    val lens = Field.buildLens(cam, base, h)
+    val lens = Field.buildLens(cam, base, w, h)
     val canvas = drawContext.canvas.nativeCanvas
     val p = kit.point
 

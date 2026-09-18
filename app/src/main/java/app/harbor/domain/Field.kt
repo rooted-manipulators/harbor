@@ -555,13 +555,29 @@ object Field {
      * [Lens.camZ] is sampled under what you are looking at rather than under
      * the viewer, so the framing does not lurch every time the ground beneath
      * you changes height.
+     *
+     * ## Why the focal length is the short side
+     *
+     * It used to be the height alone, which quietly made the lens a different
+     * lens in each orientation. A phone held upright is 2400 tall where it was
+     * 1080 wide, so the same field was shot at roughly four times the focal
+     * length — 27 degrees across in portrait against 101 in landscape. That is
+     * the difference between a telescope and a standing view, and it is why
+     * the field filled the frame turned sideways and ran out as a strip when
+     * turned back.
+     *
+     * The short side is the ordinary way to set a field of view: it is the
+     * dimension that limits what fits, so binding to it keeps one lens on the
+     * camera however the phone is held. Portrait opens to 57 degrees and
+     * landscape is untouched, because in landscape the short side already was
+     * the height.
      */
-    fun buildLens(camera: Camera, base: Double, height: Double): Lens {
+    fun buildLens(camera: Camera, base: Double, width: Double, height: Double): Lens {
         val rel = max(camera.zoom / base, 0.6)
         val eye = max(34.0, EYE * TILT_TO / rel)
         return Lens(
             tilt = tiltFor(camera.zoom, base),
-            focal = height * 0.92,
+            focal = min(width, height) * 0.92,
             eye = eye,
             back = eye * SET_BACK,
             camZ = Terrain.heightAt(camera.x, camera.y) * ELEVATION,
