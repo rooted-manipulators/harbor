@@ -49,14 +49,21 @@ import app.harbor.ui.theme.Paper
  *
  * **What that reflection looks like changed on 18 Sep 2026.** It used to mean
  * *darker*: a storm turned the sky navy and washed the screen in blue, on the
- * argument that a heavy day should feel heavy. The skies are now the web
- * prototype's, ported in [meadowFor], and its storm is a pale flat overcast
- * instead — heavy, but light. So the reflection is in the *quality* of the
- * light rather than the amount of it, and the dimming wash is gone.
+ * argument that a heavy day should feel heavy. The skies went to the web
+ * prototype's instead, whose storm is a pale flat overcast -- heavy, but
+ * light. So the reflection is in the *quality* of the light rather than the
+ * amount of it, and the dimming wash is gone.
  *
  * The old argument is written down rather than deleted because it was a real
  * one, and because whoever next wonders why a storm does not darken the app
- * deserves to find the answer here.
+ * deserves to find the answer here. It is still the rule: [Wash]'s storm is
+ * the loudest of the five and also the brightest.
+ *
+ * **The sky's colours left [meadowFor] the same day.** They live in [Wash]
+ * now, hand-mixed one row per weather, because a ported landscape palette
+ * gave five exposures of one sky where five different skies were wanted. The
+ * *ground* stops are still the prototype's -- [Wash] says why the two halves
+ * are sourced differently.
  */
 @Composable
 fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
@@ -184,7 +191,7 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             size = size,
         )
 
-        if (sky.sun > 0f) drawFieldSun(sky.sun)
+        if (sky.sun > 0f) drawFieldSun(sky.sun, sky.sunColour)
 
         // Three clouds at different widths and speeds, so the loop never
         // reads as a loop.
@@ -221,13 +228,13 @@ private fun loopPhase(t: Float, clockMs: Float, periodMs: Float, offset: Float):
     return turns - turns.toInt()
 }
 
-private fun DrawScope.drawFieldSun(alpha: Float) {
+private fun DrawScope.drawFieldSun(alpha: Float, colour: Color) {
     val r = 75.dp.toPx()
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFFFD678).copy(alpha = 0.95f * alpha),
-                Color(0xFFFFD678).copy(alpha = 0f),
+                colour.copy(alpha = 0.95f * alpha),
+                colour.copy(alpha = 0f),
             ),
             center = Offset(size.width / 2, -44.dp.toPx() + r),
             radius = r,
@@ -324,6 +331,8 @@ private class SkyTint(
      */
     val ground: Color,
     val sun: Float,
+    /** The disc's own colour, which is the weather's rather than one yellow. */
+    val sunColour: Color,
     val cloud: Float,
     val cloudColour: Color,
     val rain: Float,
@@ -420,44 +429,39 @@ private fun grainTile(size: Int = 128): Bitmap {
 }
 
 /**
- * The sky, taken from the prototype's palette rather than written twice.
+ * One weather, assembled: a sky from [Wash], a ground from [meadowFor].
  *
- * These used to be five hand-mixed dark skies. They are now read from
- * [meadowFor], which is the web prototype's own table ported across, so the
- * app and the drawing it was drawn from cannot drift apart -- and so a change
- * to the weather's look is a change in one file rather than two.
+ * The seam between the two is the whole job of this function, and it is why
+ * the two halves are allowed to come from different places. Above the horizon
+ * the wash can be any colour the weather wants, because nothing is drawn on
+ * it. Below it, every stop is seen *between* the field's own dots and has to
+ * be the colour those gaps should be, so it comes from the same table the
+ * dots do.
  *
- * What is still Harbor's rather than the prototype's is the bottom of the
- * gradient: it hands over to [Paper] before the cards start, because the
- * meadow is a lit band at the top of a dark app and not the whole page. That
- * is what keeps the flowers fading into the UI below them.
- *
- * **Storm is now the prototype's, on request, and that is a reversal worth
- * naming.** This file used to argue that a storm should make the whole app
- * darker -- that taking somebody's word for how life is and reflecting it back
- * is the point of asking. The prototype's storm is a pale, flat overcast
- * instead: heavy, but light. It is the sky that was asked for, the dimming
- * wash is gone with it, and the old argument is recorded here rather than
- * quietly deleted, because it was a real one.
+ * What is Harbor's rather than either source is the bottom of the gradient: it
+ * hands over to [Paper] before the cards start, because the meadow is a lit
+ * band at the top of a dark app and not the whole page. That is what keeps the
+ * flowers fading into the UI below them.
  */
 private fun fieldTintOf(weather: Weather): SkyTint {
     val meadow = meadowFor(weather)
+    val wash = washFor(weather)
     return SkyTint(
-        // Read top to bottom as the wash runs: the haze the prototype fades
-        // distance into is the palest thing in the table, so it goes overhead,
-        // and the sky's own three follow it down in reverse. The land stop is
-        // the furthest hill, which is the colour distance already turns green
-        // into, so the sky does not meet the field without warning.
-        high = meadow.haze,
-        pale = meadow.sky.third,
-        // The two sky stops under the pale top carry the colour, so they are
-        // the ones deepened. The prototype's palette is a daylight sky seen
-        // through air -- correct for a landscape, and far too milky for a wash
-        // that has to hold its own against a near-black page. Deepening only
-        // these keeps the hues the prototype chose and gives them somewhere to
-        // travel between the pale top and the dark ground.
-        mid = deepen(meadow.sky.second, 1.45f, 0.07f),
-        deep = deepen(meadow.sky.first, 1.45f, 0.18f),
+        // The four sky stops come from the wash table, already mixed, and
+        // are used as they are.
+        //
+        // They used to be the prototype's own tones deepened on the way down,
+        // which is why the deepening is gone from these four and still on the
+        // land stops below. A colour chosen for this gradient does not want a
+        // blanket 1.45x saturation on top of it -- that was a correction for
+        // borrowing a landscape palette, and there is nothing left to correct.
+        high = wash.high,
+        pale = wash.pale,
+        mid = wash.mid,
+        deep = wash.deep,
+        // Land is still the meadow's, deepened as before. See [Wash]: the sky
+        // is free to be whatever the weather wants, and the ground is not,
+        // because the ground has to agree with the dots drawn on it.
         land = deepen(meadow.hills.last(), 1.30f, 0.25f),
         grass = deepen(meadow.field.first(), 1.30f, 0.12f),
         // Just under half way to the page. Far enough that it reads as dark
@@ -472,6 +476,7 @@ private fun fieldTintOf(weather: Weather): SkyTint {
             Weather.BRIGHT -> 1f
             else -> 0.12f
         },
+        sunColour = wash.sun,
         // Straight from the prototype's own count, scaled to the three this
         // canvas draws.
         cloud = (meadow.cloudCount / 8f).coerceIn(0f, 1f),
@@ -480,7 +485,11 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         // all, so they take a third of the sky's own middle and read as shape
         // rather than as brightness. They are still the lightest thing in the
         // band they sit in.
-        cloudColour = lerp(meadow.cloud, meadow.sky.second, 0.34f),
+        //
+        // The third they take is now the wash's middle rather than the
+        // prototype's. A cloud tinted with a sky it is no longer floating in
+        // is the one thing in the frame that would still be the old colour.
+        cloudColour = lerp(meadow.cloud, wash.mid, 0.34f),
         rain = when (weather) {
             Weather.RAIN -> 0.7f
             Weather.STORM -> 1f
