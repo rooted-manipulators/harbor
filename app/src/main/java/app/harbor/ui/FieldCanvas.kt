@@ -31,8 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -244,13 +242,17 @@ fun FieldCanvas(
     var goal by remember { mutableStateOf(cam) }
     var touched by remember { mutableStateOf(false) }
 
-    // What the stir is worked out from, frame to frame. Plain vars rather than
-    // state: they are read and written inside one draw and must never cause a
-    // recomposition, or the ground moving would redraw the ground.
+    // What the stir is worked out from, frame to frame.
+    //
+    // Deliberately a plain object and not snapshot state. These are read and
+    // written inside the draw itself, and a state write during draw
+    // invalidates the draw that read it -- which redraws, which writes again.
+    // The field would repaint forever on a screen where nothing is happening,
+    // and it would never look wrong: the ground is correct in every frame, it
+    // is just being drawn hundreds of times for no reason. This was written
+    // with mutableStateOf first and the comment above it already said not to.
     val reducedMotion = LocalReducedMotion.current
-    var stirAt by remember { mutableLongStateOf(System.nanoTime()) }
-    var stirFrom by remember { mutableStateOf(cam) }
-    var stirSpeed by remember { mutableDoubleStateOf(0.0) }
+    val stirring = remember { Stirring() }
 
     // Nothing planted yet is its own opening shot, not a smaller version of
     // the usual one.
@@ -452,15 +454,16 @@ fun FieldCanvas(
             // in the gesture handlers because the camera also moves on its own
             // -- flying to a new bloom is movement the ground should feel too.
             val now = System.nanoTime()
-            val seconds = ((now - stirAt) / 1_000_000_000.0).coerceIn(1.0 / 120, 0.25)
-            val moved = hypot(cam.x - stirFrom.x, cam.y - stirFrom.y) * cam.zoom / size.width
-            stirAt = now
-            stirFrom = cam
+            val seconds = ((now - stirring.at) / 1_000_000_000.0).coerceIn(1.0 / 120, 0.25)
+            val was = stirring.from ?: cam
+            val moved = hypot(cam.x - was.x, cam.y - was.y) * cam.zoom / size.width
+            stirring.at = now
+            stirring.from = cam
             // Eased rather than taken raw: a frame that happens to land between
             // two gesture events reads as a dead stop, and the ground should
             // not twitch because the touch stream did.
-            stirSpeed += ((moved / seconds) - stirSpeed) * 0.25
-            val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirSpeed)
+            stirring.speed += ((moved / seconds) - stirring.speed) * 0.25
+            val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirring.speed)
             drawField(built, patches, palette, cam, base, kit, tagInk, newest, art, stir)
         }
 
@@ -646,6 +649,19 @@ private class DrawKit(buckets: Int) {
 
     /** Scratch for the stir, so the per-cell offset allocates nothing. */
     val stirPoint = Field.Point()
+}
+
+/**
+ * How fast the view was travelling last frame, and when that was.
+ *
+ * A plain object on purpose — see where it is remembered. Nothing in here may
+ * be snapshot state: it is written during the draw, and state written during a
+ * draw invalidates that draw.
+ */
+private class Stirring {
+    var at: Long = System.nanoTime()
+    var from: Field.Camera? = null
+    var speed: Double = 0.0
 }
 
 private class Tag(val text: String, val x: Float, var y: Float, val stemY: Float)
