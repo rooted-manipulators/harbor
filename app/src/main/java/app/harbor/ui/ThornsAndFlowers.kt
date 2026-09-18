@@ -159,13 +159,27 @@ private fun Path.spikeAt(
 /**
  * A flower filling [body]: a head at the top, and a stem down the rest.
  *
- * The head is sized off the column rather than off the block, so half an hour
- * and four hours grow the same flower and only the stem gets longer. It is
- * allowed to sit slightly proud of the block's top edge, exactly as the
- * frames draw it.
+ * The head is sized off the column, so half an hour and four hours grow much
+ * the same flower and mostly the stem gets longer. It is allowed to sit
+ * slightly proud of the block's top edge, exactly as the frames draw it.
+ *
+ * **Except on a block too short to hold one.** The head used to be sized off
+ * the column and nothing else, which is right down to about an hour and wrong
+ * below it: at the week grid's twenty-one points an hour, a half-hour block is
+ * ten points tall and was carrying a head twenty-seven points across. It read
+ * as a flower with no slot rather than a slot with a flower in it, it buried
+ * whatever sat in the half hour underneath, and — the part that actually cost
+ * something — the drawing was three times the height of the block's hit box,
+ * so pressing the thing you could see very often missed the thing you could
+ * touch. People reported that as blocks that could not be picked up or dragged
+ * to the bin.
+ *
+ * So the head is capped against the block as well. An hour and over is
+ * unchanged; only the short ones shrink, and they shrink to something that
+ * still reads as a flower.
  */
 internal fun DrawScope.drawFlowerBlock(body: Rect) {
-    val headR = (body.width * 0.46f).coerceAtLeast(3f)
+    val headR = minOf(body.width * 0.46f, body.height * 0.75f).coerceAtLeast(3f)
     val cx = body.center.x
     val cy = body.top + headR * 0.74f
 

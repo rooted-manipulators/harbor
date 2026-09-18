@@ -146,6 +146,26 @@ val EmberLight = Color(0xFFF5B85C)
 val Glass = Color.White.copy(alpha = 0.08f).compositeOver(Paper)
 
 /**
+ * Frosted glass: white at fifteen per cent, composited onto [Paper].
+ *
+ * The one surface in this language that is deliberately *not* a window. A card
+ * is [Cream] — seven percent, left as alpha, so whatever is behind it shows
+ * through and the dusk carries on across it. That is right for a card holding
+ * two lines of text and wrong for the week grid, which is a drawing in its own
+ * right: seven narrow columns, a dashed rule every three hours and up to a
+ * dozen small painted objects, all of it competing with whatever the page
+ * happens to be lying on. Read through, it turned into noise.
+ *
+ * So this is opaque, and it is meant to be. Compose has no backdrop blur to
+ * reach for — [androidx.compose.ui.draw.blur] blurs a composable's own content,
+ * not what is behind it — so "frosted" here is what frosting actually does:
+ * enough white to stop the ground being legible through the glass, with the
+ * rim ([CardEdge]) still catching the light so the panel reads as a pane laid
+ * on the page rather than a hole cut in it.
+ */
+val Frosted = Color.White.copy(alpha = 0.15f).compositeOver(Paper)
+
+/**
  * A whole card marked live: [Gold] at eight per cent, composited onto [Paper].
  *
  * A card filled solid amber would shout down the question above it, so the

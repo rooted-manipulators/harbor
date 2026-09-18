@@ -1,6 +1,14 @@
 package app.harbor.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +16,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,9 +57,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -63,11 +74,14 @@ import app.harbor.domain.Moment
 import app.harbor.domain.WeekBlock
 import app.harbor.domain.Windows
 import app.harbor.ui.theme.BandWarm
+import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Chalk
+import app.harbor.ui.theme.Frosted
 import app.harbor.ui.theme.Gold
 import app.harbor.ui.theme.Glass
 import app.harbor.ui.theme.Hairline
 import app.harbor.ui.theme.Ink
+import app.harbor.ui.theme.LocalReducedMotion
 import app.harbor.ui.theme.Muted
 import app.harbor.ui.theme.Paper
 import app.harbor.ui.theme.Sand
@@ -403,6 +417,15 @@ private fun WeekEditor(
 
     val blocks = draft ?: saved
 
+    // Hoisted, because the grid has to be able to scroll this page itself
+    // while a finger is busy holding something. See [WeekGrid]'s auto-scroll.
+    val scroll = rememberScrollState()
+
+    // The window the page is seen through, in root coordinates: measured
+    // outside the scroll modifier, so it is the viewport rather than the
+    // twenty-four hours of content inside it.
+    var viewport by remember { mutableStateOf(Rect.Zero) }
+
     fun commit(next: List<WeekBlock>) {
         draft = null
         val grew = next.size > blocks.size
@@ -420,7 +443,8 @@ private fun WeekEditor(
         modifier
             .fillMaxSize()
             .background(skin.ground)
-            .verticalScroll(rememberScrollState()),
+            .onGloballyPositioned { viewport = it.boundsInRoot() }
+            .verticalScroll(scroll),
     ) {
         Flow(Modifier.pageContent(), gap = 14) {
             header(blocks)
@@ -460,6 +484,8 @@ private fun WeekEditor(
                 planting = planting,
                 selected = selected,
                 skin = skin,
+                scroll = scroll,
+                viewport = viewport,
                 carrying = carrying,
                 carryAt = carryAt,
                 dropped = dropped,
@@ -480,15 +506,71 @@ private fun WeekEditor(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     BlockGlyph(chosen.kind, Modifier.size(width = 18.dp, height = 24.dp))
-                    Text(
-                        chosen.day.getDisplayName(TextStyle.SHORT, Locale.getDefault()) +
-                            "  " + timeLabel(chosen.start) + " to " + timeLabel(chosen.end),
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = 13.sp,
-                            color = skin.muted,
-                        ),
-                    )
+                    // The one line on this screen that says which day you are
+                    // holding, and it used to change without moving.
+                    //
+                    // Dragging a block sideways across seven columns thirty
+                    // points wide is a small movement over a small target, and
+                    // the block itself is the same drawing in every column --
+                    // so the only confirmation that Tuesday had become
+                    // Wednesday was a three-letter word swapping in place,
+                    // which is exactly the kind of change the eye does not
+                    // catch while it is following a finger. It slides now, in
+                    // the direction the day went, so the movement itself says
+                    // which way.
+                    //
+                    // Held still for anybody who asked for less movement: this
+                    // is a confirmation, and a confirmation that makes somebody
+                    // queasy is not one.
+                    val reduced = LocalReducedMotion.current
+                    Row(
+                        Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // The day alone is the animated part. Keying this on
+                        // the whole block would replay the slide on every
+                        // half-hour the block passes through while it is being
+                        // dragged or stretched, which is a twitch rather than a
+                        // confirmation.
+                        AnimatedContent(
+                            targetState = chosen.day,
+                            transitionSpec = {
+                                val d = if (reduced) 0 else 220
+                                // Sunday-to-Saturday is the order the grid
+                                // draws, so "later in the week" is "further
+                                // right" and the label comes in from that side.
+                                val forward = DAYS.indexOf(targetState) >=
+                                    DAYS.indexOf(initialState)
+                                val from = if (forward) 1 else -1
+                                (
+                                    slideInHorizontally(tween(d)) { w -> from * w } +
+                                        fadeIn(tween(d))
+                                    ) togetherWith (
+                                    slideOutHorizontally(tween(d)) { w -> -from * w } +
+                                        fadeOut(tween(d))
+                                    )
+                            },
+                            label = "chosen-day",
+                        ) { day ->
+                            Text(
+                                day.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 13.sp,
+                                    color = skin.ink,
+                                ),
+                            )
+                        }
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            timeLabel(chosen.start) + " to " + timeLabel(chosen.end),
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontSize = 13.sp,
+                                color = skin.muted,
+                            ),
+                        )
+                    }
                     // A timetable is the same hour on five days far more
                     // often than it is five different hours, and drawing the
                     // same block five times is the tedium this screen exists
@@ -530,7 +612,59 @@ private const val LAST_HOUR = 24
 private const val LABEL_EVERY = 3
 private const val SNAP_MINUTES = 30
 private val HOUR_HEIGHT = 21.dp
-private val GUTTER = 40.dp
+
+/**
+ * The strip down the left the hours are written in.
+ *
+ * Forty was not enough. "00:00" is five characters, the label is set at the
+ * smallest size in the app, and forty dp less its own padding left about
+ * thirty-two -- which fits at the system font size and wraps at anything above
+ * it, so the one screen in Harbor made entirely of times showed them as
+ * "00:0 / 0" for anybody who had turned text up. See the label itself, which
+ * is now forbidden from wrapping at all.
+ */
+private val GUTTER = 44.dp
+
+/** The pane the week is drawn on: a shade tighter than a card's 24dp. */
+private val GridShape = RoundedCornerShape(20.dp)
+
+/**
+ * How near the edge of the window a dragging finger has to come before the
+ * page starts moving under it, and how fast it moves when it gets there.
+ *
+ * The week is twenty-four hours at twenty-one points an hour, so it is about
+ * five hundred points tall inside a window that shows maybe three hundred of
+ * them. Before this, carrying a block from the morning to the bin at the foot
+ * meant scrolling and dragging at once with one finger, which is not a gesture
+ * -- and since the pointer is captured by the grid for the length of a drag, it
+ * was not even possible. The bin simply did not work for anything above the
+ * fold, which is most of the week.
+ *
+ * Ramped rather than switched on, so approaching the edge speeds up gradually
+ * and nothing lurches the moment a finger crosses a line.
+ */
+private val AUTOSCROLL_EDGE = 76.dp
+private val AUTOSCROLL_SPEED = 13.dp
+
+/**
+ * How far the page should move this frame, given where the finger is.
+ *
+ * Positive is down the page. Zero everywhere except within [edge] of the top
+ * or bottom of the window, and at full speed only right at the rim.
+ */
+private fun edgeScroll(
+    pointerY: Float,
+    window: Rect,
+    edge: Float,
+    speed: Float,
+): Float {
+    if (window.height <= edge * 2f) return 0f
+    val past = pointerY - (window.bottom - edge)
+    if (past > 0f) return speed * (past / edge).coerceAtMost(1f)
+    val above = (window.top + edge) - pointerY
+    if (above > 0f) return -speed * (above / edge).coerceAtMost(1f)
+    return 0f
+}
 
 /** Sunday first, as the frames draw it. */
 private val DAYS = listOf(
@@ -601,6 +735,10 @@ private fun WeekGrid(
     planting: BlockKind,
     selected: WeekBlock?,
     skin: WeekSkin,
+    /** The page this grid is a part of, so a drag can scroll it. */
+    scroll: ScrollState,
+    /** The window that page is seen through, in root coordinates. */
+    viewport: Rect,
     /** A kind being carried in from the palette, or null. */
     carrying: BlockKind?,
     /** Where that finger is, in root coordinates. */
@@ -625,17 +763,42 @@ private fun WeekGrid(
     // modifier that measures it is on the box that opens that scope.
     var gridOrigin by remember { mutableStateOf(Offset.Zero) }
 
-    Column(Modifier.fillMaxWidth()) {
+    // The week on its own pane of frosted glass, bin and all.
+    //
+    // It used to be drawn straight onto the page, which is how a card works
+    // everywhere else in this design -- seven percent white, left translucent,
+    // so the ground carries on behind it. That is right for a card holding a
+    // sentence and wrong for this: the grid is already a drawing, and the page
+    // showing clearly through seven narrow columns, a dashed rule every three
+    // hours and a dozen small painted objects left the whole thing reading as
+    // noise rather than as a timetable.
+    //
+    // So the week gets the one opaque surface in the language. See [Frosted]
+    // for what "frosted" can mean when there is no backdrop blur to reach for.
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(GridShape)
+            .background(Frosted)
+            .border(1.dp, CardEdge, GridShape)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+    ) {
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.width(GUTTER))
             DAYS.forEach { d ->
+                // The day you are holding is lit. Seven columns thirty points
+                // wide all carry the same drawing, so without this nothing on
+                // the grid itself says which one the selected block is in --
+                // only the line underneath, which is where the eye is not.
+                val held = selected?.let { it.day == d && it in blocks } == true
                 Text(
                     d.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
+                    maxLines = 1,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
-                        color = skin.muted,
+                        color = if (held) skin.ink else skin.muted,
                     ),
                 )
             }
@@ -653,7 +816,10 @@ private fun WeekGrid(
             val gutterPx = with(density) { GUTTER.toPx() }
             val hourPx = with(density) { HOUR_HEIGHT.toPx() }
             val edgePx = with(density) { 14.dp.toPx() }
-            val slackPx = with(density) { 5.dp.toPx() }
+            // Eight rather than five, now that the slack cannot steal a press
+            // that landed inside a neighbour: a half-hour block is ten points
+            // tall and this is what makes it something a thumb can find.
+            val slackPx = with(density) { 8.dp.toPx() }
 
             fun dayAt(x: Float): DayOfWeek =
                 DAYS[((x - gutterPx) / colPx).toInt().coerceIn(0, DAYS.size - 1)]
@@ -689,21 +855,26 @@ private fun WeekGrid(
             val latest by rememberUpdatedState(blocks)
             val nowPlanting by rememberUpdatedState(planting)
 
+            fun within(block: WeekBlock, at: Offset, slack: Float): Boolean {
+                val x = gutterPx + colPx * DAYS.indexOf(block.day)
+                return at.x >= x && at.x < x + colPx &&
+                    at.y >= topOf(block) - slack && at.y <= bottomOf(block) + slack
+            }
+
             fun hitTest(at: Offset): Pair<WeekBlock, Grab>? {
-                latest.forEach { b ->
-                    val x = gutterPx + colPx * DAYS.indexOf(b.day)
-                    val top = topOf(b)
-                    val bottom = bottomOf(b)
-                    // A half-hour block is only ten points tall, so the hit
-                    // box gets a little slack it does not draw.
-                    if (at.x >= x && at.x < x + colPx &&
-                        at.y >= top - slackPx && at.y <= bottom + slackPx
-                    ) {
-                        val handle = minOf(edgePx, (bottom - top) * 0.4f)
-                        return b to if (at.y > bottom - handle) Grab.ResizeEnd else Grab.Move
-                    }
-                }
-                return null
+                // A half-hour block is only ten points tall, so the hit box
+                // gets slack it does not draw -- but its own span is asked
+                // first and the slack only after. Two blocks in the same hour
+                // have slack that overlaps, and taking whichever came first in
+                // the list meant a press squarely inside the lower one could
+                // pick up the one above it and drag that away instead.
+                val hit = latest.firstOrNull { within(it, at, 0f) }
+                    ?: latest.firstOrNull { within(it, at, slackPx) }
+                    ?: return null
+                val top = topOf(hit)
+                val bottom = bottomOf(hit)
+                val handle = minOf(edgePx, (bottom - top) * 0.4f)
+                return hit to if (at.y > bottom - handle) Grab.ResizeEnd else Grab.Move
             }
 
             // Where this grid sits on the screen, so a finger that started
@@ -753,6 +924,90 @@ private fun WeekGrid(
             var grab by remember { mutableStateOf(Grab.Move) }
             var cursor by remember { mutableStateOf(Offset.Zero) }
             var grabOffset by remember { mutableStateOf(0) }
+
+            /**
+             * Put the held block wherever [cursor] now is.
+             *
+             * Pulled out of the drag handler because the auto-scroll below has
+             * to call it too: when the page moves under a finger that is
+             * holding still, the finger is over a different hour than it was
+             * and nothing else will say so.
+             */
+            fun follow() {
+                val held = carried ?: return
+                overBin = cursor.y > hourPx * hours
+                val next = when (grab) {
+                    Grab.Move -> {
+                        val length = held.end.toMinutes() - held.start.toMinutes()
+                        val start = (minuteAt(cursor.y) - grabOffset)
+                            .coerceIn(FIRST_HOUR * 60, LAST_HOUR * 60 - length)
+                        held.copy(
+                            day = dayAt(cursor.x),
+                            start = minutesToTime(start),
+                            end = minutesToTime(start + length),
+                        )
+                    }
+
+                    Grab.ResizeEnd -> {
+                        val end = minuteAt(cursor.y).coerceIn(
+                            held.start.toMinutes() + SNAP_MINUTES,
+                            LAST_HOUR * 60,
+                        )
+                        held.copy(end = minutesToTime(end))
+                    }
+                }
+                carried = next
+                onSelect(next)
+                onPreview(rest + next)
+            }
+
+            // Carrying something towards the edge of the window scrolls the
+            // page.
+            //
+            // Both journeys need it and for the same reason: the week is twice
+            // the height of the window it is seen through. Off the palette, the
+            // evening was simply unreachable -- the chips are at the top of the
+            // page and nothing below about two in the afternoon was on screen
+            // at the same time as them. Off the grid, the bin was unreachable,
+            // which is what made it look broken.
+            //
+            // Once a drag starts the grid owns the pointer, so no amount of
+            // finger movement will scroll this page on its own. It has to be
+            // driven from here.
+            val liveCarryAt by rememberUpdatedState(carryAt)
+            val holding = carried != null
+            val ferrying = carrying != null
+            LaunchedEffect(holding, ferrying, viewport, hourPx, colPx) {
+                if (!holding && !ferrying) return@LaunchedEffect
+                val edge = with(density) { AUTOSCROLL_EDGE.toPx() }
+                val speed = with(density) { AUTOSCROLL_SPEED.toPx() }
+                while (true) {
+                    withFrameNanos { }
+                    // A block on the grid is tracked in the grid's own
+                    // coordinates; one still in the air off the palette is
+                    // tracked in the root's. Both have to become a point in the
+                    // window before they can be compared to its edges.
+                    val pointerY = if (holding) {
+                        gridOrigin.y + cursor.y
+                    } else {
+                        liveCarryAt.takeIf { it.isSpecified }?.y ?: continue
+                    }
+                    val step = edgeScroll(pointerY, viewport, edge, speed)
+                    if (step == 0f) continue
+                    val moved = scroll.scrollBy(step)
+                    if (moved == 0f) continue
+                    if (holding) {
+                        // The page went down by `moved`, so the grid went up by
+                        // it, so the finger -- which has not moved -- is now
+                        // that much further down the week.
+                        cursor += Offset(0f, moved)
+                        follow()
+                    }
+                    // Nothing to do for the palette: its position is already in
+                    // root coordinates, and the ghost is worked out from
+                    // gridOrigin, which the scroll has just moved.
+                }
+            }
 
             Canvas(Modifier.fillMaxSize()) {
                 // Warm bands down every other column, so seven narrow
@@ -820,8 +1075,17 @@ private fun WeekGrid(
                     modifier = Modifier
                         .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
                         .width(GUTTER)
-                        .padding(start = 2.dp, end = 6.dp),
+                        .padding(end = 7.dp),
                     textAlign = TextAlign.End,
+                    // One line, always. A time broken across two lines is not a
+                    // smaller time, it is a different string -- and these sit
+                    // seven dp apart from the row below, so a second line lands
+                    // on top of the next label rather than under its own.
+                    // Clipping the tail of "00:00" at a huge font scale is a
+                    // worse-looking but still readable answer; wrapping is not
+                    // readable at all.
+                    maxLines = 1,
+                    softWrap = false,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 9.sp,
                         color = skin.muted,
@@ -920,36 +1184,9 @@ private fun WeekGrid(
                             // the finger however long the drag runs.
                             val finished = drag(down.id) { change ->
                                 change.consume()
-                                val held = carried ?: return@drag
+                                if (carried == null) return@drag
                                 cursor = change.position
-                                overBin = cursor.y > size.height
-                                val next = when (grab) {
-                                    Grab.Move -> {
-                                        val length =
-                                            held.end.toMinutes() - held.start.toMinutes()
-                                        val start = (minuteAt(cursor.y) - grabOffset)
-                                            .coerceIn(
-                                                FIRST_HOUR * 60,
-                                                LAST_HOUR * 60 - length,
-                                            )
-                                        held.copy(
-                                            day = dayAt(cursor.x),
-                                            start = minutesToTime(start),
-                                            end = minutesToTime(start + length),
-                                        )
-                                    }
-
-                                    Grab.ResizeEnd -> {
-                                        val end = minuteAt(cursor.y).coerceIn(
-                                            held.start.toMinutes() + SNAP_MINUTES,
-                                            LAST_HOUR * 60,
-                                        )
-                                        held.copy(end = minutesToTime(end))
-                                    }
-                                }
-                                carried = next
-                                onSelect(next)
-                                onPreview(rest + next)
+                                follow()
                             }
 
                             carried?.let {
