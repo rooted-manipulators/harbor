@@ -711,15 +711,19 @@ private fun DrawScope.drawField(
         var r = c.size * Field.DOT_SCALE * p.s
         if (r < 0.1) continue
 
-        // The ground leans while you travel over it, and is still the instant
-        // you stop. Applied after the cull so a stirring cell cannot escape
-        // its block, and scaled by its own radius so near ground moves further
-        // than far ground -- which is what stops it reading as the whole
-        // picture sliding.
+        // Ground that passes through the middle of the frame gets brushed
+        // aside, and settles the instant you stop travelling. Only that patch:
+        // the whole field leaning at once reads as the picture sliding rather
+        // than as ground being disturbed. Applied after the cull so a stirring
+        // cell cannot escape the block that decided it was visible, and scaled
+        // by its own radius so near ground moves further than far.
         if (stir > 0.0) {
-            Field.stirOffset(c.tone, stir, r, kit.stirPoint)
-            p.x += kit.stirPoint.x
-            p.y += kit.stirPoint.y
+            val near = Field.stirNear(p.x, p.y, w, h)
+            if (near > 0.0) {
+                Field.stirOffset(c.tone, stir * near, r, kit.stirPoint)
+                p.x += kit.stirPoint.x
+                p.y += kit.stirPoint.y
+            }
         }
 
         when (c.kind) {

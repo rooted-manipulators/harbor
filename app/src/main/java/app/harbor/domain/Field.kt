@@ -202,6 +202,46 @@ object Field {
     const val STIR_AT = 1.6
 
     /**
+     * The half-width and half-height of the patch of screen that stirs, as
+     * fractions of the frame, and how far the effect reaches past it.
+     *
+     * The stir started out applied to every cell on screen, and the whole
+     * field moving at once does not read as ground being disturbed -- it reads
+     * as the picture itself sliding, which is the one thing a fixed landscape
+     * must never do. Ground only tells you it is ground when most of it stays
+     * put and a part of it does not.
+     *
+     * So the disturbance is a place instead: a box in the middle of the frame
+     * that things pass *through* as you travel. What is inside it leans, what
+     * is just outside leans less, and the rest of the field is still. Fixed to
+     * the screen rather than to the world, so it is the same patch of view
+     * whatever you are looking at.
+     */
+    const val STIR_BOX_W = 0.20
+    const val STIR_BOX_H = 0.09
+
+    /** How far past the box the lean fades out, as a fraction of the height. */
+    const val STIR_FEATHER = 0.13
+
+    /**
+     * How much the ground at this point on screen takes of the stir.
+     *
+     * One inside the box, falling away through [STIR_FEATHER] to nothing. The
+     * edge is smoothed rather than linear so there is no line across the field
+     * where leaning stops -- a visible boundary would announce the rectangle,
+     * and the rectangle is meant to be felt rather than seen.
+     */
+    fun stirNear(px: Double, py: Double, width: Double, height: Double): Double {
+        if (width <= 0.0 || height <= 0.0) return 0.0
+        val feather = height * STIR_FEATHER
+        if (feather <= 0.0) return 0.0
+        val dx = max(0.0, abs(px - width / 2) - width * STIR_BOX_W) / feather
+        val dy = max(0.0, abs(py - height / 2) - height * STIR_BOX_H) / feather
+        val d = kotlin.math.hypot(dx, dy)
+        return Terrain.smooth(1.0 - d)
+    }
+
+    /**
      * How much the ground is stirring, nought to one.
      *
      * Rises with how fast the view is moving and falls back to nought as it

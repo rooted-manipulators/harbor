@@ -652,6 +652,39 @@ class FieldTest {
     }
 
     @Test
+    fun `only the middle of the frame stirs`() {
+        val w = 1080.0
+        val h = 2400.0
+        // Dead centre is the whole stir.
+        assertEquals(1.0, Field.stirNear(w / 2, h / 2, w, h), 1e-9)
+        // The corners, and the edges each way, are perfectly still -- if this
+        // ever stops being true the whole picture slides again.
+        assertEquals(0.0, Field.stirNear(0.0, 0.0, w, h), 1e-9)
+        assertEquals(0.0, Field.stirNear(w, h, w, h), 1e-9)
+        assertEquals(0.0, Field.stirNear(w / 2, 0.0, w, h), 1e-9)
+        assertEquals(0.0, Field.stirNear(0.0, h / 2, w, h), 1e-9)
+    }
+
+    @Test
+    fun `the edge of the stirred patch is a fade, not a line`() {
+        val w = 1080.0
+        val h = 2400.0
+        // Walking out from the centre, the share has to fall without ever
+        // jumping. A step would draw a visible rectangle across the ground.
+        var last = 1.0
+        var sawMiddle = false
+        for (step in 0..60) {
+            val y = h / 2 + (h / 2) * (step / 60.0)
+            val near = Field.stirNear(w / 2, y, w, h)
+            assertTrue("the share went back up walking outward", near <= last + 1e-9)
+            if (near > 0.05 && near < 0.95) sawMiddle = true
+            last = near
+        }
+        assertTrue("there was no partial band at all, so the edge is a line", sawMiddle)
+        assertEquals("and it reaches nothing well before the frame edge", 0.0, last, 1e-9)
+    }
+
+    @Test
     fun `making the grid denser does not move the island`() {
         // CELL, COLS and ROWS move together and their product is the world.
         // If density ever moves it, every patch lands somewhere else and every
