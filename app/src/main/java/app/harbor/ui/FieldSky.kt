@@ -101,16 +101,16 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             brush = Brush.radialGradient(
                 colorStops = arrayOf(
                     0.00f to sky.high,
-                    0.10f to sky.pale,
-                    0.24f to sky.mid,
-                    0.38f to sky.deep,
-                    0.52f to sky.land,
-                    0.63f to sky.ground,
-                    0.72f to Paper,
+                    0.07f to sky.pale,
+                    0.17f to sky.mid,
+                    0.27f to sky.deep,
+                    0.37f to sky.land,
+                    0.45f to sky.ground,
+                    0.52f to Paper,
                     1.00f to Paper,
                 ),
                 center = Offset(size.width * 0.66f, -size.height * 0.08f),
-                radius = size.height * 1.30f,
+                radius = size.height * 0.92f,
             ),
             size = size,
         )
@@ -123,7 +123,7 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             brush = Brush.radialGradient(
                 colors = listOf(sky.high.copy(alpha = 0.16f), Color.Transparent),
                 center = Offset(size.width * 0.66f, -size.height * 0.08f),
-                radius = size.height * 0.81f,
+                radius = size.height * 0.57f,
             ),
             size = size,
         )
@@ -135,8 +135,8 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         // level so whatever sits below starts from one honest colour.
         drawRect(
             brush = Brush.verticalGradient(
-                0.70f to Color.Transparent,
-                0.84f to Paper,
+                0.46f to Color.Transparent,
+                0.60f to Paper,
                 1.00f to Paper,
             ),
             size = size,
@@ -340,7 +340,7 @@ private class Grain(tile: Bitmap) {
         if (h == height || h <= 0f) return
         height = h
         fade.shader = android.graphics.LinearGradient(
-            0f, h * 0.80f, 0f, h * 0.96f,
+            0f, h * 0.58f, 0f, h * 0.74f,
             0x00000000, 0xFF000000.toInt(), Shader.TileMode.CLAMP,
         )
     }
