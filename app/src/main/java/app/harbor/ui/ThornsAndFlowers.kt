@@ -2,13 +2,15 @@ package app.harbor.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,7 +34,6 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.domain.BlockKind
@@ -273,17 +274,24 @@ internal fun DrawScope.drawGrabHand(body: Rect, ink: Color) {
  * What you are about to plant.
  *
  * The frames show a hand cursor resting on the thorn to say which one is
- * picked up. There is no cursor on a phone, so the chosen one takes a soft
- * tile behind it instead — without something, nothing on the screen says what
- * a press on the grid is going to put down.
+ * picked up. There is no cursor on a phone, so the chosen one takes a box
+ * around it instead -- a soft tile and a rim, exactly as the frames draw the
+ * selected chip -- and nothing is chosen until somebody says so. Pressing the
+ * lit one again puts it down, because a palette you cannot leave is a mode.
+ *
+ * Laid out as a row, glyph then two lines of label, which is the shape the
+ * frames have: "Place thorns" over "(Busy)".
  */
 @Composable
 internal fun PaletteChip(
     kind: BlockKind,
     label: String,
+    sub: String,
     selected: Boolean,
     tile: Color,
+    line: Color,
     ink: Color,
+    muted: Color,
     modifier: Modifier = Modifier,
     /**
      * Where the finger is, in root coordinates, while one is being carried off
@@ -296,11 +304,12 @@ internal fun PaletteChip(
 ) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     var at by remember { mutableStateOf(Offset.Zero) }
-    Column(
+    Row(
         modifier
             .onGloballyPositioned { origin = it.positionInRoot() }
-            .clip(RoundedCornerShape(18.dp))
+            .clip(ChipShape)
             .background(if (selected) tile else Color.Transparent)
+            .border(1.dp, if (selected) line else Color.Transparent, ChipShape)
             .clickable(onClick = onClick)
             .then(
                 if (onCarry == null) Modifier else Modifier.pointerInput(kind) {
@@ -310,7 +319,7 @@ internal fun PaletteChip(
                         // is the sort of thing nobody reports and everybody
                         // works around.
                         onDragStart = { start ->
-                            onClick()
+                            if (!selected) onClick()
                             at = origin + start
                             onCarry(at)
                         },
@@ -324,10 +333,10 @@ internal fun PaletteChip(
                     )
                 },
             )
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Canvas(Modifier.size(width = 46.dp, height = 58.dp)) {
+        Canvas(Modifier.size(width = 46.dp, height = 50.dp)) {
             val body = Rect(
                 left = size.width * 0.14f,
                 top = size.height * 0.10f,
@@ -341,24 +350,32 @@ internal fun PaletteChip(
             if (onCarry != null) {
                 // Over the head of the thorn or the bud, where the eye already
                 // is, rather than tucked in a corner it would have to find.
-                val mark = Size(size.width * 0.38f, size.width * 0.38f)
+                val mark = Size(size.width * 0.34f, size.width * 0.34f)
                 drawGrabHand(
                     Rect(
-                        offset = Offset(size.width * 0.60f, 0f),
+                        offset = Offset(size.width * 0.62f, 0f),
                         size = mark,
                     ),
                     ink.copy(alpha = 0.62f),
                 )
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            label,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 14.sp, color = ink),
-        )
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 13.sp, color = ink),
+            )
+            Text(
+                sub,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 13.sp, color = muted),
+            )
+        }
     }
 }
+
+/** The box the frames draw around the chip you have picked up. */
+private val ChipShape = RoundedCornerShape(16.dp)
 
 @Composable
 internal fun BlockGlyph(kind: BlockKind, modifier: Modifier = Modifier) {

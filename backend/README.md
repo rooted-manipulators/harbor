@@ -26,9 +26,29 @@ supabase/functions/
   whatsapp/               the bot itself (ADR-014)
 ```
 
-Both are still a first draft: nothing has been applied to any database yet, so
-they were consolidated rather than patched. Once you have run them against a
-real project, that stops being true — from then on, add a new numbered file.
+**Everything through 0013 is applied to the hosted project** as of 2026-09-18.
+That ends the "nothing has been pushed yet, so consolidate rather than patch"
+era this file used to describe: from here on, never edit a migration that has
+been applied — add a new numbered one.
+
+Two things about that database are not true of this folder, and both will bite
+somebody who assumes `supabase db reset` reproduces production:
+
+- **`calendar_events` has no file here.** It was applied directly to the hosted
+  project (as `20260915210140`, with `20260916154354` after it) and never
+  committed. Until someone exports it, this folder does not describe the
+  database. It also overlaps `schedule_inbox` — see ADR-014.
+- **0011 and 0013 are recorded under timestamp versions**, not `0011` and
+  `0013`, because they were applied through the Supabase API rather than the
+  CLI. A `db push` will therefore try to run both files again and fail on
+  `type "block_kind" already exists`. Fix the bookkeeping once:
+
+  ```sql
+  update supabase_migrations.schema_migrations
+  set version = '0011' where version = '20260917231418';
+  update supabase_migrations.schema_migrations
+  set version = '0013' where version = '20260918095721';
+  ```
 
 ## Running it
 
@@ -59,6 +79,43 @@ supabase migration new <short_name>
 ```
 
 ## The WhatsApp bot
+
+**Where this stopped, 2026-09-18.** Deployed and half-configured. Picking it
+up cold means doing exactly one thing: fixing the app secret.
+
+| | |
+| --- | --- |
+| Function `whatsapp` | deployed, ACTIVE, `verify_jwt` off |
+| Schema (0013) | applied |
+| Webhook handshake | **verified with Meta** — a GET came back 200 |
+| `WHATSAPP_VERIFY_TOKEN` | set, and proven working by that 200 |
+| `WHATSAPP_APP_SECRET` | set, but **does not match Meta's** — every POST 401s |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | not set; no number provisioned yet |
+
+Nothing replies while the last two are unset — `reply()` returns early — but
+the bot still reads, parses and files. That is the designed state, not a
+degradation.
+
+Two notes for whoever resumes:
+
+- **Secrets reach a running function immediately.** No redeploy is needed; the
+  verify token was read live on the request that succeeded. So a 401 is a
+  wrong *value*, never a stale one. The usual cause is the App ID (all digits)
+  copied instead of the App Secret (32 hex characters).
+- **The verify token is currently `harbor-hook-2026`**, which was an example
+  string typed into a chat and should be replaced with something random in both
+  Meta and Supabase. It only guards the subscription handshake — nobody can
+  write data with it — but it should not stay guessable.
+
+A **test account** is seeded for seeding's sake, not for the study:
+`00000000-0000-4000-8000-000000000001`, `cohort = 'test'`, pairing code
+`TEST99`, unpaired. `probe.mjs` beside the function impersonates Meta with a
+correctly signed body so the whole inbound path can be tested with no number.
+Remove the account with one statement — `on delete cascade` does the rest:
+
+```sql
+delete from auth.users where id = '00000000-0000-4000-8000-000000000001';
+```
 
 `supabase/functions/whatsapp` takes a message a participant forwarded from a
 class group chat, reads the days and times out of it, and files them in that

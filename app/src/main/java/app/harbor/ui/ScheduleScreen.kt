@@ -7,8 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,31 +25,39 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -55,6 +65,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -64,13 +75,15 @@ import app.harbor.domain.WeekBlock
 import app.harbor.domain.Windows
 import app.harbor.ui.theme.BandWarm
 import app.harbor.ui.theme.Chalk
-import app.harbor.ui.theme.Gold
+import app.harbor.ui.theme.Ember
 import app.harbor.ui.theme.Glass
+import app.harbor.ui.theme.Gold
 import app.harbor.ui.theme.Hairline
 import app.harbor.ui.theme.Ink
 import app.harbor.ui.theme.Muted
 import app.harbor.ui.theme.Paper
 import app.harbor.ui.theme.Sand
+import app.harbor.ui.theme.Stem
 import app.harbor.ui.theme.Flow
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.SmallCopy
@@ -78,13 +91,16 @@ import app.harbor.ui.theme.pageContent
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * The week, as something you plant.
+ * The week, as something you plant — one day at a time.
  *
  * The data source the in-class suppression rule was built without (ADR-011).
  * Self-entered: no campus API to depend on, no calendar permission, and
@@ -102,36 +118,44 @@ import kotlin.math.roundToInt
  * of times underneath it. People do not hold a timetable as text. They hold
  * it as a shape.
  *
- * So it is a week you draw on, the way a calendar or a piano roll works:
+ * So it is a day you draw on, the way a calendar or a piano roll works:
  * press empty space and drag to lay a block down, press a block to slide it
- * to another day or hour, and drag its bottom edge to make it longer.
- * Everything snaps to the half hour, which is the resolution a timetable
- * actually has.
+ * to another hour, and drag its bottom edge to make it longer. Everything
+ * snaps to the half hour, which is the resolution a timetable actually has.
  *
- * Press-and-drag rather than plain drag is deliberate: this grid sits inside
- * a scrolling page, and if a plain vertical drag drew blocks instead of
- * scrolling, the page would become a trap. The press is also the right feel
- * for putting something down.
+ * ## Why one day and not seven
+ *
+ * Seven columns on a 393pt phone gave each day about forty points, which is
+ * two fingers wide and one thorn wide. You could see the shape of your week
+ * and could not reliably put anything into it. The frames answer that by
+ * showing a single day at card width, with the days either side peeking in
+ * at the edges so you still know where you are: the week is still there, it
+ * is just not all under the finger at once.
+ *
+ * The day you are looking at is a [LocalDate] rather than a [DayOfWeek], so
+ * the month picker can say "the 14th" and the strip can open on today. What
+ * gets stored is still weekly — [WeekBlock] is keyed by day of week and
+ * nothing below this file learned about dates. That is deliberate: a
+ * timetable repeats, and the cue pipeline asks [Windows.busyAt] a question
+ * about a weekday. Nothing here touched that, which is the whole point: a
+ * thorn on a Wednesday still silences a reminder on every Wednesday, and a
+ * flower still silences nothing.
  *
  * ## Thorns and flowers
  *
- * The Figma flow gives the grid two things to place, and they are not
+ * The Figma flow gives the day two things to place, and they are not
  * opposites. A thorn is busy, and stops a cue. A flower is time you would
  * welcome a call, and stops nothing — see [BlockKind] for why that asymmetry
  * is the whole safety of the feature. A flower is what makes an hour somebody
  * wrote down beat an hour that merely happened to be unbooked, wherever the
  * app goes on to offer one.
  *
- * The "a little window" card that used to sit above this grid is gone. It
- * showed your free hours and offered to ring somebody with them, which is the
- * parent's side of the product rather than this one - a student marking their
- * timetable is not publishing their availability.
+ * Neither is picked up until somebody picks one up. The frames draw a box
+ * around the chosen chip and nothing around the other, and opening this
+ * screen with a kind already in hand made the first press somebody made
+ * while working out what it was plant something nobody had asked for.
  *
- * The frames show a hand cursor hovering over the thorn to say which one you
- * are holding. A phone has no cursor, so the palette is a pair of chips and
- * the chosen one is lit. The gesture on the grid is unchanged.
- *
- * ## Why the grid runs midnight to midnight
+ * ## Why the day runs midnight to midnight
  *
  * It used to run 7am to 11pm, on the reasoning that nobody is awake outside
  * that. But the cue pipeline has no hour-of-day rule in it at all — walk at
@@ -146,7 +170,7 @@ fun ScheduleScreen(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * Other ways a week can arrive, drawn under the grid.
+     * Other ways a week can arrive, drawn under the day.
      *
      * A slot rather than a parameter, because what goes in it needs the
      * network client and this screen deliberately has no idea one exists —
@@ -163,7 +187,7 @@ fun ScheduleScreen(
         footer = {
             otherWays()
 
-            // Importing a calendar sits under the grid, not over it.
+            // Importing a calendar sits under the day, not over it.
             //
             // It was the third thing on the screen, above the grid it is an
             // alternative to -- so the first offer Harbor made was a way not
@@ -197,11 +221,8 @@ fun ScheduleScreen(
         // The three sentences are what went. They were not wrong: they were
         // written because testers asked what the calendar was *for*, and they
         // answered that. They answered it once, and then charged every later
-        // visit the same space. The how-to under the grid says what to do, and
+        // visit the same space. The how-to under the day says what to do, and
         // that is the part you come back needing.
-        //
-        // The two lines stay. They are what the screen is called, and a grid
-        // of seven unlabelled columns wants a name above it.
         WeekHeading(skin)
     }
 }
@@ -308,24 +329,33 @@ internal data class WeekSkin(
     val ink: Color,
     val muted: Color,
     val tile: Color,
+    /**
+     * The day card's own face.
+     *
+     * Barely anything -- white at four percent over the ground -- because it
+     * is not a card you read, it is a lift under twenty-four hours of
+     * hairlines. Anything heavier and the lines stop being the lightest thing
+     * on it.
+     */
+    val card: Color,
 ) {
     companion object {
         @Composable
         fun specimen() = WeekSkin(
             ground = MaterialTheme.colorScheme.background,
             // Its own colour rather than surfaceVariant, which sits too close
-            // to a card to read as banding. This is barely anything -- white at
-            // three percent -- and it only has to make seven narrow columns
-            // countable without anybody reading the day labels.
+            // to a card to read as banding. Kept for the palette chips and the
+            // pills; the seven-column banding it was mixed for is gone.
             band = BandWarm,
             line = MaterialTheme.colorScheme.outlineVariant,
             ink = MaterialTheme.colorScheme.onSurface,
             muted = MaterialTheme.colorScheme.onSurfaceVariant,
             tile = MaterialTheme.colorScheme.secondaryContainer,
+            card = Color.White.copy(alpha = 0.04f),
         )
 
         /**
-         * The onboarding flow's grid.
+         * The onboarding flow's day.
          *
          * This used to be a second, lighter palette, because the flow was
          * drawn on white while the app was drawn on bone. Both are the dusk
@@ -340,6 +370,7 @@ internal data class WeekSkin(
             ink = Chalk,
             muted = Muted,
             tile = Glass,
+            card = Color.White.copy(alpha = 0.04f),
         )
     }
 }
@@ -366,176 +397,194 @@ private fun WeekEditor(
     // drag through to storage would be a prefs write per pointer event.
     var draft by remember { mutableStateOf<List<WeekBlock>?>(null) }
     var selected by remember { mutableStateOf<WeekBlock?>(null) }
-    var planting by remember { mutableStateOf(BlockKind.BUSY) }
+
+    // Nothing in hand to begin with. The frames draw both chips unlit, and the
+    // box only goes round the one you press.
+    var planting by remember { mutableStateOf<BlockKind?>(null) }
 
     // One being carried off the palette, and where the finger is in root
-    // coordinates. Null the rest of the time. The grid turns the position into
-    // a day and an hour, because it is the only thing that knows how wide a
-    // column is.
+    // coordinates. Null the rest of the time. The day turns the position into
+    // an hour, because it is the only thing that knows where it sits.
     var carrying by remember { mutableStateOf<BlockKind?>(null) }
     var carryAt by remember { mutableStateOf(Offset.Zero) }
     var dropped by remember { mutableStateOf<Pair<BlockKind, Offset>?>(null) }
 
+    // Which day is under the finger. Today, until somebody says otherwise.
+    val today = remember { LocalDate.now() }
+    var showing by remember { mutableStateOf(today) }
+    var pickingMonth by remember { mutableStateOf(false) }
+
     val blocks = draft ?: saved
 
-    fun commit(next: List<WeekBlock>) {
+    fun commit(next: List<WeekBlock>, why: String? = null) {
         draft = null
         val grew = next.size > blocks.size
         scope.launch {
             store.setWeekBlocks(next)
             store.note(
                 Moment.WEEK_EDITED,
-                if (grew) planting.name.lowercase() else "removed",
+                why ?: if (grew) (planting?.name?.lowercase() ?: "block") else "removed",
                 next.size,
             )
         }
     }
 
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(skin.ground)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Flow(Modifier.pageContent(), gap = 14) {
-            header(blocks)
+    Box(modifier.fillMaxSize().background(skin.ground)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Flow(Modifier.pageContent(), gap = 14) {
+                header(blocks)
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                PaletteChip(
-                    kind = BlockKind.BUSY,
-                    label = "Busy time",
-                    selected = planting == BlockKind.BUSY,
-                    tile = skin.tile,
-                    ink = skin.ink,
-                    onCarry = { carryAt = it; carrying = BlockKind.BUSY },
-                    onDrop = {
-                        carrying = null
-                        if (it.isSpecified) dropped = BlockKind.BUSY to it
-                    },
-                ) { planting = BlockKind.BUSY }
-                PaletteChip(
-                    kind = BlockKind.FREE,
-                    label = "Free time",
-                    selected = planting == BlockKind.FREE,
-                    tile = skin.tile,
-                    ink = skin.ink,
-                    onCarry = { carryAt = it; carrying = BlockKind.FREE },
-                    onDrop = {
-                        carrying = null
-                        if (it.isSpecified) dropped = BlockKind.FREE to it
-                    },
-                ) { planting = BlockKind.FREE }
-            }
-
-            WeekGrid(
-                blocks = blocks,
-                planting = planting,
-                selected = selected,
-                skin = skin,
-                carrying = carrying,
-                carryAt = carryAt,
-                dropped = dropped,
-                onPlanted = { dropped = null },
-                onSelect = { selected = it },
-                onPreview = { draft = it },
-                onCommit = { next, landed ->
-                    selected = landed
-                    commit(next)
-                },
-            )
-
-            val chosen = selected?.takeIf { it in blocks }
-            if (chosen != null) {
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    BlockGlyph(chosen.kind, Modifier.size(width = 18.dp, height = 24.dp))
-                    Text(
-                        chosen.day.getDisplayName(TextStyle.SHORT, Locale.getDefault()) +
-                            "  " + timeLabel(chosen.start) + " to " + timeLabel(chosen.end),
+                    PaletteChip(
+                        kind = BlockKind.BUSY,
+                        label = "Place thorns",
+                        sub = "(Busy)",
+                        selected = planting == BlockKind.BUSY,
+                        tile = skin.tile,
+                        line = skin.line,
+                        ink = skin.ink,
+                        muted = skin.muted,
                         modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = 13.sp,
-                            color = skin.muted,
-                        ),
-                    )
-                    // A timetable is the same hour on five days far more
-                    // often than it is five different hours, and drawing the
-                    // same block five times is the tedium this screen exists
-                    // to remove.
-                    Pill(text = "Copy to next day", selected = false) {
-                        val copy = chosen.copy(day = chosen.day.plus(1))
-                        selected = copy
-                        commit(Windows.place(blocks, copy))
+                        onCarry = { carryAt = it; carrying = BlockKind.BUSY },
+                        onDrop = {
+                            carrying = null
+                            if (it.isSpecified) dropped = BlockKind.BUSY to it
+                        },
+                    ) {
+                        planting = if (planting == BlockKind.BUSY) null else BlockKind.BUSY
                     }
-                    Pill(text = "Remove", selected = false) {
-                        selected = null
-                        commit(blocks.filterNot { it == chosen })
+                    PaletteChip(
+                        kind = BlockKind.FREE,
+                        label = "Place Flowers",
+                        sub = "(Free)",
+                        selected = planting == BlockKind.FREE,
+                        tile = skin.tile,
+                        line = skin.line,
+                        ink = skin.ink,
+                        muted = skin.muted,
+                        modifier = Modifier.weight(1f),
+                        onCarry = { carryAt = it; carrying = BlockKind.FREE },
+                        onDrop = {
+                            carrying = null
+                            if (it.isSpecified) dropped = BlockKind.FREE to it
+                        },
+                    ) {
+                        planting = if (planting == BlockKind.FREE) null else BlockKind.FREE
                     }
                 }
-            } else {
+
+                MonthButton(showing, skin) { pickingMonth = true }
+
+                DayStrip(showing, skin) { showing = it }
+
+                DayBoard(
+                    blocks = blocks,
+                    showing = showing,
+                    planting = planting,
+                    selected = selected,
+                    skin = skin,
+                    carrying = carrying,
+                    carryAt = carryAt,
+                    dropped = dropped,
+                    onPlanted = { dropped = null },
+                    onSelect = { selected = it },
+                    onPreview = { draft = it },
+                    onCommit = { next, landed ->
+                        selected = landed
+                        commit(next)
+                    },
+                    onShow = { showing = it },
+                    onCopyYesterday = {
+                        // A timetable is the same hours on five days far more
+                        // often than it is five different sets, and redrawing
+                        // yesterday is the tedium this screen exists to
+                        // remove. Offered only on an empty day, so there is
+                        // nothing of yours for it to land on top of.
+                        val from = showing.minusDays(1).dayOfWeek
+                        val to = showing.dayOfWeek
+                        var next = blocks
+                        blocks.filter { it.day == from }.forEach {
+                            next = Windows.place(next, it.copy(day = to))
+                        }
+                        selected = null
+                        commit(next, why = "copied")
+                    },
+                )
+
                 SmallCopy(
-                    if (blocks.isEmpty()) {
-                        "Nothing yet. Drag one down from above, or double tap the " +
-                            "week to plant your first."
+                    if (planting == null) {
+                        "Pick thorns or flowers above, then press the day to " +
+                            "plant one — or drag one straight down onto it."
                     } else {
-                        "Drag one down from above, or double tap the week. Drag a " +
-                            "block's bottom edge to make it longer, or drag it " +
-                            "down into the bin."
+                        "Press the day to plant one, or drag one down from " +
+                            "above. Drag a block's bottom edge to make it " +
+                            "longer, or drag it out of the day to bin it."
                     },
                     size = 13,
                 )
-            }
 
-            footer(blocks)
+                footer(blocks)
+            }
+        }
+
+        if (pickingMonth) {
+            MonthSheet(
+                showing = showing,
+                today = today,
+                skin = skin,
+                onPick = { showing = it; pickingMonth = false },
+                onDismiss = { pickingMonth = false },
+            )
         }
     }
 }
 
 // The whole day, because the cue pipeline has no hour-of-day rule of its own
-// and sleep is worth being able to mark. Lines and labels every three hours,
+// and sleep is worth being able to mark. A line every hour, a label every two,
 // as the frames have them.
 private const val FIRST_HOUR = 0
 private const val LAST_HOUR = 24
-private const val LABEL_EVERY = 3
+private const val LABEL_EVERY = 2
 private const val SNAP_MINUTES = 30
 private val HOUR_HEIGHT = 21.dp
-private val GUTTER = 40.dp
+private val GUTTER = 42.dp
 
-/** Sunday first, as the frames draw it. */
-private val DAYS = listOf(
-    DayOfWeek.SUNDAY,
-    DayOfWeek.MONDAY,
-    DayOfWeek.TUESDAY,
-    DayOfWeek.WEDNESDAY,
-    DayOfWeek.THURSDAY,
-    DayOfWeek.FRIDAY,
-    DayOfWeek.SATURDAY,
-)
+/** The strip under the hours that the bin lives in. Not part of the day. */
+private val CARD_FOOT = 44.dp
+
+/** Air above the first hour, so 00:00 is not against the card's rim. */
+private val CARD_HEAD = 12.dp
+
+/** How much of the width the day gets. The rest is the days either side. */
+private const val CARD_SHARE = 0.74f
+
+private val DayCardShape = RoundedCornerShape(26.dp)
+
+/** How far sideways counts as "show me the next day". */
+private val SWIPE_DAY = 56.dp
+
+/** How many days either side of the chosen one the strip shows. */
+private const val STRIP_REACH = 2
 
 private enum class Grab { Move, ResizeEnd }
 
 /**
  * How long a finger has to rest on empty ground before it starts planting.
  *
- * Only empty ground waits at all. Something already on the week moves the
+ * Only empty ground waits at all. Something already on the day moves the
  * instant you push it -- see [heldStill] for why the two are not the same
  * question.
  *
  * Short enough to feel like no wait, long enough that a tap is still a tap.
  * The floor here is a deliberate tap, which runs about 60-100ms: go under
  * that and every tap on an empty hour plants half an hour nobody asked for.
- *
- * This used to be done by handing the subtree a whole [androidx.compose.ui.platform.ViewConfiguration]
- * with a shorter `longPressTimeoutMillis`, so that `detectDragGesturesAfterLongPress`
- * would pick it up. That worked, but it put the number somewhere nobody would
- * look for it and applied it to every gesture in the subtree rather than the
- * one that wanted it.
  */
 private const val PLANT_HOLD_MS = 90L
 
@@ -544,8 +593,9 @@ private const val PLANT_HOLD_MS = 90L
  *
  * Returns as soon as it knows: lifting or moving first is an answer, and only
  * running out of time is a hold. Moving first has to fall through untouched,
- * because a drag down empty ground is how the page is scrolled -- this grid is
- * twenty-four hours tall and lives inside a scrolling column.
+ * because a drag down empty ground is how the page is scrolled and a drag
+ * across it is now how the day is changed -- and neither may cost the user a
+ * block they did not want.
  */
 private suspend fun AwaitPointerEventScope.heldStill(down: PointerInputChange): Boolean {
     val slop = viewConfiguration.touchSlop
@@ -560,20 +610,21 @@ private suspend fun AwaitPointerEventScope.heldStill(down: PointerInputChange): 
 }
 
 /**
- * The week, as something you draw on.
+ * The day, and the two beside it.
  *
- * Everything on it is painted onto one canvas rather than laid out as boxes,
- * because a thorn's spikes and a flower's head both sit outside their own time
- * span and a box would clip them.
+ * Everything on the day is painted onto one canvas rather than laid out as
+ * boxes, because a thorn's spikes and a flower's head both sit outside their
+ * own time span and a box would clip them.
  *
  * The block under the finger is carried separately from the rest of the list
  * for the length of a gesture. That is what lets [Windows.place] run once, at
  * the end, instead of reshuffling the list under a drag that is still going.
  */
 @Composable
-private fun WeekGrid(
+private fun DayBoard(
     blocks: List<WeekBlock>,
-    planting: BlockKind,
+    showing: LocalDate,
+    planting: BlockKind?,
     selected: WeekBlock?,
     skin: WeekSkin,
     /** A kind being carried in from the palette, or null. */
@@ -587,412 +638,858 @@ private fun WeekGrid(
     onPreview: (List<WeekBlock>) -> Unit,
     /** The second argument is null when the block was dropped in the bin. */
     onCommit: (List<WeekBlock>, WeekBlock?) -> Unit,
+    onShow: (LocalDate) -> Unit,
+    onCopyYesterday: () -> Unit,
 ) {
     val hours = LAST_HOUR - FIRST_HOUR
     val density = LocalDensity.current
+    val hoursHeight = HOUR_HEIGHT * hours
 
-    // Raised while a block is being held below the foot of the grid. The bin
-    // sits directly under it, so dragging something off the bottom of your
-    // week is the gesture, and the pointer stays captured once a drag starts.
+    // Raised while a block is being held outside the day. Dragging something
+    // off the bottom or out of the side of your day is the gesture, and the
+    // pointer stays captured once a drag starts.
     var overBin by remember { mutableStateOf(false) }
+
+    // The block under the finger, and the rest of the week without it.
+    var carried by remember { mutableStateOf<WeekBlock?>(null) }
+    var rest by remember { mutableStateOf<List<WeekBlock>>(emptyList()) }
+    var grab by remember { mutableStateOf(Grab.Move) }
+    var cursor by remember { mutableStateOf(Offset.Zero) }
+    var grabOffset by remember { mutableStateOf(0) }
 
     // Declared out here rather than inside the constraints scope, because the
     // modifier that measures it is on the box that opens that scope.
-    var gridOrigin by remember { mutableStateOf(Offset.Zero) }
+    var hoursOrigin by remember { mutableStateOf(Offset.Zero) }
 
-    Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth()) {
-            Spacer(Modifier.width(GUTTER))
-            DAYS.forEach { d ->
-                Text(
-                    d.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 11.sp,
-                        color = skin.muted,
-                    ),
-                )
-            }
-        }
-        Spacer(Modifier.size(6.dp))
+    val day = showing.dayOfWeek
+    val mine = blocks.filter { it.day == day }
+    val yesterday = blocks.filter { it.day == showing.minusDays(1).dayOfWeek }
 
-        BoxWithConstraints(
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(CARD_HEAD + hoursHeight + CARD_FOOT)
+            // Scrolling sideways is the other way to reach a day, and it only
+            // ever sees the gestures the day itself did not want: a press on a
+            // block consumes, and a press on empty ground that moves before the
+            // plant hold is up does not.
+            .pointerInput(showing) {
+                var travelled = 0f
+                val far = SWIPE_DAY.toPx()
+                detectHorizontalDragGestures(
+                    onDragStart = { travelled = 0f },
+                    onDragEnd = {
+                        if (travelled <= -far) onShow(showing.plusDays(1))
+                        else if (travelled >= far) onShow(showing.minusDays(1))
+                    },
+                    onDragCancel = { travelled = 0f },
+                ) { _, delta -> travelled += delta }
+            },
+    ) {
+        val cardWidth = maxWidth * CARD_SHARE
+        val widthPx = with(density) { cardWidth.toPx() }
+        val gutterPx = with(density) { GUTTER.toPx() }
+        val hourPx = with(density) { HOUR_HEIGHT.toPx() }
+        val insetPx = with(density) { 7.dp.toPx() }
+        val edgePx = with(density) { 14.dp.toPx() }
+        val slackPx = with(density) { 5.dp.toPx() }
+
+        // The days either side, peeking in at the edges. They are the week you
+        // are still in; the frames show them dimmed and mostly off-screen, and
+        // a press on the sliver is the third way to change day.
+        NeighbourDay(
+            blocks = blocks,
+            day = showing.minusDays(1).dayOfWeek,
+            skin = skin,
+            width = cardWidth,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = -(cardWidth + 16.dp)),
+            onClick = { onShow(showing.minusDays(1)) },
+        )
+        NeighbourDay(
+            blocks = blocks,
+            day = showing.plusDays(1).dayOfWeek,
+            skin = skin,
+            width = cardWidth,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .offset(x = cardWidth + 16.dp),
+            onClick = { onShow(showing.plusDays(1)) },
+        )
+
+        Box(
             Modifier
-                .fillMaxWidth()
-                .height(HOUR_HEIGHT * hours)
-                .onGloballyPositioned { gridOrigin = it.positionInRoot() },
+                .align(Alignment.Center)
+                .width(cardWidth)
+                .fillMaxHeight()
+                .clip(DayCardShape)
+                .background(skin.card)
+                .border(1.dp, skin.line.copy(alpha = 0.45f), DayCardShape),
         ) {
-            val columnWidth = (maxWidth - GUTTER) / DAYS.size
-            val colPx = with(density) { columnWidth.toPx() }
-            val gutterPx = with(density) { GUTTER.toPx() }
-            val hourPx = with(density) { HOUR_HEIGHT.toPx() }
-            val edgePx = with(density) { 14.dp.toPx() }
-            val slackPx = with(density) { 5.dp.toPx() }
-
-            fun dayAt(x: Float): DayOfWeek =
-                DAYS[((x - gutterPx) / colPx).toInt().coerceIn(0, DAYS.size - 1)]
-
-            fun minuteAt(y: Float): Int {
-                val raw = FIRST_HOUR * 60 + (y / hourPx) * 60f
-                val snapped = (raw / SNAP_MINUTES).roundToInt() * SNAP_MINUTES
-                return snapped.coerceIn(FIRST_HOUR * 60, LAST_HOUR * 60)
-            }
-
-            fun topOf(block: WeekBlock): Float =
-                (block.start.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx
-
-            fun bottomOf(block: WeekBlock): Float =
-                (block.end.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx
-
-            fun boxOf(block: WeekBlock): Rect {
-                val x = gutterPx + colPx * DAYS.indexOf(block.day)
-                return Rect(
-                    left = x + colPx * 0.12f,
-                    top = topOf(block),
-                    right = x + colPx * 0.88f,
-                    bottom = bottomOf(block),
-                )
-            }
-
-            // Read through a snapshot rather than closing over `blocks`.
-            //
-            // pointerInput restarts whenever one of its keys changes, so
-            // keying it on the list meant the first preview frame of a drag
-            // tore down the detector that was producing it: a block could be
-            // created but never sized, and every drag ended as a cancel.
-            val latest by rememberUpdatedState(blocks)
-            val nowPlanting by rememberUpdatedState(planting)
-
-            fun hitTest(at: Offset): Pair<WeekBlock, Grab>? {
-                latest.forEach { b ->
-                    val x = gutterPx + colPx * DAYS.indexOf(b.day)
-                    val top = topOf(b)
-                    val bottom = bottomOf(b)
-                    // A half-hour block is only ten points tall, so the hit
-                    // box gets a little slack it does not draw.
-                    if (at.x >= x && at.x < x + colPx &&
-                        at.y >= top - slackPx && at.y <= bottom + slackPx
-                    ) {
-                        val handle = minOf(edgePx, (bottom - top) * 0.4f)
-                        return b to if (at.y > bottom - handle) Grab.ResizeEnd else Grab.Move
-                    }
-                }
-                return null
-            }
-
-            // Where this grid sits on the screen, so a finger that started
-            // its journey on the palette can be found in the week.
-            val origin = gridOrigin
-
-            /**
-             * What an hour let go of at this point would be, or null if the
-             * point is not over the week.
-             *
-             * Shared by the ghost under the finger and by the drop itself, so
-             * what you are shown while you carry it is by construction what
-             * you get when you let go.
-             */
-            fun blockAt(root: Offset, kind: BlockKind): WeekBlock? {
-                if (!root.isSpecified) return null
-                val local = root - gridOrigin
-                val right = gutterPx + colPx * DAYS.size
-                if (local.x < gutterPx || local.x > right) return null
-                if (local.y < -slackPx || local.y > hourPx * hours + slackPx) return null
-                val start = minuteAt(local.y)
-                val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
-                if (end <= start) return null
-                return WeekBlock(
-                    day = dayAt(local.x),
-                    start = minutesToTime(start),
-                    end = minutesToTime(end),
-                    kind = kind,
-                )
-            }
-
-            val ghost = carrying?.let { blockAt(carryAt, it) }
-
-            // Let go. An hour lands wherever the finger was over the week, and
-            // nothing happens if it was let go anywhere else -- the palette is
-            // somewhere to pick one up from, not a bin.
-            LaunchedEffect(dropped) {
-                val drop = dropped ?: return@LaunchedEffect
-                blockAt(drop.second, drop.first)?.let {
-                    onCommit(Windows.place(latest, it), it)
-                }
-                onPlanted()
-            }
-
-            var carried by remember { mutableStateOf<WeekBlock?>(null) }
-            var rest by remember { mutableStateOf<List<WeekBlock>>(emptyList()) }
-            var grab by remember { mutableStateOf(Grab.Move) }
-            var cursor by remember { mutableStateOf(Offset.Zero) }
-            var grabOffset by remember { mutableStateOf(0) }
-
-            Canvas(Modifier.fillMaxSize()) {
-                // Warm bands down every other column, so seven narrow
-                // columns can be counted without reading the labels.
-                for (i in DAYS.indices) {
-                    if (i % 2 == 1) {
-                        drawRect(
-                            color = skin.band,
-                            topLeft = Offset(gutterPx + colPx * i, 0f),
-                            size = Size(colPx, size.height),
-                        )
-                    }
-                }
-
-                val dash = PathEffect.dashPathEffect(floatArrayOf(7f, 5f), 0f)
-                for (h in 0..hours step LABEL_EVERY) {
-                    val y = h * hourPx
-                    drawLine(
-                        color = skin.line,
-                        start = Offset(gutterPx, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = 1.2f,
-                        pathEffect = dash,
-                    )
-                }
-
-                blocks.forEach { b ->
-                    val box = boxOf(b)
-                    when (b.kind) {
-                        BlockKind.BUSY -> drawThorn(box)
-                        BlockKind.FREE -> drawFlowerBlock(box)
-                    }
-                }
-
-                ghost?.let { g ->
-                    val box = boxOf(g)
-                    when (g.kind) {
-                        BlockKind.BUSY -> drawThorn(box)
-                        BlockKind.FREE -> drawFlowerBlock(box)
-                    }
-                    drawRoundRect(
-                        color = skin.ink,
-                        topLeft = Offset(box.left - 3f, box.top - 3f),
-                        size = Size(box.width + 6f, box.height + 6f),
-                        cornerRadius = CornerRadius(box.width * 0.3f),
-                        style = Stroke(width = 2f),
-                    )
-                }
-
-                selected?.takeIf { it in blocks }?.let { b ->
-                    val box = boxOf(b)
-                    drawRoundRect(
-                        color = skin.ink,
-                        topLeft = Offset(box.left - 3f, box.top - 3f),
-                        size = Size(box.width + 6f, box.height + 6f),
-                        cornerRadius = CornerRadius(box.width * 0.3f),
-                        style = Stroke(width = 2f),
-                    )
-                }
-            }
-
-            for (h in FIRST_HOUR..LAST_HOUR step LABEL_EVERY) {
-                Text(
-                    clockLabel(h),
-                    modifier = Modifier
-                        .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
-                        .width(GUTTER)
-                        .padding(start = 2.dp, end = 6.dp),
-                    textAlign = TextAlign.End,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 9.sp,
-                        color = skin.muted,
-                    ),
-                )
-            }
-
             Box(
                 Modifier
-                    .fillMaxSize()
-                    .pointerInput(colPx, hourPx) {
-                        detectTapGestures(
-                            onTap = { at -> onSelect(hitTest(at)?.first) },
-                            // Two taps puts an hour down where you tapped.
-                            // Press-and-drag still draws one at whatever
-                            // length you like; this is the quick way to say
-                            // "here", which is most of what anybody does.
-                            onDoubleTap = { at ->
-                                if (hitTest(at) == null) {
-                                    val start = minuteAt(at.y)
-                                    val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
-                                    if (end > start) {
-                                        val block = WeekBlock(
-                                            day = dayAt(at.x),
-                                            start = minutesToTime(start),
-                                            end = minutesToTime(end),
-                                            kind = nowPlanting,
-                                        )
-                                        onCommit(Windows.place(latest, block), block)
-                                    }
-                                }
-                            },
+                    .padding(top = CARD_HEAD)
+                    .fillMaxWidth()
+                    .height(hoursHeight)
+                    .onGloballyPositioned { hoursOrigin = it.positionInRoot() },
+            ) {
+                fun minuteAt(y: Float): Int {
+                    val raw = FIRST_HOUR * 60 + (y / hourPx) * 60f
+                    val snapped = (raw / SNAP_MINUTES).roundToInt() * SNAP_MINUTES
+                    return snapped.coerceIn(FIRST_HOUR * 60, LAST_HOUR * 60)
+                }
+
+                fun boxOf(block: WeekBlock): Rect = blockBox(
+                    block,
+                    width = widthPx,
+                    top = 0f,
+                    hourPx = hourPx,
+                    inset = insetPx,
+                    gutter = gutterPx,
+                )
+
+                // Read through a snapshot rather than closing over `blocks`.
+                //
+                // pointerInput restarts whenever one of its keys changes, so
+                // keying it on the list meant the first preview frame of a drag
+                // tore down the detector that was producing it: a block could
+                // be created but never sized, and every drag ended as a cancel.
+                val latest by rememberUpdatedState(blocks)
+                val nowPlanting by rememberUpdatedState(planting)
+                val onDay by rememberUpdatedState(mine)
+
+                fun hitTest(at: Offset): Pair<WeekBlock, Grab>? {
+                    onDay.forEach { b ->
+                        val box = boxOf(b)
+                        // A half-hour block is only ten points tall, so the hit
+                        // box gets a little slack it does not draw.
+                        if (at.x >= gutterPx - slackPx && at.x <= widthPx &&
+                            at.y >= box.top - slackPx && at.y <= box.bottom + slackPx
+                        ) {
+                            val handle = minOf(edgePx, box.height * 0.4f)
+                            return b to
+                                if (at.y > box.bottom - handle) Grab.ResizeEnd else Grab.Move
+                        }
+                    }
+                    return null
+                }
+
+                /**
+                 * What an hour let go of at this point would be, or null if the
+                 * point is not over the day.
+                 *
+                 * Shared by the ghost under the finger and by the drop itself,
+                 * so what you are shown while you carry it is by construction
+                 * what you get when you let go.
+                 */
+                fun blockAt(root: Offset, kind: BlockKind): WeekBlock? {
+                    if (!root.isSpecified) return null
+                    val local = root - hoursOrigin
+                    if (local.x < 0f || local.x > widthPx) return null
+                    if (local.y < -slackPx || local.y > hourPx * hours + slackPx) return null
+                    val start = minuteAt(local.y)
+                    val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
+                    if (end <= start) return null
+                    return WeekBlock(
+                        day = day,
+                        start = minutesToTime(start),
+                        end = minutesToTime(end),
+                        kind = kind,
+                    )
+                }
+
+                val ghost = carrying?.let { blockAt(carryAt, it) }
+
+                // Let go. An hour lands wherever the finger was over the day,
+                // and nothing happens if it was let go anywhere else -- the
+                // palette is somewhere to pick one up from, not a bin.
+                LaunchedEffect(dropped) {
+                    val drop = dropped ?: return@LaunchedEffect
+                    blockAt(drop.second, drop.first)?.let {
+                        onCommit(Windows.place(latest, it), it)
+                    }
+                    onPlanted()
+                }
+
+                Canvas(Modifier.fillMaxSize()) {
+                    drawDay(
+                        blocks = onDay,
+                        skin = skin,
+                        top = 0f,
+                        hourPx = hourPx,
+                        gutter = gutterPx,
+                        inset = insetPx,
+                    )
+
+                    ghost?.let { g ->
+                        val box = boxOf(g)
+                        when (g.kind) {
+                            BlockKind.BUSY -> drawThorn(box)
+                            BlockKind.FREE -> drawFlowerBlock(box)
+                        }
+                        drawRoundRect(
+                            color = skin.ink,
+                            topLeft = Offset(box.left - 3f, box.top - 3f),
+                            size = Size(box.width + 6f, box.height + 6f),
+                            cornerRadius = CornerRadius(box.height * 0.3f),
+                            style = Stroke(width = 2f),
                         )
                     }
-                    // Picking something up and planting something are two
-                    // different gestures, and used to be one.
-                    //
-                    // Both went through `detectDragGesturesAfterLongPress`, so
-                    // moving a block you could already see meant holding it
-                    // first -- and once the hold was shortened to make planting
-                    // feel quick, an ordinary tap on empty ground outlasted it
-                    // and put down half an hour on the way past. Every tap
-                    // planted something, and nothing could be moved without
-                    // waiting for a timer first.
-                    //
-                    // Split in two. A block that already exists moves as soon
-                    // as the finger moves, because there is nothing ambiguous
-                    // about pushing something that is already there. Only empty
-                    // ground waits, and only long enough to tell planting from
-                    // scrolling the page.
-                    .pointerInput(colPx, hourPx) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val hit = hitTest(down.position)
 
-                            val begin = if (hit != null) {
-                                awaitTouchSlopOrCancellation(down.id) { change, _ ->
-                                    change.consume()
-                                } != null
-                            } else {
-                                heldStill(down)
-                            }
-                            if (!begin) return@awaitEachGesture
+                    selected?.takeIf { it in onDay }?.let { b ->
+                        val box = boxOf(b)
+                        drawRoundRect(
+                            color = skin.ink,
+                            topLeft = Offset(box.left - 3f, box.top - 3f),
+                            size = Size(box.width + 6f, box.height + 6f),
+                            cornerRadius = CornerRadius(box.height * 0.3f),
+                            style = Stroke(width = 2f),
+                        )
+                    }
+                }
 
-                            cursor = down.position
-                            if (hit == null) {
-                                // Plant one and start sizing it at once, so a
-                                // single press-and-drag both puts it down and
-                                // sets how long it runs.
-                                val start = minuteAt(down.position.y)
-                                val end = (start + SNAP_MINUTES).coerceAtMost(LAST_HOUR * 60)
-                                if (end <= start) return@awaitEachGesture
-                                rest = latest
-                                carried = WeekBlock(
-                                    day = dayAt(down.position.x),
-                                    start = minutesToTime(start),
-                                    end = minutesToTime(end),
-                                    kind = nowPlanting,
-                                )
-                                grab = Grab.ResizeEnd
-                                grabOffset = 0
-                            } else {
-                                rest = latest.filterNot { it == hit.first }
-                                carried = hit.first
-                                grab = hit.second
-                                grabOffset =
-                                    minuteAt(down.position.y) - hit.first.start.toMinutes()
-                            }
-                            carried?.let {
-                                onSelect(it)
-                                onPreview(rest + it)
-                            }
+                for (h in FIRST_HOUR until LAST_HOUR step LABEL_EVERY) {
+                    Text(
+                        clockLabel(h),
+                        modifier = Modifier
+                            .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
+                            .width(GUTTER)
+                            .padding(start = 8.dp, end = 6.dp),
+                        textAlign = TextAlign.End,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            color = skin.muted,
+                        ),
+                    )
+                }
 
-                            // Absolute positions rather than accumulated
-                            // deltas, so what is under the finger stays under
-                            // the finger however long the drag runs.
-                            val finished = drag(down.id) { change ->
-                                change.consume()
-                                val held = carried ?: return@drag
-                                cursor = change.position
-                                overBin = cursor.y > size.height
-                                val next = when (grab) {
-                                    Grab.Move -> {
-                                        val length =
-                                            held.end.toMinutes() - held.start.toMinutes()
-                                        val start = (minuteAt(cursor.y) - grabOffset)
-                                            .coerceIn(
-                                                FIRST_HOUR * 60,
-                                                LAST_HOUR * 60 - length,
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(widthPx, hourPx, day) {
+                            detectTapGestures(
+                                onTap = { at -> onSelect(hitTest(at)?.first) },
+                                // Two taps puts an hour down where you tapped.
+                                // Press-and-drag still draws one at whatever
+                                // length you like; this is the quick way to say
+                                // "here", which is most of what anybody does.
+                                //
+                                // Nothing in hand, nothing planted: the palette
+                                // is where you say which.
+                                onDoubleTap = { at ->
+                                    val kind = nowPlanting
+                                    if (kind != null && hitTest(at) == null) {
+                                        val start = minuteAt(at.y)
+                                        val end = (start + 60).coerceAtMost(LAST_HOUR * 60)
+                                        if (end > start) {
+                                            val block = WeekBlock(
+                                                day = day,
+                                                start = minutesToTime(start),
+                                                end = minutesToTime(end),
+                                                kind = kind,
                                             )
-                                        held.copy(
-                                            day = dayAt(cursor.x),
-                                            start = minutesToTime(start),
-                                            end = minutesToTime(start + length),
-                                        )
+                                            onCommit(Windows.place(latest, block), block)
+                                        }
                                     }
-
-                                    Grab.ResizeEnd -> {
-                                        val end = minuteAt(cursor.y).coerceIn(
-                                            held.start.toMinutes() + SNAP_MINUTES,
-                                            LAST_HOUR * 60,
-                                        )
-                                        held.copy(end = minutesToTime(end))
-                                    }
-                                }
-                                carried = next
-                                onSelect(next)
-                                onPreview(rest + next)
-                            }
-
-                            carried?.let {
-                                // Dropped past the foot of the week: the bin
-                                // takes it and nothing is planted. A gesture
-                                // the system cancelled keeps its block instead,
-                                // because losing work to a stray notification
-                                // is worse than an unwanted half hour.
-                                if (finished && overBin) onCommit(rest, null)
-                                else onCommit(Windows.place(rest, it), it)
-                            }
-                            carried = null
-                            overBin = false
+                                },
+                            )
                         }
-                    },
-            )
-        }
+                        // Picking something up and planting something are two
+                        // different gestures, and used to be one.
+                        //
+                        // Both went through `detectDragGesturesAfterLongPress`,
+                        // so moving a block you could already see meant holding
+                        // it first -- and once the hold was shortened to make
+                        // planting feel quick, an ordinary tap on empty ground
+                        // outlasted it and put down half an hour on the way
+                        // past. Every tap planted something, and nothing could
+                        // be moved without waiting for a timer first.
+                        //
+                        // Split in two. A block that already exists moves as
+                        // soon as the finger moves, because there is nothing
+                        // ambiguous about pushing something that is already
+                        // there. Only empty ground waits, and only long enough
+                        // to tell planting from scrolling the page or changing
+                        // the day.
+                        .pointerInput(widthPx, hourPx, day) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val hit = hitTest(down.position)
 
-        // The bin, directly under the foot of the week.
-        //
-        // Removing a block used to mean tapping it and then finding a pill
-        // further down the page, which is a two-step answer to a one-step
-        // thought. Dragging something off the bottom of your week and letting
-        // go of it is the same gesture as throwing it away.
-        Spacer(Modifier.size(8.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (overBin) skin.band else Color.Transparent)
-                .border(
-                    1.dp,
-                    if (overBin) skin.ink else skin.line.copy(alpha = 0.5f),
-                    RoundedCornerShape(12.dp),
+                                val begin = if (hit != null) {
+                                    awaitTouchSlopOrCancellation(down.id) { change, _ ->
+                                        change.consume()
+                                    } != null
+                                } else {
+                                    heldStill(down)
+                                }
+                                if (!begin) return@awaitEachGesture
+
+                                cursor = down.position
+                                if (hit == null) {
+                                    val kind = nowPlanting ?: return@awaitEachGesture
+                                    // Plant one and start sizing it at once, so
+                                    // a single press-and-drag both puts it down
+                                    // and sets how long it runs.
+                                    val start = minuteAt(down.position.y)
+                                    val end =
+                                        (start + SNAP_MINUTES).coerceAtMost(LAST_HOUR * 60)
+                                    if (end <= start) return@awaitEachGesture
+                                    rest = latest
+                                    carried = WeekBlock(
+                                        day = day,
+                                        start = minutesToTime(start),
+                                        end = minutesToTime(end),
+                                        kind = kind,
+                                    )
+                                    grab = Grab.ResizeEnd
+                                    grabOffset = 0
+                                } else {
+                                    rest = latest.filterNot { it == hit.first }
+                                    carried = hit.first
+                                    grab = hit.second
+                                    grabOffset =
+                                        minuteAt(down.position.y) - hit.first.start.toMinutes()
+                                }
+                                carried?.let {
+                                    onSelect(it)
+                                    onPreview(rest + it)
+                                }
+
+                                // Absolute positions rather than accumulated
+                                // deltas, so what is under the finger stays
+                                // under the finger however long the drag runs.
+                                val finished = drag(down.id) { change ->
+                                    change.consume()
+                                    val held = carried ?: return@drag
+                                    cursor = change.position
+                                    // Out of the day, in any direction. One
+                                    // column means sideways is no longer a way
+                                    // of saying "Tuesday", so it is free to be
+                                    // the way of saying "away".
+                                    overBin = cursor.y > size.height ||
+                                        cursor.x < 0f ||
+                                        cursor.x > size.width
+                                    val next = when (grab) {
+                                        Grab.Move -> {
+                                            val length =
+                                                held.end.toMinutes() - held.start.toMinutes()
+                                            val start = (minuteAt(cursor.y) - grabOffset)
+                                                .coerceIn(
+                                                    FIRST_HOUR * 60,
+                                                    LAST_HOUR * 60 - length,
+                                                )
+                                            held.copy(
+                                                start = minutesToTime(start),
+                                                end = minutesToTime(start + length),
+                                            )
+                                        }
+
+                                        Grab.ResizeEnd -> {
+                                            val end = minuteAt(cursor.y).coerceIn(
+                                                held.start.toMinutes() + SNAP_MINUTES,
+                                                LAST_HOUR * 60,
+                                            )
+                                            held.copy(end = minutesToTime(end))
+                                        }
+                                    }
+                                    carried = next
+                                    onSelect(next)
+                                    onPreview(rest + next)
+                                }
+
+                                carried?.let {
+                                    // Let go outside the day: the bin takes it
+                                    // and nothing is planted. A gesture the
+                                    // system cancelled keeps its block instead,
+                                    // because losing work to a stray
+                                    // notification is worse than an unwanted
+                                    // half hour.
+                                    if (finished && overBin) onCommit(rest, null)
+                                    else onCommit(Windows.place(rest, it), it)
+                                }
+                                carried = null
+                                overBin = false
+                            }
+                        },
                 )
-                .padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Canvas(Modifier.size(width = 13.dp, height = 15.dp)) {
-                val w = size.width
-                val h = size.height
-                val ink = skin.muted
-                // A lid, and a tub under it.
-                drawRect(
-                    color = ink,
-                    topLeft = Offset(0f, h * 0.10f),
-                    size = Size(w, h * 0.10f),
-                )
-                drawRect(
-                    color = ink,
-                    topLeft = Offset(w * 0.34f, 0f),
-                    size = Size(w * 0.32f, h * 0.10f),
-                )
-                drawRect(
-                    color = ink,
-                    topLeft = Offset(w * 0.12f, h * 0.26f),
-                    size = Size(w * 0.76f, h * 0.74f),
+
+                // Yesterday again, in one press.
+                //
+                // Only offered on a day with nothing on it, because it fills an
+                // empty day rather than merging into a full one, and only when
+                // there is in fact something to copy.
+                if (mine.isEmpty() && yesterday.isNotEmpty() && carried == null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
+                            .clip(RoundedCornerShape(30.dp))
+                            .background(skin.tile)
+                            .border(
+                                1.dp,
+                                skin.line.copy(alpha = 0.6f),
+                                RoundedCornerShape(30.dp),
+                            )
+                            .clickable(onClick = onCopyYesterday)
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                    ) {
+                        Text(
+                            "Copy schedule\nfrom yesterday",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 13.sp,
+                                color = skin.ink,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            // The bin, over the foot of the day, and only while something is in
+            // the air.
+            //
+            // Removing a block used to mean tapping it and then finding a pill
+            // further down the page, which is a two-step answer to a one-step
+            // thought. Dragging something out of your day and letting go of it
+            // is the same gesture as throwing it away, and the frames draw the
+            // target for it the way a story drags to one: a gradient up the
+            // bottom of the card with the bin sitting in it.
+            if (carried != null) {
+                BinTarget(
+                    armed = overBin,
+                    skin = skin,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(hoursHeight * 0.34f + CARD_FOOT),
                 )
             }
-            Spacer(Modifier.size(8.dp))
+        }
+    }
+}
+
+/**
+ * A day you are not editing: the same card, dimmed, at the edge of the screen.
+ *
+ * Drawn rather than composed out of the editor, because everything that makes
+ * the editor an editor -- the hit testing, the drafts, the palette drop -- is
+ * exactly what a day you are only glancing at must not have.
+ */
+@Composable
+private fun NeighbourDay(
+    blocks: List<WeekBlock>,
+    day: DayOfWeek,
+    skin: WeekSkin,
+    width: Dp,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val gutterPx = with(density) { GUTTER.toPx() }
+    val insetPx = with(density) { 7.dp.toPx() }
+    val headPx = with(density) { CARD_HEAD.toPx() }
+    val footPx = with(density) { CARD_FOOT.toPx() }
+    val mine = blocks.filter { it.day == day }
+
+    Box(
+        modifier
+            .width(width)
+            .fillMaxHeight(0.9f)
+            .clip(DayCardShape)
+            .background(skin.card)
+            .border(1.dp, skin.line.copy(alpha = 0.3f), DayCardShape)
+            .clickable(onClick = onClick)
+            .alpha(0.5f),
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val hourPx = (size.height - headPx - footPx) / (LAST_HOUR - FIRST_HOUR)
+            drawDay(
+                blocks = mine,
+                skin = skin,
+                top = headPx,
+                hourPx = hourPx,
+                gutter = gutterPx,
+                inset = insetPx,
+            )
+        }
+    }
+}
+
+/**
+ * The hours, and whatever has been planted in them.
+ *
+ * One function so the day you are editing and the days either side cannot
+ * drift apart -- the edge cards are the same drawing at a different size.
+ */
+private fun DrawScope.drawDay(
+    blocks: List<WeekBlock>,
+    skin: WeekSkin,
+    top: Float,
+    hourPx: Float,
+    gutter: Float,
+    inset: Float,
+) {
+    val dash = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+    for (h in FIRST_HOUR..LAST_HOUR) {
+        val y = top + (h - FIRST_HOUR) * hourPx
+        val onTheLabel = h % LABEL_EVERY == 0
+        drawLine(
+            color = if (onTheLabel) skin.line else skin.line.copy(alpha = 0.45f),
+            start = Offset(gutter, y),
+            end = Offset(size.width - inset, y),
+            strokeWidth = 1.1f,
+            pathEffect = if (onTheLabel) null else dash,
+        )
+    }
+
+    blocks.forEach { b ->
+        val box = blockBox(b, size.width, top, hourPx, inset, gutter)
+        when (b.kind) {
+            BlockKind.BUSY -> drawThorn(box)
+            BlockKind.FREE -> drawFlowerBlock(box)
+        }
+    }
+}
+
+/** Where a block sits on a day this wide, at this many pixels an hour. */
+private fun blockBox(
+    block: WeekBlock,
+    width: Float,
+    top: Float,
+    hourPx: Float,
+    inset: Float,
+    gutter: Float,
+): Rect = Rect(
+    left = gutter + inset,
+    top = top + (block.start.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx,
+    right = width - inset,
+    bottom = top + (block.end.toMinutes() - FIRST_HOUR * 60) / 60f * hourPx,
+)
+
+/**
+ * Where a block goes to die: a gradient up the foot of the day with a bin in
+ * it, the way a story drags to one.
+ *
+ * It only appears while something is being carried, and it lights when the
+ * finger is somewhere a let-go would scrap the block -- which is anywhere out
+ * of the day, sideways or past the last hour. The band is drawn over the
+ * bottom of the card rather than under it so there is something to aim at on
+ * the way down; the arming is the geometry, not the picture.
+ */
+@Composable
+private fun BinTarget(armed: Boolean, skin: WeekSkin, modifier: Modifier = Modifier) {
+    Box(
+        modifier.background(
+            Brush.verticalGradient(
+                listOf(
+                    Color.Transparent,
+                    skin.ground.copy(alpha = 0.82f),
+                    skin.ground,
+                ),
+            ),
+        ),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier.padding(bottom = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(if (armed) skin.tile else skin.card)
+                    .border(1.dp, if (armed) skin.ink else skin.line, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.size(width = 16.dp, height = 18.dp)) {
+                    val w = size.width
+                    val h = size.height
+                    val ink = if (armed) skin.ink else skin.muted
+                    // A lid, and a tub under it.
+                    drawRect(
+                        color = ink,
+                        topLeft = Offset(0f, h * 0.10f),
+                        size = Size(w, h * 0.10f),
+                    )
+                    drawRect(
+                        color = ink,
+                        topLeft = Offset(w * 0.34f, 0f),
+                        size = Size(w * 0.32f, h * 0.10f),
+                    )
+                    drawRect(
+                        color = ink,
+                        topLeft = Offset(w * 0.12f, h * 0.26f),
+                        size = Size(w * 0.76f, h * 0.74f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
-                if (overBin) "Let go to remove it" else "Drag one here to remove it",
+                if (armed) "Let go to delete" else "Drag down to delete",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 11.sp,
-                    color = skin.muted,
+                    color = if (armed) skin.ink else skin.muted,
                 ),
             )
+        }
+    }
+}
+
+/**
+ * The month you are in, and the way into the rest of them.
+ *
+ * A day at a time is a small window on a year, and the strip only reaches two
+ * days either side. This is the one control that admits the calendar is
+ * bigger than the screen.
+ */
+@Composable
+private fun MonthButton(showing: LocalDate, skin: WeekSkin, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(99.dp))
+            .background(skin.tile)
+            .border(1.dp, skin.line.copy(alpha = 0.5f), RoundedCornerShape(99.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 18.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            showing.month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 15.sp,
+                color = skin.ink,
+            ),
+        )
+        Spacer(Modifier.width(12.dp))
+        // Drawn, like every other mark in the app. See `drawTabMark`.
+        Canvas(Modifier.size(width = 11.dp, height = 8.dp)) {
+            drawPath(
+                Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width, 0f)
+                    lineTo(size.width / 2f, size.height)
+                    close()
+                },
+                skin.ink,
+            )
+        }
+    }
+}
+
+/**
+ * The days around the one you are on.
+ *
+ * Two either side, the middle one lit, arrows at the ends. The frames dim the
+ * outermost pair, which is what keeps five day names from reading as a tab bar
+ * with five equal tabs.
+ */
+@Composable
+private fun DayStrip(showing: LocalDate, skin: WeekSkin, onPick: (LocalDate) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StripArrow(back = true, skin = skin) { onPick(showing.minusDays(1)) }
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (step in -STRIP_REACH..STRIP_REACH) {
+                val date = showing.plusDays(step.toLong())
+                val chosen = step == 0
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (chosen) skin.tile else Color.Transparent)
+                        .clickable { onPick(date) }
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                ) {
+                    Text(
+                        date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontSize = 15.sp,
+                            color = when {
+                                chosen -> skin.ink
+                                abs(step) == STRIP_REACH -> skin.muted.copy(alpha = 0.5f)
+                                else -> skin.muted
+                            },
+                        ),
+                    )
+                }
+            }
+        }
+        StripArrow(back = false, skin = skin) { onPick(showing.plusDays(1)) }
+    }
+}
+
+/** Drawn geometry, not an icon. See `drawTabMark` for the pattern. */
+@Composable
+private fun StripArrow(back: Boolean, skin: WeekSkin, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(6.dp),
+    ) {
+        Canvas(Modifier.size(width = 9.dp, height = 12.dp)) {
+            drawPath(
+                Path().apply {
+                    if (back) {
+                        moveTo(size.width, 0f)
+                        lineTo(size.width, size.height)
+                        lineTo(0f, size.height / 2f)
+                    } else {
+                        moveTo(0f, 0f)
+                        lineTo(0f, size.height)
+                        lineTo(size.width, size.height / 2f)
+                    }
+                    close()
+                },
+                skin.muted,
+            )
+        }
+    }
+}
+
+/**
+ * The mini calendar: months, and the one date you are looking at.
+ *
+ * Scrolls rather than steps, because what people do here is find a date a few
+ * weeks out, not page through a year one month at a time.
+ *
+ * Nothing below this screen has ever heard of a date — [WeekBlock] is keyed by
+ * day of week, and so is everything the cue pipeline asks. Picking the 14th is
+ * picking a Monday; the date is only what makes that easy to say.
+ */
+@Composable
+private fun MonthSheet(
+    showing: LocalDate,
+    today: LocalDate,
+    skin: WeekSkin,
+    onPick: (LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val first = remember(today) { YearMonth.from(today).minusMonths(12) }
+    val months = remember(first) { (0L until 25L).map { first.plusMonths(it) } }
+    val opensAt = remember(showing, months) {
+        months.indexOf(YearMonth.from(showing)).coerceAtLeast(0)
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f))
+            .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+    ) {
+        Column(
+            Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 10.dp)
+                .fillMaxWidth()
+                .height(380.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(skin.tile, Ember.copy(alpha = 0.16f)),
+                    ),
+                )
+                .border(1.dp, skin.line.copy(alpha = 0.6f), RoundedCornerShape(28.dp))
+                // Pressing the sheet is not pressing past it.
+                .pointerInput(Unit) { detectTapGestures { } }
+                .padding(horizontal = 12.dp, vertical = 16.dp),
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                // Sunday first, as the frames draw it.
+                for (letter in listOf("S", "M", "T", "W", "T", "F", "S")) {
+                    Text(
+                        letter,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = 13.sp,
+                            color = skin.ink,
+                        ),
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(state = rememberLazyListState(opensAt)) {
+                items(months) { month ->
+                    MonthGrid(month, showing, today, skin, onPick)
+                }
+            }
+        }
+    }
+}
+
+/** One month, Sunday first, six rows deep at the most. */
+@Composable
+private fun MonthGrid(
+    month: YearMonth,
+    showing: LocalDate,
+    today: LocalDate,
+    skin: WeekSkin,
+    onPick: (LocalDate) -> Unit,
+) {
+    // DayOfWeek counts Monday as 1 and Sunday as 7, so the remainder is the
+    // Sunday-first column index without a table to look it up in.
+    val lead = month.atDay(1).dayOfWeek.value % 7
+    val length = month.lengthOfMonth()
+    val rows = (lead + length + 6) / 7
+
+    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+        Text(
+            month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
+                " " + month.year,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 11.sp,
+                color = skin.muted,
+            ),
+        )
+        for (row in 0 until rows) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                for (column in 0 until 7) {
+                    val dayOfMonth = row * 7 + column - lead + 1
+                    if (dayOfMonth < 1 || dayOfMonth > length) {
+                        Spacer(Modifier.weight(1f).height(38.dp))
+                        continue
+                    }
+                    val date = month.atDay(dayOfMonth)
+                    val chosen = date == showing
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(38.dp)
+                            .clickable { onPick(date) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (chosen) Stem else Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                dayOfMonth.toString().padStart(2, '0'),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontSize = 13.sp,
+                                    color = when {
+                                        chosen -> Chalk
+                                        date == today -> Gold
+                                        else -> skin.muted
+                                    },
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
