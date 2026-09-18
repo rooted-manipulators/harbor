@@ -24,6 +24,9 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.core.graphics.ColorUtils
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.harbor.domain.Weather
 import app.harbor.ui.theme.Paper
@@ -85,6 +88,18 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
     // either per frame would allocate a bitmap sixty times a second behind a
     // gradient.
     val grain = remember { Grain(grainTile()) }
+
+    // How far down the clouds have to start.
+    //
+    // The wash is deliberately full-bleed -- it runs under the status bar,
+    // because a weather that stopped at a black strip would stop being the
+    // ground the whole screen stands on. The clouds are shapes rather than
+    // colour, though, and shapes drawn up there collide with the clock and the
+    // wifi icon. So the gradient keeps the whole window and only the clouds
+    // move down, which is the same split the cue's inset makes.
+    val barTop = with(LocalDensity.current) {
+        WindowInsets.statusBars.getTop(this).toFloat()
+    }
 
     Canvas(modifier.fillMaxSize()) {
         val sky = fieldTintOf(weather)
@@ -204,10 +219,10 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         // Three clouds at different widths and speeds, so the loop never
         // reads as a loop.
         if (sky.cloud > 0f) {
-            drawFieldCloud(88.dp.toPx(), 16.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
+            drawFieldCloud(88.dp.toPx(), barTop + 16.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
             if (weather != Weather.BRIGHT) {
-                drawFieldCloud(66.dp.toPx(), 44.dp.toPx(), loopPhase(slow, 60_000f, 48_000f, 0.19f), sky)
-                drawFieldCloud(112.dp.toPx(), 28.dp.toPx(), loopPhase(slow, 60_000f, 60_000f, 0.40f), sky)
+                drawFieldCloud(66.dp.toPx(), barTop + 44.dp.toPx(), loopPhase(slow, 60_000f, 48_000f, 0.19f), sky)
+                drawFieldCloud(112.dp.toPx(), barTop + 28.dp.toPx(), loopPhase(slow, 60_000f, 60_000f, 0.40f), sky)
             }
         }
 

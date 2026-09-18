@@ -144,9 +144,19 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Eyebrow("How is life right now")
+            // The answer, not an action.
+            //
+            // At titleLarge in full-strength ink, sitting alone in the top
+            // right of a card, this read as a link -- the corner of a card is
+            // where "See all" lives. It is the slider's current value, so it
+            // now looks like one: the same muted ink as the label it answers,
+            // a size below it, and nothing about it suggesting a tap.
             Text(
                 settings.weather.label,
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 17.sp),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
             )
         }
 

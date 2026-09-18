@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.cue.Dialer
@@ -175,6 +176,19 @@ fun HomeScreen(
         // the first card is still arriving, any more and the whole page has
         // scrolled by before the view has finished moving.
         val scroll = rememberScrollState()
+        // How far you have to scroll to pull the camera all the way back.
+        //
+        // Fixed to the field's own height rather than to whatever the page
+        // happens to contain. On a day-one home -- one person, nothing grown,
+        // no reminder waiting -- the page only scrolls about a hundred pixels,
+        // so the entire crane shot fired and finished inside one flick. The
+        // shot was not broken; there was nowhere to perform it.
+        //
+        // The spacer at the bottom of the column is what makes this true, and
+        // it is the price: a full home ends with a stretch of empty ground
+        // under the last card. That reads as the page running out, which is
+        // roughly what it is -- and it buys a move that otherwise only the
+        // busiest users would ever see.
         val pullOver = with(LocalDensity.current) { fieldHeight.toPx() }
 
         // `modifier` belongs to the BoxWithConstraints above; applying it
@@ -334,6 +348,13 @@ fun HomeScreen(
                     Text(
                         if (settings.name.isBlank()) "Hey there." else "Hey, ${settings.name}.",
                         style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp),
+                        // A name is whatever somebody typed, and this line ran
+                        // to within a few pixels of the right edge on an
+                        // ordinary first name. Two lines and an ellipsis mean
+                        // a long one wraps like a greeting instead of being
+                        // cut off mid-word.
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.size(5.dp))
                     // The line under the greeting is the field's caption.
@@ -483,6 +504,11 @@ fun HomeScreen(
                 // finding a moment and setting your pace live under Account. Home
                 // is the garden, your people, and a quick way to say something.
                 SendAPetal(onOpenNotes)
+
+                // The runway. See pullOver above: without it a day-one home
+                // scrolls about a hundred pixels and the pull-back has nowhere
+                // to happen.
+                Spacer(Modifier.height(fieldHeight))
             }
         }
     }

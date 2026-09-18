@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.domain.FlowerKind
@@ -100,6 +101,28 @@ fun Specimen(
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     alignment = Alignment.BottomCenter,
                     contentScale = ContentScale.Fit,
+                )
+            } else {
+                // An empty arch is a third of the screen of nothing, and it is
+                // the most prominent thing on home for somebody who has just
+                // finished onboarding -- the one moment the app has to say what
+                // it is for. A bordered void says only that something failed to
+                // load.
+                //
+                // So the frame holds the invitation instead. Not an error and
+                // not a placeholder: the true sentence about what happens next,
+                // in the shape the flower will eventually fill.
+                Text(
+                    "Their first flower\nopens after your\nfirst call",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 14.dp),
                 )
             }
         }

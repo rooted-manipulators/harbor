@@ -209,8 +209,16 @@ fun OnboardingScreen(
             6 -> AskPermission(store, scope, ::next)
             7 -> AlmostComplete(store, ::next)
             8 -> GoodJob(::next)
-            9 -> WeekSetupScreen(store, onFinish = ::next, onSkip = ::next)
-            10 -> FirstRunTutorial(::finish)
+            // The week is the last thing onboarding asks for.
+            //
+            // Four explainer cards used to follow it -- the weather metaphor,
+            // the two numbers, what a reminder is, and what the family sees.
+            // They are gone, and the reason is not that they said the wrong
+            // thing. They said the right things to somebody who had already
+            // stopped reading: nine screens in, past a consent page, with the
+            // app still not visible. That content belongs in a tutorial
+            // somebody chooses to open, not at the end of a queue.
+            9 -> WeekSetupScreen(store, onFinish = ::finish, onSkip = ::finish)
             else -> finish()
         }
     }
@@ -1280,48 +1288,3 @@ private fun GoodJob(onNext: () -> Unit) {
     }
 }
 
-/**
- * After the calendar, once: the four things testers asked about mid-flow
- * rather than reading a screen about — the weather metaphor, the two
- * sliders, what a reminder is, and what the family sees.
- *
- * The last page is the one that matters most. Nothing here may leave it
- * vague: a tutorial that hints at reciprocity is the single most damaging
- * sentence this app could contain (ADR-007).
- */
-@Composable
-private fun FirstRunTutorial(onDone: () -> Unit) {
-    var page by remember { mutableIntStateOf(0) }
-    val pages = listOf(
-        "The weather is how you're doing" to
-            "Set it yourself on Home, clear to stormy. Nothing reads it off " +
-                "you — it's yours to change whenever your week does.",
-        "Two numbers you set, not Harbor" to
-            "Walk before a reminder, reminders a day, and the quiet gap " +
-                "last screen was a suggestion, not a rule — move either one, " +
-                "any time, under Account.",
-        "A reminder is not a call" to
-            "It looks and sounds like one on purpose — that's what gets " +
-                "noticed — but it never claims to be one. Dismissing it costs " +
-                "nothing, every time.",
-        "What your family sees" to
-            "Nothing. They install nothing, and Harbor never contacts them — " +
-                "not a summary, not a notification, not once. This is one-sided " +
-                "by design.",
-    )
-    val last = page == pages.lastIndex
-
-    FlowPage {
-        Question(pages[page].first, size = 21)
-        Spacer(Modifier.height(20.dp))
-        FlowNote(pages[page].second)
-        Spacer(Modifier.height(34.dp))
-        FlowPill(if (last) "Start using Harbor" else "Next") {
-            if (last) onDone() else page++
-        }
-        if (!last) {
-            Spacer(Modifier.height(14.dp))
-            TextLink("Skip", onDone)
-        }
-    }
-}
