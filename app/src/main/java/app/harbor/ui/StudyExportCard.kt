@@ -64,6 +64,7 @@ fun StudyExportCard(store: HarborRepository) {
                 beats = store.beats(),
                 cues = store.allCues(),
                 entries = store.recentEntries(),
+                arm = store.arm(),
                 lastTransitionAt = Sensing.lastTransition(context),
             )
         }

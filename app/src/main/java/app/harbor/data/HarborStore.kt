@@ -11,6 +11,7 @@ import app.harbor.domain.Moment
 import app.harbor.domain.Reminders
 import app.harbor.domain.Telemetry
 import app.harbor.domain.TriggerSource
+import app.harbor.domain.StudyArm
 import app.harbor.domain.UserSettings
 import app.harbor.domain.WeekBlock
 import app.harbor.domain.Windows
@@ -300,6 +301,23 @@ class HarborStore(context: Context) : HarborRepository {
         write { putBoolean(KEY_ONBOARDED, true) }
     }
 
+    override suspend fun arm(): StudyArm = withContext(Dispatchers.IO) {
+        StudyArm.of(prefs.getString(KEY_ARM, null))
+    }
+
+    override suspend fun claimArm(arm: StudyArm): StudyArm = withContext(Dispatchers.IO) {
+        // First call wins. See HarborRepository.claimArm: an arm that could be
+        // reassigned is an arm that cannot be trusted on the rows already
+        // written under it.
+        val held = prefs.getString(KEY_ARM, null)
+        if (held != null) {
+            StudyArm.of(held)
+        } else {
+            write { putString(KEY_ARM, arm.wire) }
+            arm
+        }
+    }
+
     // --- the study export -------------------------------------------------
 
     override suspend fun allCues(): List<Cue> =
@@ -376,6 +394,13 @@ class HarborStore(context: Context) : HarborRepository {
         const val KEY_LEDGER = "ledger"
         const val KEY_CUES = "cues"
         const val KEY_ONBOARDED = "onboarded"
+
+        /**
+         * Written once, never rewritten. Stored as the wire name rather than
+         * an ordinal so that reordering the enum cannot silently move every
+         * participant into the other arm.
+         */
+        const val KEY_ARM = "study_arm"
         const val KEY_PARTICIPANT = "participant_id"
         const val KEY_SYNCED_CUES = "synced_cue_ids"
         const val KEY_SYNCED_ENTRIES = "synced_entry_ids"

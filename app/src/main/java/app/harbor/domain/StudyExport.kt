@@ -45,13 +45,27 @@ import java.util.UUID
 object StudyExport {
 
     /** Bump when the shape changes, so an old file is still readable. */
-    const val FORMAT = 2
+    // 3 adds "arm". A reader that does not know the field sees a file it can
+    // still parse; a reader that needs it can refuse anything below 3, which
+    // is the point of having the number at all.
+    const val FORMAT = 3
 
     /** Everything the export is built from. */
     data class Bundle(
         val participant: UUID,
         val exportedAt: Instant,
         val appVersion: String,
+        /**
+         * Which metaphor this participant was shown.
+         *
+         * At the top of the file and not on every row, unlike
+         * `threshold_snapshot`. That one is snapshotted because thresholds can
+         * be moved and a later move must not rewrite what an earlier cue was
+         * decided under. An arm cannot change — the store refuses to reassign
+         * it — so recording it once is not a shortcut, it is the truth stated
+         * in the only place it can be stated.
+         */
+        val arm: StudyArm,
         val settings: UserSettings,
         val contacts: List<Contact>,
         val blocks: List<WeekBlock>,
@@ -124,6 +138,7 @@ object StudyExport {
         "format" to num(FORMAT),
         "app_version" to str(bundle.appVersion),
         "participant" to str(bundle.participant.toString()),
+        "arm" to str(bundle.arm.wire),
         "exported_at" to str(bundle.exportedAt.toString()),
         "last_transition_at" to str(bundle.lastTransitionAt?.toString()),
 

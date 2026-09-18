@@ -7,6 +7,7 @@ import app.harbor.domain.CuePolicy
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Moment
 import app.harbor.domain.Reminders
+import app.harbor.domain.StudyArm
 import app.harbor.domain.UserSettings
 import app.harbor.domain.WeekBlock
 import kotlinx.coroutines.flow.StateFlow
@@ -119,6 +120,33 @@ interface HarborRepository {
     suspend fun hasOnboarded(): Boolean
 
     suspend fun setOnboarded()
+
+    /**
+     * Which arm of the study this install is in.
+     *
+     * Decided once and then fixed for the life of the install. Like
+     * [hasOnboarded] it is a fact about this device rather than about the
+     * person — but unlike it, this one *does* belong in the export, because
+     * every row of behaviour is meaningless without it.
+     *
+     * Reading it before it has been set answers [StudyArm.GARDEN], which is
+     * the arm that already existed. There is no setter that can change it
+     * afterwards: see [claimArm].
+     */
+    suspend fun arm(): StudyArm
+
+    /**
+     * Put this install in an arm, if it is not in one already.
+     *
+     * Claim rather than set, and it is the whole design. A participant who
+     * could be moved between arms halfway through is a participant whose
+     * ledger belongs to neither, so the first call wins and every later one is
+     * ignored — including one from a reinstall-and-retype, which would
+     * otherwise silently relabel a week of data.
+     *
+     * @return the arm this install is in, which may not be the one asked for.
+     */
+    suspend fun claimArm(arm: StudyArm): StudyArm
 
     /**
      * Every cue still held, for the study export.

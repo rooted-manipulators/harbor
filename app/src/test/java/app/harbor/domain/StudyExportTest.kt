@@ -28,6 +28,7 @@ class StudyExportTest {
     private fun bundle(
         note: String? = "SECRET_WORDS",
         topic: String? = "the tomatoes",
+        arm: StudyArm = StudyArm.GARDEN,
     ) = StudyExport.Bundle(
         participant = UUID.fromString("33333333-3333-3333-3333-333333333333"),
         exportedAt = at,
@@ -84,6 +85,7 @@ class StudyExportTest {
             ),
         ),
         lastTransitionAt = at,
+        arm = arm,
         beats = listOf(
             Beat(at, Moment.APP_OPENED),
             Beat(at, Moment.CALL_STARTED, TriggerSource.WALKING_STOP.name),
@@ -170,6 +172,37 @@ class StudyExportTest {
         // 3: where people moved their thresholds, as in force at the time.
         assertTrue(json.contains("\"threshold_snapshot\""))
         assertTrue(json.contains("\"walking_minutes\":3"))
+    }
+
+    @Test
+    fun `the arm is on the file, so two arms are one table`() {
+        // Without this the study is two piles of results nobody can tell
+        // apart, and nothing recovers it after the fact.
+        assertTrue(StudyExport.json(bundle(arm = StudyArm.GARDEN)).contains("\"arm\":\"garden\""))
+        assertTrue(StudyExport.json(bundle(arm = StudyArm.BEES)).contains("\"arm\":\"bees\""))
+        // And the format number moved with it, so a reader can refuse a file
+        // that predates the field rather than quietly treating it as control.
+        assertTrue(StudyExport.json(bundle()).contains("\"format\":3"))
+    }
+
+    @Test
+    fun `an arm is a letter, not a coin flip`() {
+        // Batches are decided on paper before anybody is handed a phone.
+        assertEquals(StudyArm.BEES, StudyArm.fromCode("B-07"))
+        assertEquals(StudyArm.BEES, StudyArm.fromCode("  b12 "))
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode("A-07"))
+        // The two ways somebody ends up with no code at all.
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode(null))
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode("   "))
+    }
+
+    @Test
+    fun `unknown arm text reads as the control rather than throwing`() {
+        // A file written by a later build should not stop somebody opening
+        // this week's data.
+        assertEquals(StudyArm.GARDEN, StudyArm.of("moths"))
+        assertEquals(StudyArm.GARDEN, StudyArm.of(null))
+        assertEquals(StudyArm.BEES, StudyArm.of("BEES"))
     }
 
     @Test
