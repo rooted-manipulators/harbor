@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import app.harbor.domain.StudyArm
+import app.harbor.ui.LocalStudyArm
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.tween
@@ -309,7 +311,19 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(enabled = onboarded == true && screen != Screen.Home) { home() }
 
-                CompositionLocalProvider(LocalReducedMotion provides reduceMotion) {
+                // The arm, read once and then constant for the run.
+                //
+                // Not a flow: HarborStore refuses to reassign an arm, so there
+                // is nothing to observe. A single read at start is the honest
+                // shape, and GARDEN until it arrives means the first frame is
+                // the app that already existed rather than a half-dressed one.
+                var arm by remember { mutableStateOf(StudyArm.GARDEN) }
+                LaunchedEffect(Unit) { arm = store.arm() }
+
+                CompositionLocalProvider(
+                    LocalReducedMotion provides reduceMotion,
+                    LocalStudyArm provides arm,
+                ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
                     // imePadding here rather than on each screen: the app is
                     // edge to edge, so the window no longer resizes itself

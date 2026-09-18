@@ -35,6 +35,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import app.harbor.domain.StudyArm
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.updateAll
@@ -143,7 +146,16 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Eyebrow("How is life right now")
+            // The same question, in the voice of the thing asking it.
+            //
+            // It is still the identical five values underneath -- see
+            // [app.harbor.ui.beeFace]. "How is life right now" was written for
+            // a sky; a bee with a face asks more plainly, and the two arms
+            // should not read as though they were asking different things.
+            Eyebrow(
+                if (LocalStudyArm.current == StudyArm.BEES) "How are you today"
+                else "How is life right now",
+            )
             // The answer, not an action.
             //
             // At titleLarge in full-strength ink, sitting alone in the top
@@ -270,6 +282,26 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                 // The design's thumb is a plain white disc. It used to carry
                 // an amber pip, which on a white disc on a coloured rail was
                 // a third colour in a 30dp circle.
+            }
+
+            // The bee sits on the thumb rather than replacing it.
+            //
+            // It overhangs the disc on every side, which is the point: the
+            // white circle stays the thing your thumb is aiming at and the
+            // bee is what it is carrying. Drawn after the disc and outside
+            // its clip, or a round mask would take the wings off.
+            //
+            // Only in the bees arm. In the garden this composable is exactly
+            // what it was, which is what makes the two comparable.
+            if (LocalStudyArm.current == StudyArm.BEES) {
+                Image(
+                    painter = painterResource(beeFace(settings.weather)),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = thumbX - 9.dp, y = (-6).dp)
+                        .size(48.dp),
+                )
             }
         }
 
