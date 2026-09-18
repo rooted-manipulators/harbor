@@ -557,22 +557,26 @@ object Field {
      *
      * So this is a contain fit, the smaller ratio, and then a factor.
      *
-     * That factor has been walked in twice, in the same direction both times,
-     * and it has now crossed over: 0.86, then 0.95, and now 1.20. Under one it
-     * was a margin and the island sat inside the frame with dark around it --
-     * a map of somewhere rather than the place itself, and the flowers, which
-     * are the whole point of pulling back, a few pixels each. Over one it is
-     * an overflow: the island is wider than the frame and the frame is full of
-     * garden.
+     * That factor has been walked back and forth: 0.86, 0.95, 1.20, and now
+     * 0.95 again. The round trip is worth recording, because the two ends are
+     * different features rather than different amounts of one.
      *
-     * Which means this is no longer quite a contain fit, and the name is a
-     * little generous. It is the widest the view is allowed to get, and what
-     * it is worth is that the thing you pulled back to look at is still big
-     * enough to look at.
+     * Over one it is an *overflow* -- the island is wider than the frame and
+     * the frame is full of garden. That is the closer, better-looking end, and
+     * it is the reason 1.20 was tried. It also means you never see the island
+     * whole, so pulling back stops reading as a change of view at all: you get
+     * a slightly wider version of where you already were.
+     *
+     * Under one it is a *margin* -- the island lands inside the view with dark
+     * around it. That is the top view, the map, the thing the pull is for. The
+     * flowers are small there, and that is the honest cost of being shown
+     * where your garden sits rather than standing in it.
+     *
+     * The pull is a change of view, so it ends at the map.
      */
     fun wideZoom(width: Double, height: Double): Double =
         if (width <= 0 || height <= 0) 0.2
-        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 1.20
+        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 0.95
 
     /**
      * How much perspective a pull-back is still holding, by how far its

@@ -186,21 +186,17 @@ fun HomeScreen(
         //
         // The spacer at the bottom of the column is what makes this true.
         //
-        // The pull has to finish while the field is still on the screen.
+        // A short runway, and the shortest one that works.
         //
-        // FieldSky is painted outside this scroll and FieldCanvas inside it,
-        // so scrolling carries the land off the top while its own sky stays
-        // put. A pull measured over a whole field's height therefore performed
-        // to an empty room -- the camera was moving correctly the entire time,
-        // at a thing that had already left.
+        // With none at all a day-one home scrolls about fifty pixels, and the
+        // whole move is over before a finger has left the glass -- which is
+        // what "it doesn't change to the top view" actually is. It does; you
+        // cannot see it happen.
         //
-        // Pinning the field for the length of the shot was the obvious answer
-        // and the wrong one: the cards over it are translucent by design, so a
-        // held greeting reads straight through them and the screen turns to
-        // soup. Instead the shot is simply shorter than the exit. At 0.45 the
-        // camera is all the way back with better than half the field still in
-        // frame, and it leaves afterwards, which is the right order.
-        val pullSpan = fieldHeight * 0.45f
+        // A full field's height was the other error: the page then ran on for
+        // a screen of empty ground. Three tenths is a flick, and it is the
+        // least that lets the camera be watched arriving.
+        val pullSpan = fieldHeight * 0.30f
         val pullOver = with(LocalDensity.current) { pullSpan.toPx() }
 
         // `modifier` belongs to the BoxWithConstraints above; applying it
@@ -517,10 +513,9 @@ fun HomeScreen(
                 // is the garden, your people, and a quick way to say something.
                 SendAPetal(onOpenNotes)
 
-                // The runway. See pullOver above: without it a day-one home
-                // scrolls about a hundred pixels and the pull-back has nowhere
-                // to happen.
+                // The runway itself. See pullSpan.
                 Spacer(Modifier.height(pullSpan))
+
             }
         }
     }
