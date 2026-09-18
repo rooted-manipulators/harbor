@@ -399,7 +399,21 @@ fun FieldCanvas(
         // you are being shown. See Field.wideZoom.
         val wideZoom = Field.wideZoom(frame.width.toDouble(), frame.height.toDouble())
         snapshotFlow { pullBack().coerceIn(0f, 1f).toDouble() }.collect { pull ->
-            goal = Field.Camera(
+            // Set the camera itself, and the goal with it, so the chase below
+            // has nothing left to do.
+            //
+            // Writing only the goal meant the pull inherited the flight the
+            // camera uses for taps -- an ease at 0.13 a frame toward wherever
+            // the goal had got to. Scrolled quickly the goal runs ahead and the
+            // camera trails it, then carries on travelling after the finger has
+            // stopped: the view arrives somewhere, pauses, and takes off again
+            // by itself. That is two motions fighting, and the second one is
+            // not wanted here at all.
+            //
+            // A scroll is already a continuous gesture. The hand is the
+            // animation; anything easing on top of it is a second opinion
+            // about where the camera should be.
+            val next = Field.Camera(
                 x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
                 y = standY + (Terrain.FIELD_H / 2 - standY) * pull,
                 // Geometrically, not linearly. Zoom multiplies -- halfway
@@ -410,6 +424,8 @@ fun FieldCanvas(
                 // the same proportion, which is what makes it feel even.
                 zoom = standZoom * (wideZoom / standZoom).pow(pull),
             )
+            cam = next
+            goal = next
         }
     }
 
