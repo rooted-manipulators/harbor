@@ -128,6 +128,34 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             size = size,
         )
 
+        // A green haze behind the land, and only behind the land.
+        //
+        // The field is drawn as dots with the sky showing between them, so
+        // where the land sits over a blue band the land reads blue -- the eye
+        // mixes the gaps into the marks, and there is more gap than mark. The
+        // ground was the right colour all along; what was behind it was not.
+        //
+        // So: the same radial, the same centre, the same bow, carrying nothing
+        // but a soft green across the stops the land occupies. Transparent
+        // above, so the sky stays sky; gone before the settle, so the bottom
+        // still arrives at the page as one colour. No edge anywhere -- it is a
+        // haze the land stands in rather than a shape drawn under it.
+        drawRect(
+            brush = Brush.radialGradient(
+                colorStops = arrayOf(
+                    0.00f to Color.Transparent,
+                    0.20f to Color.Transparent,
+                    0.32f to sky.grass.copy(alpha = 0.50f),
+                    0.44f to sky.grass.copy(alpha = 0.42f),
+                    0.58f to Color.Transparent,
+                    1.00f to Color.Transparent,
+                ),
+                center = Offset(size.width * 0.66f, -size.height * 0.08f),
+                radius = size.height * 0.92f,
+            ),
+            size = size,
+        )
+
         // Then flat to the page, straight across.
         //
         // The bands are arcs, and an arc arriving at the cards would put more
@@ -261,6 +289,15 @@ private class SkyTint(
     val deep: Color,
     /** Land, a long way off. The first stop that is ground rather than air. */
     val land: Color,
+    /**
+     * The green the land stands in, laid behind the field and nothing else.
+     *
+     * Lit ground rather than the deep green under it: this sits *behind* the
+     * dots and is seen between them, so it has to be the colour the gaps
+     * should be. Made from the same palette entry the field's own marks come
+     * from, so the haze and the thing standing in it cannot drift apart.
+     */
+    val grass: Color,
     /**
      * The dark green the sky lands on before the page takes over.
      *
@@ -398,6 +435,7 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         mid = deepen(meadow.sky.second, 1.45f, 0.07f),
         deep = deepen(meadow.sky.first, 1.45f, 0.18f),
         land = deepen(meadow.hills.last(), 1.30f, 0.25f),
+        grass = deepen(meadow.field.first(), 1.30f, 0.12f),
         // Just under half way to the page. Far enough that it reads as dark
         // green rather than as the meadow repeated, close enough that it is
         // still recognisably the ground and not a grey.
