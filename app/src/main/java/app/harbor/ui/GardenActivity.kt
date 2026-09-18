@@ -53,6 +53,7 @@ import app.harbor.ui.theme.AvatarSize
 import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Chalk
 import app.harbor.ui.theme.Glass
+import app.harbor.ui.theme.LocalReducedMotion
 import app.harbor.ui.theme.Muted
 import app.harbor.ui.theme.SmallCopy
 import app.harbor.ui.theme.SpanPicked
@@ -164,6 +165,7 @@ private fun Deck(summary: Growth.Summary, contacts: List<Contact>) {
     val pager = rememberPagerState { pages.size }
     val tick = rememberTick()
     val scope = rememberCoroutineScope()
+    val stillness = LocalReducedMotion.current
 
     // The buzz on arrival, not on the first composition.
     //
@@ -197,7 +199,15 @@ private fun Deck(summary: Growth.Summary, contacts: List<Contact>) {
     Ticks(
         count = pages.size,
         current = pager.currentPage,
-        onPick = { scope.launch { pager.animateScrollToPage(it) } },
+        onPick = {
+            scope.launch {
+                // Tapping a tick is a jump either way; for somebody who has
+                // asked for less movement it should be the jump and not the
+                // journey. Swiping is still a swipe -- that motion is the
+                // finger's, not ours.
+                if (stillness) pager.scrollToPage(it) else pager.animateScrollToPage(it)
+            }
+        },
     )
 
     Spacer(Modifier.height(18.dp))

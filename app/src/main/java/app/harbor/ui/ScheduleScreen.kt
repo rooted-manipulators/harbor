@@ -74,8 +74,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.IntOffset
 import app.harbor.ui.theme.LocalReducedMotion
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,6 +96,7 @@ import app.harbor.ui.theme.Stem
 import app.harbor.ui.theme.Flow
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.SmallCopy
+import app.harbor.ui.theme.rememberTick
 import app.harbor.ui.theme.pageContent
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
@@ -825,7 +824,10 @@ private fun DayBoard(
     var stepPx by remember { mutableFloatStateOf(0f) }
     val swipes = rememberCoroutineScope()
     val stillness = LocalReducedMotion.current
-    val buzz = LocalHapticFeedback.current
+    // The detent, not the thud. See ui/theme/Buzz.kt: LongPress is a
+    // heavy single bump meant to say "you have held this long enough",
+    // and on a swipe it lands after the motion and reads as a complaint.
+    val buzz = rememberTick()
     val hoursHeight = HOUR_HEIGHT * hours
 
     // The block under the finger, and the rest of the week without it.
@@ -879,13 +881,13 @@ private fun DayBoard(
                                     // the finger lifts: the point of it is to
                                     // confirm the day changed, and the day
                                     // changes here.
-                                    buzz.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    buzz()
                                     onShow(showing.plusDays(1))
                                     slide.snapTo(0f)
                                 }
                                 went >= far -> {
                                     if (!stillness) slide.animateTo(1f, DAY_SETTLE)
-                                    buzz.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    buzz()
                                     onShow(showing.minusDays(1))
                                     slide.snapTo(0f)
                                 }

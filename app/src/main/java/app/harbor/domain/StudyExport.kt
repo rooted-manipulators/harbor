@@ -48,7 +48,7 @@ object StudyExport {
     // 3 adds "arm". A reader that does not know the field sees a file it can
     // still parse; a reader that needs it can refuse anything below 3, which
     // is the point of having the number at all.
-    const val FORMAT = 3
+    const val FORMAT = 4
 
     /** Everything the export is built from. */
     data class Bundle(
@@ -92,6 +92,27 @@ object StudyExport {
         val lastTransitionAt: Instant?,
 
         /**
+         * Which of the five grants the app actually had, at export time.
+         *
+         * The study's first question is whether an unprompted reminder
+         * reaches somebody and what they do about it, and every one of these
+         * can silently turn that into no. A participant with notifications
+         * off never saw a cue. One without the full-screen grant saw banners
+         * they could flick away. One without usage access had the scrolling
+         * trigger switched on in settings and switched off in fact. One the
+         * OEM was free to freeze had nothing running at all.
+         *
+         * Read without them, a week of zero cues is one number with five
+         * explanations, four of which are the app failing and one of which
+         * is the finding. This is the difference.
+         *
+         * At export time rather than per cue: a grant can be revoked
+         * mid-week and this will not catch that. It is the cheap version and
+         * it is worth far more than nothing.
+         */
+        val grants: Grants,
+
+        /**
          * What the participant did, as categories and timestamps.
          *
          * The ledger says what became of a cue. This says whether anybody
@@ -102,6 +123,20 @@ object StudyExport {
          * Shapes only, never content. See [Moment].
          */
         val beats: List<Beat>,
+    )
+
+    /** The five switches outside the app that decide whether it works. */
+    data class Grants(
+        val activityRecognition: Boolean,
+        val notifications: Boolean,
+        /** Can wake a dark phone with the surface rather than a banner. */
+        val fullScreen: Boolean,
+        /** Can take the screen over the app in front. See CueNotifier. */
+        val overApps: Boolean,
+        /** Can read which app is in front. The scrolling trigger needs it. */
+        val usageAccess: Boolean,
+        /** Exempt from battery optimisation, so the process is not frozen. */
+        val unrestricted: Boolean,
     )
 
     /** What to show someone before they hand the file over. */
@@ -152,6 +187,15 @@ object StudyExport {
         "study_code" to str(bundle.studyCode.orEmpty()),
         "exported_at" to str(bundle.exportedAt.toString()),
         "last_transition_at" to str(bundle.lastTransitionAt?.toString()),
+
+        "grants" to obj(
+            "activity_recognition" to bool(bundle.grants.activityRecognition),
+            "notifications" to bool(bundle.grants.notifications),
+            "full_screen" to bool(bundle.grants.fullScreen),
+            "over_apps" to bool(bundle.grants.overApps),
+            "usage_access" to bool(bundle.grants.usageAccess),
+            "unrestricted" to bool(bundle.grants.unrestricted),
+        ),
 
         "settings" to obj(
             "cues_enabled" to bool(bundle.settings.cuesEnabled),
@@ -260,6 +304,11 @@ object StudyExport {
         "walking_minutes" to num(t.walkingMinutes),
         "session_minutes" to num(t.sessionMinutes),
         "daily_cap" to num(t.dailyCap),
+        // The per-trigger share, which is the mechanism that makes a week of
+        // two triggers comparable at all. Without it a reader can see that
+        // four cues a day were allowed and cannot see that only two of them
+        // could ever have come from the walk.
+        "source_cap" to num(t.perSourceCap),
         "cooldown_minutes" to num(t.cooldownMinutes),
     )
 
