@@ -40,6 +40,10 @@ import androidx.compose.ui.res.painterResource
 import app.harbor.domain.StudyArm
 import androidx.compose.runtime.LaunchedEffect
 import app.harbor.domain.Windows
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.updateAll
@@ -311,6 +315,46 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                         ),
                     ),
             )
+
+            // A dashed outline while nobody has touched it.
+            //
+            // The washed-out fill below was the first attempt and it fails in
+            // the commonest case there is: an empty calendar guesses "Free",
+            // which is step zero, so there is no fill to wash out and the
+            // signifier disappears exactly when most people would meet it. It
+            // also asked somebody to notice an opacity they had nothing to
+            // compare against -- nobody sees both states at once.
+            //
+            // The track is always there at every value, so the mark goes on
+            // the track. A dashed edge is the oldest way there is of drawing
+            // something not yet committed, it needs no legend, and at one
+            // pixel and a third opacity it is quiet enough to miss until the
+            // day it matters.
+            if (guessed) {
+                // A fifth, not a third. The dash is a *structural* difference
+                // -- broken against solid -- so it survives being quiet in a
+                // way an opacity change never did, and at a third it was
+                // announcing itself rather than sitting there.
+                val edge = Chalk.copy(alpha = 0.20f)
+                Canvas(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(horizontal = 22.dp)
+                        .fillMaxWidth()
+                        .height(26.dp),
+                ) {
+                    drawRoundRect(
+                        color = edge,
+                        cornerRadius = CornerRadius(size.height / 2, size.height / 2),
+                        style = Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(6.dp.toPx(), 5.dp.toPx()),
+                            ),
+                        ),
+                    )
+                }
+            }
 
             // the thumb
             val thumbX = with(density) {
