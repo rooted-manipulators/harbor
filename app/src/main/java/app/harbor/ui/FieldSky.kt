@@ -81,6 +81,20 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
 
     Canvas(modifier.fillMaxSize()) {
         val sky = fieldTintOf(weather)
+
+        // Where the light is, and how far it carries. Every layer below reads
+        // these two rather than its own copy: the wash, the warm pool and the
+        // green the land stands in are one light seen through three things,
+        // and a centre that drifted between them would show up as the halo
+        // sliding off the glow.
+        //
+        // Tightened on 18 Sep against a reference: the light used to reach
+        // corner to corner, which lit the whole top of the screen evenly and
+        // read as a coloured panel. A glow that falls to black before the
+        // edges reads as distance -- the field runs out into the dark rather
+        // than stopping at the frame.
+        val lit = Offset(size.width * 0.60f, size.height * 0.02f)
+        val reach = size.height * 0.62f
         drawRect(
             // Light at the top, falling the whole way down into the page --
             // and the bands are bowed rather than level, because nothing in
@@ -109,8 +123,8 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
                     0.52f to Paper,
                     1.00f to Paper,
                 ),
-                center = Offset(size.width * 0.66f, -size.height * 0.08f),
-                radius = size.height * 0.92f,
+                center = lit,
+                radius = reach,
             ),
             size = size,
         )
@@ -122,8 +136,8 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(sky.high.copy(alpha = 0.16f), Color.Transparent),
-                center = Offset(size.width * 0.66f, -size.height * 0.08f),
-                radius = size.height * 0.57f,
+                center = lit,
+                radius = reach * 0.62f,
             ),
             size = size,
         )
@@ -150,8 +164,8 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
                     0.58f to Color.Transparent,
                     1.00f to Color.Transparent,
                 ),
-                center = Offset(size.width * 0.66f, -size.height * 0.08f),
-                radius = size.height * 0.92f,
+                center = lit,
+                radius = reach,
             ),
             size = size,
         )
