@@ -210,14 +210,7 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         // just be dirt on them.
         grain.sized(size.height)
         drawIntoCanvas { canvas ->
-            val native = canvas.nativeCanvas
-            val layer = native.saveLayer(0f, 0f, size.width, size.height, null)
-            native.drawRect(0f, 0f, size.width, size.height, grain.tint)
-            // Rubbed out from the bottom rather than stopped at a line. Cut
-            // flat, the grain ends in an edge straight across the picture --
-            // which is the one thing every part of this file exists to avoid.
-            native.drawRect(0f, 0f, size.width, size.height, grain.fade)
-            native.restoreToCount(layer)
+            canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, grain.tint)
         }
     }
 }
@@ -375,24 +368,41 @@ private fun deepen(colour: Color, saturation: Float, darken: Float): Color {
  */
 private class Grain(tile: Bitmap) {
 
+    private val noise = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+
     val tint = android.graphics.Paint().apply {
         isAntiAlias = false
         alpha = (255 * 0.55f).toInt()
-        shader = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-    }
-
-    val fade = android.graphics.Paint().apply {
-        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
     }
 
     private var height = -1f
 
+    /**
+     * Noise and its fade composed into one shader, rather than two passes
+     * through an offscreen layer.
+     *
+     * This was a `saveLayer` and a `DST_OUT` rect: correct, and it allocated a
+     * full-screen offscreen buffer on every single frame the field drew, then
+     * composited it back. That is one of the most expensive things a draw can
+     * do, and it was happening behind every pan, every stir, and every drag of
+     * the weather slider.
+     *
+     * [ComposeShader] does the same arithmetic once, at the size change. The
+     * fade runs opaque to transparent, and `DST_IN` keeps the noise in
+     * proportion to it, so the grain still stops before the page without any
+     * layer at all -- and the whole wash is one ordinary rect again.
+     */
     fun sized(h: Float) {
         if (h == height || h <= 0f) return
         height = h
-        fade.shader = android.graphics.LinearGradient(
+        val fade = android.graphics.LinearGradient(
             0f, h * 0.58f, 0f, h * 0.74f,
-            0x00000000, 0xFF000000.toInt(), Shader.TileMode.CLAMP,
+            0xFFFFFFFF.toInt(), 0x00FFFFFF, Shader.TileMode.CLAMP,
+        )
+        tint.shader = android.graphics.ComposeShader(
+            noise,
+            fade,
+            android.graphics.PorterDuff.Mode.DST_IN,
         )
     }
 }

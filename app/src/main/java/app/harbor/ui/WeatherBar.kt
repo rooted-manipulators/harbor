@@ -92,16 +92,35 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val inset = with(density) { 22.dp.toPx() }
 
+    // Moving the slider and having moved it are two different events, and they
+    // used to be one.
+    //
+    // Dragging from clear to storm crosses five steps, and each crossing wrote
+    // the settings, appended a beat -- which reads, rewrites and re-serialises
+    // the whole beats array, up to four thousand of them -- and pushed a
+    // cross-process update to the home-screen widget. Five times, during a
+    // gesture, while the field behind was repainting. That is the lag.
+    //
+    // So [choose] now does the one cheap thing that has to happen while the
+    // thumb is moving, and [settle] does the rest once it stops. The study
+    // gets better data out of it too: WEATHER_SET was being written once per
+    // step scrubbed past rather than once per decision, so a single drag
+    // logged five weathers the person never chose.
     fun choose(next: Int) {
         val clamped = next.coerceIn(0, last)
         moodSet = true
         if (steps[clamped] != settings.weather) {
-            scope.launch {
-                store.setSettings(settings.copy(weather = steps[clamped]))
-                store.note(Moment.WEATHER_SET, steps[clamped].name.lowercase())
-                // Same settings the widget's rail reads.
-                WeatherWidget().updateAll(context)
-            }
+            scope.launch { store.setSettings(settings.copy(weather = steps[clamped])) }
+        }
+    }
+
+    /** Called when the gesture ends: what was actually decided, recorded once. */
+    fun settle() {
+        scope.launch {
+            val chosen = store.settings.value.weather
+            store.note(Moment.WEATHER_SET, chosen.name.lowercase())
+            // Same settings the widget's rail reads.
+            WeatherWidget().updateAll(context)
         }
     }
 
@@ -137,10 +156,16 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                 .height(40.dp)
                 .onSizeChanged { trackWidth = it.width }
                 .pointerInput(last, trackWidth) {
-                    detectTapGestures { chooseFromX(it.x) }
+                    detectTapGestures {
+                        chooseFromX(it.x)
+                        settle()
+                    }
                 }
                 .pointerInput(last, trackWidth) {
-                    detectHorizontalDragGestures { change, _ -> chooseFromX(change.position.x) }
+                    detectHorizontalDragGestures(
+                        onDragEnd = { settle() },
+                        onDragCancel = { settle() },
+                    ) { change, _ -> chooseFromX(change.position.x) }
                 },
         ) {
             // The rail.
