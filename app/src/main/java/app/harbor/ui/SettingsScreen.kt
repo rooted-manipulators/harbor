@@ -64,6 +64,7 @@ fun SettingsScreen(
     onOpenCues: () -> Unit,
     /** The account, which only matters for sharing a week with somebody. */
     onOpenAccount: () -> Unit,
+    onOpenStudyCode: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -216,6 +217,12 @@ fun SettingsScreen(
             // Harbor works signed out; an account is what lets you ask
             // somebody whether you may see when they are free.
             Destination("Your account", onOpenAccount)
+
+            // Last, and quietly. Nobody using Harbor needs this; it is here
+            // for the minute after a phone is handed over and the code turns
+            // out to have been the wrong one. What it does is destructive, so
+            // the screen behind it says so rather than this row.
+            Destination("Study code", onOpenStudyCode)
 
             // Not a fourth destination.
             //

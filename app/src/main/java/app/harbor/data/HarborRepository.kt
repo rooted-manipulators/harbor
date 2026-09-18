@@ -162,6 +162,30 @@ interface HarborRepository {
     suspend fun claimCode(code: String?): StudyArm
 
     /**
+     * Throw this install away and start again on a new code.
+     *
+     * The escape hatch for a code typed wrong at setup, and the *only* way an
+     * arm ever changes. It is destructive on purpose: everything goes — the
+     * person, the week, the ledger, the settings — and the app comes back at
+     * onboarding as though it had just been installed.
+     *
+     * ## Why it cannot be a quiet switch
+     *
+     * [claimCode] refuses to reassign an arm because rows already written
+     * under one arm cannot honestly be relabelled as the other. A "change the
+     * code" that kept the ledger would produce exactly that file: some
+     * behaviour from the garden, some from the bees, and a single `arm` field
+     * at the top claiming all of it. Unreadable, and unreadable in a way
+     * nobody would notice until the study was over.
+     *
+     * So the arm stays immutable and the *install* is what gets replaced. The
+     * screen offering this has to say so before it happens.
+     *
+     * @return the arm the fresh install is in.
+     */
+    suspend fun startOver(code: String?): StudyArm
+
+    /**
      * Every cue still held, for the study export.
      *
      * Distinct from [unsyncedCues]: the export is not a sync, and a

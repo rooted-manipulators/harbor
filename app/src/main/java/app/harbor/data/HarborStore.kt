@@ -305,6 +305,27 @@ class HarborStore(context: Context) : HarborRepository {
         StudyArm.of(prefs.getString(KEY_ARM, null))
     }
 
+    override suspend fun startOver(code: String?): StudyArm = withContext(Dispatchers.IO) {
+        // Everything, not a selection. Choosing which keys survive is how a
+        // reset quietly keeps a contact whose ledger rows have gone, or a
+        // "seen the reminder" flag from a study arm that no longer exists.
+        prefs.edit().clear().commit()
+        // Republish every flow by hand. The listener at the top of this class
+        // only watches two keys, and a clear() fires it for none of them --
+        // so without this the UI would keep showing the person and the week
+        // that no longer exist until the process died.
+        _settings.value = readSettings()
+        _contacts.value = readContacts()
+        _weekBlocks.value = readWeekBlocks()
+        _dailyAnswers.value = readDailyAnswers()
+        val arm = StudyArm.fromCode(code)
+        write {
+            putString(KEY_ARM, arm.wire)
+            putString(KEY_CODE, code?.trim().orEmpty())
+        }
+        arm
+    }
+
     override suspend fun hasClaimedArm(): Boolean =
         withContext(Dispatchers.IO) { prefs.getString(KEY_ARM, null) != null }
 

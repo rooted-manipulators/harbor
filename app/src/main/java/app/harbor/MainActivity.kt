@@ -55,6 +55,7 @@ import app.harbor.ui.OnboardingScreen
 import app.harbor.ui.NotesScreen
 import app.harbor.ui.PersonScreen
 import app.harbor.ui.ScheduleScreen
+import app.harbor.ui.StudyCodeScreen
 import app.harbor.ui.SettingsScreen
 import app.harbor.ui.theme.HarborTheme
 import kotlinx.coroutines.launch
@@ -125,6 +126,7 @@ class MainActivity : ComponentActivity() {
         Person(null, null),
         Reflect(null, null),
         SignIn(null, "Your account"),
+        StudyCode(null, "Study code"),
     }
 
     private lateinit var store: HarborStore
@@ -456,7 +458,21 @@ class MainActivity : ComponentActivity() {
                                 onEditSchedule = { screen = Screen.Schedule },
                                 onOpenCues = { screen = Screen.Cues },
                                 onOpenAccount = { screen = Screen.SignIn },
+                                onOpenStudyCode = { screen = Screen.StudyCode },
                                 onDone = home,
+                                modifier = inset,
+                            )
+
+                            Screen.StudyCode -> StudyCodeScreen(
+                                store = store,
+                                // Back to the very first screen, because that
+                                // is what startOver leaves behind: an install
+                                // with nothing in it.
+                                onStartOver = {
+                                    onboarded = false
+                                    screen = Screen.Home
+                                },
+                                onDone = { screen = Screen.Settings },
                                 modifier = inset,
                             )
 
