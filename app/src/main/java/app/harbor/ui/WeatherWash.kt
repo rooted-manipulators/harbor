@@ -84,6 +84,34 @@ internal data class Wash(
     val sun: Color,
 )
 
+/**
+ * The sky for an hour of the day.
+ *
+ * Three rows rather than five, and they are not weathers: nothing here is
+ * about rain. See [SkyHour] for why the wash came off the slider.
+ *
+ * Day reuses the clear sky, which is what a good afternoon already looked
+ * like. Dusk is the warm one the onboarding flow has always stood on, brought
+ * into the same table so the two screens agree. Night is new, and is the only
+ * row in this file that had to be invented: a sky dark enough to be night and
+ * still light enough at the top to be a sky rather than the page.
+ */
+internal fun washForHour(hour: SkyHour): Wash = when (hour) {
+    SkyHour.DAY -> washFor(Weather.CLEAR)
+    SkyHour.DUSK -> Wash(
+        high = Color(0xFFF6C9A0), pale = Color(0xFFE79A63),
+        mid = Color(0xFFC96A3E), deep = Color(0xFF7E4A34),
+        sun = Color(0xFFFFE6B8),
+    )
+    SkyHour.NIGHT -> Wash(
+        // Not black. A night sky reads as night because it is blue, and a wash
+        // that went to grey would only look like the page had failed to draw.
+        high = Color(0xFF9FB6C9), pale = Color(0xFF5E7791),
+        mid = Color(0xFF32475F), deep = Color(0xFF1E2E42),
+        sun = Color(0xFFD8E2EC),
+    )
+}
+
 /** The five, as mixed. */
 internal fun washFor(weather: Weather): Wash = when (weather) {
     Weather.CLEAR -> Wash(

@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.graphicsLayer
+import java.time.LocalTime
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.cue.Dialer
@@ -157,7 +158,10 @@ fun HomeScreen(
         // sizes. Below it is the page, which is where the wash was heading
         // anyway: its last two stops are already Paper.
         FieldSky(
-            settings.weather,
+            // The hour, not the answer. See SkyHour: the slider says how full
+            // the day is, the sky says what time it is, and neither speaks for
+            // the other any more.
+            SkyHour.of(LocalTime.now()),
             Modifier
                 .fillMaxWidth()
                 .height(fieldHeight + FieldDrop),

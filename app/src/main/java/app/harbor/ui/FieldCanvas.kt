@@ -66,6 +66,7 @@ import app.harbor.ui.theme.Gold
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.time.LocalTime
 import kotlin.math.hypot
 import kotlin.math.exp
 import kotlin.math.pow
@@ -470,7 +471,7 @@ fun FieldCanvas(
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
 
-        if (sky) FieldSky(settings.weather, Modifier.fillMaxSize())
+        if (sky) FieldSky(SkyHour.of(LocalTime.now()), Modifier.fillMaxSize())
 
         Canvas(
             Modifier

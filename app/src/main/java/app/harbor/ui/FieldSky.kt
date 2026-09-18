@@ -69,7 +69,7 @@ import app.harbor.ui.theme.Paper
  * are sourced differently.
  */
 @Composable
-fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
+fun FieldSky(hour: SkyHour, modifier: Modifier = Modifier) {
     val clock = rememberInfiniteTransition(label = "sky")
     val slow by clock.animateFloat(
         initialValue = 0f,
@@ -102,7 +102,7 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
     }
 
     Canvas(modifier.fillMaxSize()) {
-        val sky = fieldTintOf(weather)
+        val sky = fieldTintOf(hour)
 
         // Where the light is, and how far it carries. Every layer below reads
         // these two rather than its own copy: the wash, the warm pool and the
@@ -220,7 +220,7 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         // reads as a loop.
         if (sky.cloud > 0f) {
             drawFieldCloud(88.dp.toPx(), barTop + 16.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
-            if (weather != Weather.BRIGHT) {
+            if (hour != SkyHour.DAY) {
                 drawFieldCloud(66.dp.toPx(), barTop + 44.dp.toPx(), loopPhase(slow, 60_000f, 48_000f, 0.19f), sky)
                 drawFieldCloud(112.dp.toPx(), barTop + 28.dp.toPx(), loopPhase(slow, 60_000f, 60_000f, 0.40f), sky)
             }
@@ -504,9 +504,13 @@ private fun grainTile(size: Int = 128): Bitmap {
  * band at the top of a dark app and not the whole page. That is what keeps the
  * flowers fading into the UI below them.
  */
-private fun fieldTintOf(weather: Weather): SkyTint {
-    val meadow = meadowFor(weather)
-    val wash = washFor(weather)
+private fun fieldTintOf(hour: SkyHour): SkyTint {
+    // The ground keeps a weather even though the sky no longer has one: the
+    // meadow palette is where the land's greens come from, and they have to
+    // agree with the dots the field draws. Clear is the daylight version of
+    // them, which is what the terrain was always tuned against.
+    val meadow = meadowFor(Weather.CLEAR)
+    val wash = washForHour(hour)
     // The ground stops, each capped against the one above it so the ladder
     // can only darken. Hoisted out of the constructor because each cap needs
     // the colour before it -- see [noBrighterThan] for the ring this stops.
@@ -541,15 +545,21 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         // A sun is only a sun on the two days that have one. On the others the
         // prototype still names a disc, but it is the overcast's bright patch
         // 
-        sun = when (weather) {
-            Weather.CLEAR -> 0.55f
-            Weather.BRIGHT -> 1f
-            else -> 0.12f
+        // A sun by day, a softer one at dusk, none at night.
+        sun = when (hour) {
+            SkyHour.DAY -> 1f
+            SkyHour.DUSK -> 0.45f
+            SkyHour.NIGHT -> 0f
         },
         sunColour = wash.sun,
         // Straight from the prototype's own count, scaled to the three this
         // canvas draws.
-        cloud = (meadow.cloudCount / 8f).coerceIn(0f, 1f),
+        // Fewer clouds after dark, and none of them lit.
+        cloud = when (hour) {
+            SkyHour.DAY -> 0.62f
+            SkyHour.DUSK -> 0.45f
+            SkyHour.NIGHT -> 0.22f
+        },
         // Clouds were white against a blue overhead. Overhead is now the
         // palest tone in the palette, and white on near-white is nothing at
         // all, so they take a third of the sky's own middle and read as shape
@@ -560,11 +570,8 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         // prototype's. A cloud tinted with a sky it is no longer floating in
         // is the one thing in the frame that would still be the old colour.
         cloudColour = lerp(meadow.cloud, wash.mid, 0.34f),
-        rain = when (weather) {
-            Weather.RAIN -> 0.7f
-            Weather.STORM -> 1f
-            else -> 0f
-        },
+        // No rain. The sky is an hour now, not a forecast -- see SkyHour.
+        rain = 0f,
         // Nothing dims any more. See the note above: the heavy weathers are
         // pale now, and a wash over a pale sky only makes it muddy.
         dim = 0f,

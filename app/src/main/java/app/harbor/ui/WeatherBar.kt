@@ -188,10 +188,13 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
             // [app.harbor.ui.beeFace]. "How is life right now" was written for
             // a sky; a bee with a face asks more plainly, and the two arms
             // should not read as though they were asking different things.
-            Eyebrow(
-                if (LocalStudyArm.current == StudyArm.BEES) "How are you today"
-                else "How is life right now",
-            )
+            // One question in both arms.
+            //
+            // It briefly differed -- a sky asked "how is life", a bee asked
+            // "how are you today" -- and that was a second variable nobody
+            // ordered. The slider is seeded from the calendar now, so the
+            // honest question is the one the calendar can actually answer.
+            Eyebrow("How busy are you today")
             // The answer, not an action.
             //
             // At titleLarge in full-strength ink, sitting alone in the top
@@ -421,13 +424,31 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The five, as a day rather than as a sky.
+ *
+ * The values are unchanged and so is their order -- these are the same stored
+ * CLEAR..STORM the export has always carried, and renaming the labels cannot
+ * touch a single row. What changed is that the words now say what the ladder
+ * has always meant.
+ *
+ * It was always a busyness scale wearing weather's clothes. The captions
+ * underneath said so from the start ("Room to breathe. Nothing pressing.",
+ * "Good and busy. The kind you chose."), and [app.harbor.domain.Windows.weatherFor]
+ * derives the whole thing from how much of the day is booked. Once the slider
+ * began opening on that guess, "Cloudy" was the app describing a timetable in
+ * a metaphor the user never asked for.
+ *
+ * The enum keeps the weather names because they are in Postgres and in every
+ * exported file. A label is a label; a stored value is a promise.
+ */
 internal val Weather.label: String
     get() = when (this) {
-        Weather.CLEAR -> "Clear"
-        Weather.BRIGHT -> "Bright"
-        Weather.CLOUDY -> "Cloudy"
-        Weather.RAIN -> "Rain"
-        Weather.STORM -> "Storm"
+        Weather.CLEAR -> "Free"
+        Weather.BRIGHT -> "Easy"
+        Weather.CLOUDY -> "Filling up"
+        Weather.RAIN -> "Busy"
+        Weather.STORM -> "Slammed"
     }
 
 internal val Weather.caption: String
