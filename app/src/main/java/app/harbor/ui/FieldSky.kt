@@ -540,7 +540,7 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         ground = ground,
         // A sun is only a sun on the two days that have one. On the others the
         // prototype still names a disc, but it is the overcast's bright patch
-        // and it belongs at a fraction of the strength.
+        // 
         sun = when (weather) {
             Weather.CLEAR -> 0.55f
             Weather.BRIGHT -> 1f

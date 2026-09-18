@@ -157,6 +157,13 @@ object StudyExport {
             "cues_enabled" to bool(bundle.settings.cuesEnabled),
             "sound" to str(bundle.settings.sound.wire),
             "weather" to str(bundle.settings.weather.wire),
+            // Whether the weather above is theirs or ours. Without it the
+            // column cannot answer the question worth asking of it -- do
+            // people accept the guess, or correct it.
+            "weather_set_by_hand" to bool(
+                bundle.settings.weatherSetOn == bundle.exportedAt
+                    .atZone(java.time.ZoneId.systemDefault()).toLocalDate(),
+            ),
             "thresholds" to thresholds(bundle.settings.thresholds),
         ),
 

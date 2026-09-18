@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
 import app.harbor.domain.StudyArm
+import androidx.compose.runtime.LaunchedEffect
+import app.harbor.domain.Windows
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.updateAll
@@ -71,6 +73,7 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by store.settings.collectAsState()
+    val blocks by store.weekBlocks.collectAsState()
     val steps = Weather.entries
     val last = steps.size - 1
     val index = steps.indexOf(settings.weather).coerceAtLeast(0)
@@ -109,11 +112,44 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     // gets better data out of it too: WEATHER_SET was being written once per
     // step scrubbed past rather than once per decision, so a single drag
     // logged five weathers the person never chose.
+    // Today's guess, read off the week they typed in.
+    //
+    // Windows.weatherFor has existed unused since the week editor shipped --
+    // docs/09-master-context.md lists it as one of two finished components
+    // with no caller. This is the caller it was written for.
+    //
+    // Written into settings rather than held beside them, so the sky, the bee,
+    // the widget, the ledger and the export all agree about what was on the
+    // screen. What keeps that honest is weatherSetOn: a guess is marked as a
+    // guess and the first touch makes the value theirs. See UserSettings.
+    //
+    // Once per day at most: `today` above is remembered, so this re-guesses
+    // tomorrow and not on every recomposition.
+    val guessed = settings.weatherSetOn != today
+    LaunchedEffect(today, blocks, guessed) {
+        if (!guessed) return@LaunchedEffect
+        val guess = Windows.weatherFor(blocks, today.dayOfWeek)
+        if (guess != store.settings.value.weather) {
+            store.setSettings(store.settings.value.copy(weather = guess))
+        }
+    }
+
     fun choose(next: Int) {
         val clamped = next.coerceIn(0, last)
         moodSet = true
-        if (steps[clamped] != settings.weather) {
-            scope.launch { store.setSettings(settings.copy(weather = steps[clamped])) }
+        if (steps[clamped] != settings.weather || guessed) {
+            scope.launch {
+                // The touch is what makes it theirs, even if they land on the
+                // value already showing -- agreeing with a guess is still an
+                // answer, and the study should be able to tell that from
+                // somebody who never looked.
+                store.setSettings(
+                    store.settings.value.copy(
+                        weather = steps[clamped],
+                        weatherSetOn = today,
+                    ),
+                )
+            }
         }
     }
 
@@ -252,13 +288,23 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                     .clip(RoundedCornerShape(99.dp))
                     .background(
                         Brush.horizontalGradient(
+                            // Half-strength while it is only a guess.
+                            //
+                            // The signifier, and deliberately not a sentence.
+                            // A line saying "we set this from your calendar"
+                            // would be read once, ignored after, and cost a
+                            // row every day for the life of the study. A fill
+                            // that is washed out until you touch it says
+                            // provisional in the only place the eye is already
+                            // looking, and the difference is obvious the
+                            // moment the two states sit side by side.
                             listOf(
                                 Color(0xFF2B4F6B),
                                 Color(0xFF6F8FA8),
                                 Color(0xFFE8D6A8),
                                 Color(0xFFF0A35F),
                                 Color(0xFFC9542C),
-                            ),
+                            ).map { if (guessed) it.copy(alpha = 0.45f) else it },
                         ),
                     ),
             )

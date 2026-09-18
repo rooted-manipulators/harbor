@@ -304,12 +304,38 @@ data class UserSettings(
     val sound: CueSound = CueSound.CHIME,
 
     /**
-     * How life feels at the moment. The user sets it; nothing infers it.
+     * How life feels at the moment.
      *
      * Weather rather than a rating, because weather happens to you and
      * passes — a kinder frame for a hard week than a number would be.
+     *
+     * **This used to say "the user sets it; nothing infers it", and that is no
+     * longer true.** Harbor now opens each day on a guess read off the week
+     * the person typed in — see [Windows.weatherFor] — because a control that
+     * starts blank every morning asks somebody to do the work of noticing
+     * before they have properly opened the app. The guess is written here so
+     * that the sky, the bee, the ledger and the export all agree about what
+     * was actually on screen.
+     *
+     * What protects the old principle is [weatherSetOn]: a guess is always
+     * marked as a guess, always overridable, and never mistaken afterwards for
+     * something the person said.
      */
     val weather: Weather = Weather.CLEAR,
+
+    /**
+     * The day the person last moved the slider themselves, or null.
+     *
+     * The difference between "they told us" and "we guessed", and the reason
+     * the guess can be written to [weather] without lying. When this is not
+     * today, what is on screen is inferred and is drawn as provisional; the
+     * first touch of the slider sets it to today and the value becomes theirs.
+     *
+     * A date rather than a flag, because the guess should come back tomorrow.
+     * Yesterday's mood is not today's, and a stale answer left standing is
+     * worse than an honest guess.
+     */
+    val weatherSetOn: LocalDate? = null,
 
     val reducedMotion: Boolean = false,
 )

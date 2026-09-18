@@ -7,6 +7,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalTime
+import org.junit.Assert.assertNotEquals
+import java.time.LocalDate
 
 /**
  * What counts as room for a call.
@@ -374,4 +376,41 @@ class WindowsTest {
         val week = listOf(busy(LocalTime.MIDNIGHT, LocalTime.of(23, 59)))
         assertTrue(Windows.load(week, mon) <= 1.0)
     }
+    @Test
+    fun `a guess is only a guess until somebody touches the slider`() {
+        // weatherSetOn is the whole protection for writing an inferred mood
+        // into settings: the value is real, and the marker says whose it is.
+        val today = LocalDate.of(2026, 9, 19)
+        val fresh = UserSettings()
+        assertNotEquals(today, fresh.weatherSetOn)
+
+        val theirs = fresh.copy(weather = Weather.STORM, weatherSetOn = today)
+        assertEquals(today, theirs.weatherSetOn)
+
+        // Yesterday's answer does not stand in for today's. A stale mood left
+        // showing is worse than an honest guess.
+        val yesterday = theirs.copy(weatherSetOn = today.minusDays(1))
+        assertNotEquals(today, yesterday.weatherSetOn)
+    }
+
+    @Test
+    fun `a busier day guesses a heavier weather`() {
+        // The property that matters, rather than the exact bands: more of the
+        // day booked can never guess a lighter weather than less of it.
+        val order = Weather.entries
+        var last = -1
+        for (hours in 0..12) {
+            val blocks = if (hours == 0) emptyList() else listOf(
+                WeekBlock(
+                    day = DayOfWeek.MONDAY,
+                    start = LocalTime.of(9, 0),
+                    end = LocalTime.of(9 + hours, 0),
+                ),
+            )
+            val here = order.indexOf(Windows.weatherFor(blocks, DayOfWeek.MONDAY))
+            assertTrue("a fuller day guessed lighter at " + hours + "h", here >= last)
+            last = here
+        }
+    }
+
 }

@@ -59,6 +59,7 @@ internal object LedgerJson {
         .put("cues_enabled", s.cuesEnabled)
         .put("sound", s.sound.wire)
         .put("weather", s.weather.wire)
+        .put("weather_set_on", s.weatherSetOn?.toString())
         .put("name", s.name)
         .put("reduced_motion", s.reducedMotion)
 
@@ -69,6 +70,11 @@ internal object LedgerJson {
             ?.let { CueSound.entries.fromWire(it) } ?: CueSound.CHIME,
         weather = o.optStringOrNull("weather")
             ?.let { Weather.entries.fromWire(it) } ?: Weather.CLEAR,
+        // Absent on anything written before the guess existed, which reads as
+        // "never set by hand" -- so an existing install gets a guess tomorrow
+        // rather than keeping whatever it happened to be left on.
+        weatherSetOn = o.optStringOrNull("weather_set_on")
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
         name = o.optStringOrNull("name").orEmpty(),
         reducedMotion = o.optBoolean("reduced_motion", false),
     )
