@@ -78,7 +78,13 @@ internal val StemFoot = Color(0xFFFF6E68)
  * the hour it starts. The spikes are extra.
  */
 internal fun DrawScope.drawThorn(body: Rect) {
-    val spike = (body.width * 0.17f).coerceIn(2.5f, 9f)
+    // A spike is a size, not a fraction.
+    //
+    // This was `width * 0.17f` capped at nine *pixels*, which on a block one
+    // seventh of a phone wide came out about right, and on a card-wide day
+    // comes out at about three points: the thorn loses its silhouette and
+    // reads as a green slab. Both ends of the range are real measurements now.
+    val spike = (body.width * 0.17f).coerceIn(2.5f, SPIKE.toPx())
     val left = body.left + spike
     val right = body.right - spike
     if (right <= left) return
@@ -102,7 +108,9 @@ internal fun DrawScope.drawThorn(body: Rect) {
 
     // Down each long edge, one row offset half a step from the other so the
     // silhouette does not come out symmetrical.
-    val step = (width * 0.62f).coerceAtLeast(6f)
+    // The pitch follows the spike rather than the block's width, so a wide
+    // block grows more of them instead of four enormous ones.
+    val step = (spike * 2.4f).coerceAtLeast(6f)
     val rows = (body.height / step).toInt().coerceAtLeast(1)
     val pitch = body.height / rows
     val halfBase = (pitch * 0.32f).coerceAtMost(width * 0.30f)
@@ -115,10 +123,12 @@ internal fun DrawScope.drawThorn(body: Rect) {
         }
     }
 
-    // Three across the cap and three across the foot.
-    val acrossHalf = (width / 3f * 0.34f)
-    for (i in 0 until 3) {
-        val x = left + width * (i + 0.5f) / 3f
+    // As many across the cap and the foot as fit. It was three of each, which
+    // on a card-wide thorn left two hand-spans of bare edge between them.
+    val across = (width / (spike * 2.6f)).toInt().coerceIn(3, 16)
+    val acrossHalf = (width / across * 0.34f)
+    for (i in 0 until across) {
+        val x = left + width * (i + 0.5f) / across
         path.spikeAt(body.top, x, -spike, acrossHalf, vertical = false)
         path.spikeAt(body.bottom, x, spike, acrossHalf, vertical = false)
     }
@@ -128,9 +138,15 @@ internal fun DrawScope.drawThorn(body: Rect) {
         brush = skin,
         topLeft = Offset(left, body.top),
         size = Size(width, body.height),
-        cornerRadius = CornerRadius(width * 0.26f),
+        cornerRadius = CornerRadius(minOf(width * 0.26f, CORNER.toPx())),
     )
 }
+
+/** How far a spike reaches out of the body, at the most. */
+private val SPIKE = 5.dp
+
+/** How round the body's corners get, at the most. */
+private val CORNER = 10.dp
 
 /**
  * One triangle, pointing out of an edge by [reach].
@@ -158,20 +174,26 @@ private fun Path.spikeAt(
 }
 
 /**
- * A flower filling [body]: a head at the top, and a stem down the rest.
+ * A flower filling [body]: blooms along the top, and a bed down the rest.
  *
- * The head is sized off the column rather than off the block, so half an hour
- * and four hours grow the same flower and only the stem gets longer. It is
- * allowed to sit slightly proud of the block's top edge, exactly as the
- * frames draw it.
+ * A bloom is a fixed size, so half an hour and four hours grow the same
+ * flower and only the bed gets longer. It is allowed to sit slightly proud of
+ * the block's top edge, exactly as the frames draw it.
+ *
+ * The size used to be `width * 0.46f`, which was right while a block was one
+ * seventh of a phone wide and became absurd when the week became a day and a
+ * block got the whole card: a single head scaled to 250dp swallowed six hours
+ * of the morning either side of it. The intent was always that duration
+ * changes the stem and nothing else, so the cap now says that outright — and
+ * a block too wide for one bloom grows a row of them, which is how the frames
+ * draw a card-wide flower and what a bed of them actually looks like.
  */
 internal fun DrawScope.drawFlowerBlock(body: Rect) {
-    val headR = (body.width * 0.46f).coerceAtLeast(3f)
-    val cx = body.center.x
+    val headR = minOf(body.width * 0.46f, BLOOM.toPx()).coerceAtLeast(3f)
     val cy = body.top + headR * 0.74f
 
-    // Stem first: the petals overlap its shoulders, which is what gives the
-    // head somewhere to sit rather than something to float above.
+    // Bed first: the petals overlap its shoulders, which is what gives the
+    // heads somewhere to sit rather than something to float above.
     val stemLeft = body.left + body.width * 0.09f
     val stemRight = body.right - body.width * 0.09f
     if (body.bottom > cy && stemRight > stemLeft) {
@@ -183,12 +205,19 @@ internal fun DrawScope.drawFlowerBlock(body: Rect) {
             ),
             topLeft = Offset(stemLeft, cy),
             size = Size(stemRight - stemLeft, body.bottom - cy),
-            cornerRadius = CornerRadius(body.width * 0.22f),
+            cornerRadius = CornerRadius(minOf(body.width * 0.22f, headR * 0.7f)),
         )
     }
 
-    drawBloomHead(Offset(cx, cy), headR)
+    val count = (body.width / (headR * 2.1f)).toInt().coerceIn(1, 8)
+    val step = body.width / count
+    for (i in 0 until count) {
+        drawBloomHead(Offset(body.left + step * (i + 0.5f), cy), headR)
+    }
 }
+
+/** How big a bloom on the week is, whatever the block under it. */
+private val BLOOM = 15.dp
 
 /**
  * The head on its own: six lobes, a middle, and a throat across it.

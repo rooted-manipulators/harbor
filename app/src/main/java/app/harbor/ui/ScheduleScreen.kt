@@ -409,6 +409,20 @@ private fun WeekEditor(
     var carryAt by remember { mutableStateOf(Offset.Zero) }
     var dropped by remember { mutableStateOf<Pair<BlockKind, Offset>?>(null) }
 
+    // Where the finger is while a block is in the air, in root coordinates,
+    // and whether it has left the day sideways. Both null/false the rest of
+    // the time.
+    //
+    // Lifted out of the day because the bin is anchored to the screen and the
+    // day is not: the card is twenty-four hours tall, which is taller than the
+    // phone, so a bin at the foot of the card is a bin you cannot see while
+    // you are dragging anything from the morning. The frames put it in the
+    // bottom half of the *screen*, and that is the only place it can be and
+    // still be a target.
+    var dragAt by remember { mutableStateOf<Offset?>(null) }
+    var leftTheDay by remember { mutableStateOf(false) }
+    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
+
     // Which day is under the finger. Today, until somebody says otherwise.
     val today = remember { LocalDate.now() }
     var showing by remember { mutableStateOf(today) }
@@ -429,7 +443,19 @@ private fun WeekEditor(
         }
     }
 
-    Box(modifier.fillMaxSize().background(skin.ground)) {
+    val density = LocalDensity.current
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            .background(skin.ground)
+            .onGloballyPositioned { pageOrigin = it.positionInRoot() },
+    ) {
+        // Over the bin, or out of the day altogether. Either scraps it.
+        val armed = dragAt?.let { at ->
+            leftTheDay ||
+                with(density) { (at.y - pageOrigin.y).toDp() } > maxHeight - BIN_BAND
+        } ?: false
+
         Column(
             Modifier
                 .fillMaxSize()
@@ -501,6 +527,9 @@ private fun WeekEditor(
                         commit(next)
                     },
                     onShow = { showing = it },
+                    armed = armed,
+                    onDragAt = { dragAt = it },
+                    onLeftTheDay = { leftTheDay = it },
                     onCopyYesterday = {
                         // A timetable is the same hours on five days far more
                         // often than it is five different sets, and redrawing
@@ -534,6 +563,17 @@ private fun WeekEditor(
             }
         }
 
+        if (dragAt != null) {
+            BinTarget(
+                armed = armed,
+                skin = skin,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(BIN_BAND),
+            )
+        }
+
         if (pickingMonth) {
             MonthSheet(
                 showing = showing,
@@ -554,7 +594,9 @@ private const val LAST_HOUR = 24
 private const val LABEL_EVERY = 2
 private const val SNAP_MINUTES = 30
 private val HOUR_HEIGHT = 21.dp
-private val GUTTER = 42.dp
+// Wide enough for "00:00" at nine points on one line. At 42dp it wrapped, and
+// every hour down the day read as "00:0" over "0".
+private val GUTTER = 50.dp
 
 /** The strip under the hours that the bin lives in. Not part of the day. */
 private val CARD_FOOT = 44.dp
@@ -569,6 +611,17 @@ private val DayCardShape = RoundedCornerShape(26.dp)
 
 /** How far sideways counts as "show me the next day". */
 private val SWIPE_DAY = 56.dp
+
+/**
+ * How much of the screen's foot the bin takes, and therefore how far down a
+ * block has to come before letting go of it scraps it.
+ *
+ * Roughly the bottom quarter of a phone. Deep enough to be an easy target at
+ * the end of a long drag, shallow enough that it is not somewhere a thumb
+ * arrives by accident on the way to the day's last hours -- which it cannot
+ * do anyway, because the band is only live while something is being carried.
+ */
+private val BIN_BAND = 220.dp
 
 /** How many days either side of the chosen one the strip shows. */
 private const val STRIP_REACH = 2
@@ -639,16 +692,17 @@ private fun DayBoard(
     /** The second argument is null when the block was dropped in the bin. */
     onCommit: (List<WeekBlock>, WeekBlock?) -> Unit,
     onShow: (LocalDate) -> Unit,
+    /** True when letting go here would scrap the block. The page decides it. */
+    armed: Boolean,
+    /** Where the finger is in root coordinates, or null when nothing is held. */
+    onDragAt: (Offset?) -> Unit,
+    /** Whether the finger has left the day sideways or past its last hour. */
+    onLeftTheDay: (Boolean) -> Unit,
     onCopyYesterday: () -> Unit,
 ) {
     val hours = LAST_HOUR - FIRST_HOUR
     val density = LocalDensity.current
     val hoursHeight = HOUR_HEIGHT * hours
-
-    // Raised while a block is being held outside the day. Dragging something
-    // off the bottom or out of the side of your day is the gesture, and the
-    // pointer stays captured once a drag starts.
-    var overBin by remember { mutableStateOf(false) }
 
     // The block under the finger, and the rest of the week without it.
     var carried by remember { mutableStateOf<WeekBlock?>(null) }
@@ -757,6 +811,7 @@ private fun DayBoard(
                 // be created but never sized, and every drag ended as a cancel.
                 val latest by rememberUpdatedState(blocks)
                 val nowPlanting by rememberUpdatedState(planting)
+                val nowArmed by rememberUpdatedState(armed)
                 val onDay by rememberUpdatedState(mine)
 
                 fun hitTest(at: Offset): Pair<WeekBlock, Grab>? {
@@ -857,6 +912,8 @@ private fun DayBoard(
                             .width(GUTTER)
                             .padding(start = 8.dp, end = 6.dp),
                         textAlign = TextAlign.End,
+                        maxLines = 1,
+                        softWrap = false,
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontSize = 9.sp,
                             color = skin.muted,
@@ -955,6 +1012,7 @@ private fun DayBoard(
                                 carried?.let {
                                     onSelect(it)
                                     onPreview(rest + it)
+                                    onDragAt(hoursOrigin + down.position)
                                 }
 
                                 // Absolute positions rather than accumulated
@@ -967,10 +1025,14 @@ private fun DayBoard(
                                     // Out of the day, in any direction. One
                                     // column means sideways is no longer a way
                                     // of saying "Tuesday", so it is free to be
-                                    // the way of saying "away".
-                                    overBin = cursor.y > size.height ||
-                                        cursor.x < 0f ||
-                                        cursor.x > size.width
+                                    // the way of saying "away". Dragging down
+                                    // onto the bin is the page's half of this.
+                                    onLeftTheDay(
+                                        cursor.y > size.height ||
+                                            cursor.x < 0f ||
+                                            cursor.x > size.width,
+                                    )
+                                    onDragAt(hoursOrigin + cursor)
                                     val next = when (grab) {
                                         Grab.Move -> {
                                             val length =
@@ -1000,17 +1062,18 @@ private fun DayBoard(
                                 }
 
                                 carried?.let {
-                                    // Let go outside the day: the bin takes it
-                                    // and nothing is planted. A gesture the
-                                    // system cancelled keeps its block instead,
-                                    // because losing work to a stray
-                                    // notification is worse than an unwanted
-                                    // half hour.
-                                    if (finished && overBin) onCommit(rest, null)
+                                    // Let go on the bin, or outside the day:
+                                    // it is taken and nothing is planted. A
+                                    // gesture the system cancelled keeps its
+                                    // block instead, because losing work to a
+                                    // stray notification is worse than an
+                                    // unwanted half hour.
+                                    if (finished && nowArmed) onCommit(rest, null)
                                     else onCommit(Windows.place(rest, it), it)
                                 }
                                 carried = null
-                                overBin = false
+                                onLeftTheDay(false)
+                                onDragAt(null)
                             }
                         },
                 )
@@ -1046,25 +1109,6 @@ private fun DayBoard(
                 }
             }
 
-            // The bin, over the foot of the day, and only while something is in
-            // the air.
-            //
-            // Removing a block used to mean tapping it and then finding a pill
-            // further down the page, which is a two-step answer to a one-step
-            // thought. Dragging something out of your day and letting go of it
-            // is the same gesture as throwing it away, and the frames draw the
-            // target for it the way a story drags to one: a gradient up the
-            // bottom of the card with the bin sitting in it.
-            if (carried != null) {
-                BinTarget(
-                    armed = overBin,
-                    skin = skin,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(hoursHeight * 0.34f + CARD_FOOT),
-                )
-            }
         }
     }
 }
@@ -1168,14 +1212,15 @@ private fun blockBox(
 )
 
 /**
- * Where a block goes to die: a gradient up the foot of the day with a bin in
- * it, the way a story drags to one.
+ * Where a block goes to die: a gradient up the foot of the screen with a bin
+ * in it, the way a story drags to one.
  *
  * It only appears while something is being carried, and it lights when the
- * finger is somewhere a let-go would scrap the block -- which is anywhere out
- * of the day, sideways or past the last hour. The band is drawn over the
- * bottom of the card rather than under it so there is something to aim at on
- * the way down; the arming is the geometry, not the picture.
+ * finger is somewhere a let-go would scrap the block -- over this band, or out
+ * of the day sideways. Anchored to the screen rather than to the card, because
+ * the card is twenty-four hours tall and its own foot is off the bottom of the
+ * phone: a bin down there is invisible for most of the day and unreachable for
+ * all of it.
  */
 @Composable
 private fun BinTarget(armed: Boolean, skin: WeekSkin, modifier: Modifier = Modifier) {
@@ -1391,6 +1436,16 @@ private fun MonthSheet(
                 .fillMaxWidth()
                 .height(380.dp)
                 .clip(RoundedCornerShape(28.dp))
+                // An opaque ground, and the warm wash over it.
+                //
+                // The wash alone was the whole background, and both its stops
+                // are translucent -- `tile` is white at five percent and the
+                // ember at sixteen -- so the sheet came out about a tenth
+                // opaque and you read the day strip and a row of flowers
+                // straight through the month. A panel that covers the page has
+                // to actually cover it; the warmth is a tint on top, not the
+                // thing holding the light out.
+                .background(skin.ground)
                 .background(
                     Brush.linearGradient(
                         listOf(skin.tile, Ember.copy(alpha = 0.16f)),
