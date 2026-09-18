@@ -64,8 +64,25 @@ object Field {
     // to show, so this is as far down as it is worth going.
     const val FLOWER_AT = 4.2
 
-    /** Cell radius in pixels is this times its size, times the projected scale. */
-    const val DOT_SCALE = 3.3
+    /**
+     * Cell radius in pixels is this times its size, times the projected scale.
+     *
+     * Tied to [Terrain.CELL], and the ratio between them is the thing that
+     * matters: a dot is `size * DOT_SCALE` across and stands `CELL` from its
+     * neighbour, so `DOT_SCALE / CELL` is how much of the ground each cell
+     * covers. That ratio is fixed across zoom — dots and the gaps between them
+     * grow together — which is why getting it wrong looks fine far off, where
+     * every dot is sub-pixel, and like a heap of overlapping discs close to.
+     *
+     * Was 3.3 against a cell of 15. When the grid went to 10 this stayed at
+     * 3.3 for one build, which put coverage up by half and turned the ground
+     * at standing zoom into green foam. 2.2 against 10 is the same coverage as
+     * 3.3 against 15: the same ground, told in more and smaller marks, which
+     * is what denser was meant to mean.
+     *
+     * Change [Terrain.CELL] and this has to move with it.
+     */
+    const val DOT_SCALE = 2.2
 
     /**
      * Drawn radius at which a bloom stops being drawn and becomes the artwork.
@@ -786,7 +803,15 @@ object Field {
                         tone = Terrain.hash2(col, row, Terrain.SEED + 11),
                         // Inside somebody's patch the ground is planted:
                         // denser, larger, and in their flower's colour.
-                        size = min(2.4, 0.72 + chance * 0.9 + grove * 0.5),
+                        //
+                        // Carried up by half when [DOT_SCALE] came down by a
+                        // third, so a bloom is drawn at exactly the pixels it
+                        // always was. The ground wanted finer marks because
+                        // there are more of them now; a flower did not. It is
+                        // one flower for one call whatever the grid is doing,
+                        // and shrinking it would have made the first week's
+                        // reward quietly smaller.
+                        size = min(3.6, 1.08 + chance * 1.35 + grove * 0.75),
                     )
                 }
 
