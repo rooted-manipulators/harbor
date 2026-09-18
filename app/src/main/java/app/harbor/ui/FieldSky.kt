@@ -161,14 +161,22 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
         // above, so the sky stays sky; gone before the settle, so the bottom
         // still arrives at the page as one colour. No edge anywhere -- it is a
         // haze the land stands in rather than a shape drawn under it.
+        //
+        // Wider and weaker than it was, for the same reason the stops are
+        // capped: at half alpha across a third of the radius this was not a
+        // haze, it was a band, and a band with a light green in it is the
+        // other half of the ring [noBrighterThan] describes. Spread across
+        // half the radius at a bit over a quarter alpha it does the same job
+        // -- the gaps between the dots stop reading blue -- without ever
+        // being an edge.
         drawRect(
             brush = Brush.radialGradient(
                 colorStops = arrayOf(
                     0.00f to Color.Transparent,
-                    0.20f to Color.Transparent,
-                    0.32f to sky.grass.copy(alpha = 0.50f),
-                    0.44f to sky.grass.copy(alpha = 0.42f),
-                    0.58f to Color.Transparent,
+                    0.16f to Color.Transparent,
+                    0.30f to sky.grass.copy(alpha = 0.30f),
+                    0.46f to sky.grass.copy(alpha = 0.26f),
+                    0.66f to Color.Transparent,
                     1.00f to Color.Transparent,
                 ),
                 center = lit,
@@ -355,6 +363,44 @@ private fun deepen(colour: Color, saturation: Float, darken: Float): Color {
 }
 
 /**
+ * The same colour, but never lighter than the one above it in the ladder.
+ *
+ * ## The ring this exists to stop
+ *
+ * The wash runs light at the top and dark at the bottom, and it is easy to
+ * assume that writing the stops in that order is enough. It is not. The sky
+ * stops are hand-mixed and the ground stops are derived from a different
+ * palette, and four of the five weathers came out with a *land* stop lighter
+ * than the sky stop above it -- rain by a third of the whole range. The light
+ * fell off and then went back up.
+ *
+ * A ladder that brightens again draws a ring, and the eye is very good at
+ * finding one: it reads as an outline around the glow, a warm yellow-green
+ * annulus sitting where the land should just be quietly arriving. Which is
+ * exactly what it was called when it was seen on a phone.
+ *
+ * Real light does not do that. A flare has a bright core and a long smooth
+ * tail and nothing anywhere along it gets brighter than what it came from.
+ *
+ * ## Why a rule and not five fixed colours
+ *
+ * Because the two halves of the ladder will go on being edited separately --
+ * that split is the whole design, see [Wash] -- and every future edit to
+ * either half can reintroduce this. Capping lightness costs nothing, cannot
+ * be forgotten, and leaves hue and saturation alone, so the land is still the
+ * land's own green; it just is not allowed to be a light one.
+ */
+private fun noBrighterThan(ceiling: Color, colour: Color): Color {
+    val above = FloatArray(3)
+    val here = FloatArray(3)
+    ColorUtils.colorToHSL(ceiling.toArgb(), above)
+    ColorUtils.colorToHSL(colour.toArgb(), here)
+    if (here[2] <= above[2]) return colour
+    here[2] = above[2]
+    return Color(ColorUtils.HSLToColor(here))
+}
+
+/**
  * A tile of fixed noise, laid over the whole wash.
  *
  * Every reference for this gradient has grain in it, and grain is not a
@@ -446,6 +492,18 @@ private fun grainTile(size: Int = 128): Bitmap {
 private fun fieldTintOf(weather: Weather): SkyTint {
     val meadow = meadowFor(weather)
     val wash = washFor(weather)
+    // The ground stops, each capped against the one above it so the ladder
+    // can only darken. Hoisted out of the constructor because each cap needs
+    // the colour before it -- see [noBrighterThan] for the ring this stops.
+    val land = noBrighterThan(wash.deep, deepen(meadow.hills.last(), 1.30f, 0.25f))
+    val grass = noBrighterThan(land, deepen(meadow.field.first(), 1.30f, 0.12f))
+    val ground = noBrighterThan(
+        grass,
+        // Just under half way to the page. Far enough that it reads as dark
+        // green rather than as the meadow repeated, close enough that it is
+        // still recognisably the ground and not a grey.
+        lerp(deepen(meadow.fieldDeep.last(), 1.16f, 0.18f), Paper, 0.45f),
+    )
     return SkyTint(
         // The four sky stops come from the wash table, already mixed, and
         // are used as they are.
@@ -459,15 +517,12 @@ private fun fieldTintOf(weather: Weather): SkyTint {
         pale = wash.pale,
         mid = wash.mid,
         deep = wash.deep,
-        // Land is still the meadow's, deepened as before. See [Wash]: the sky
-        // is free to be whatever the weather wants, and the ground is not,
-        // because the ground has to agree with the dots drawn on it.
-        land = deepen(meadow.hills.last(), 1.30f, 0.25f),
-        grass = deepen(meadow.field.first(), 1.30f, 0.12f),
-        // Just under half way to the page. Far enough that it reads as dark
-        // green rather than as the meadow repeated, close enough that it is
-        // still recognisably the ground and not a grey.
-        ground = lerp(deepen(meadow.fieldDeep.last(), 1.16f, 0.18f), Paper, 0.45f),
+        // Land is still the meadow's. See [Wash]: the sky is free to be
+        // whatever the weather wants, and the ground is not, because the
+        // ground has to agree with the dots drawn on it.
+        land = land,
+        grass = grass,
+        ground = ground,
         // A sun is only a sun on the two days that have one. On the others the
         // prototype still names a disc, but it is the overcast's bright patch
         // and it belongs at a fraction of the strength.

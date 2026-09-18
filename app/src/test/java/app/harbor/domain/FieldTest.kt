@@ -3,6 +3,8 @@ package app.harbor.domain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.pow
+import kotlin.math.sqrt
 import java.util.UUID
 
 /**
@@ -754,11 +756,12 @@ class FieldTest {
     }
 
     @Test
-    fun `a pull-back can refuse to flatten`() {
+    fun `a tilt floor holds the view in perspective`() {
         // The whole flat-to-perspective blend lives between 2.1x and 4.2x, and
         // a scroll crosses that in about a fifth of its travel -- so the view
         // tipped to an overhead map in the middle of an otherwise even move.
-        // Held at the floor it stays the landscape it started as.
+        // The floor is what lets a caller spread that morph out instead; see
+        // pullTilt, which is what actually feeds it during a pull.
         val cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, 0.5 * 0.7)
         val free = Field.buildLens(cam, 0.5, 1080.0, 2400.0)
         val held = Field.buildLens(cam, 0.5, 1080.0, 2400.0, tiltFloor = 1.0)
@@ -771,6 +774,43 @@ class FieldTest {
             Field.buildLens(close, 0.5, 1080.0, 2400.0, tiltFloor = 0.4).tilt,
             1e-9,
         )
+    }
+
+    @Test
+    fun `a pull tips the view over its whole travel, not a fifth of it`() {
+        val stand = 0.5 * 27
+        val wide = 0.5 * 0.7
+        // Standing in the field, and looking straight down at the far end.
+        assertEquals(1.0, Field.pullTilt(stand, wide, stand), 1e-9)
+        assertEquals(0.0, Field.pullTilt(stand, wide, wide), 1e-9)
+
+        // The middle of the pull is the middle of the tip. This is the whole
+        // point: read off the zoom alone the tilt would still be 1.0 here,
+        // and would then do all of its work in the last stretch.
+        val middle = sqrt(stand * wide)
+        assertEquals(0.5, Field.pullTilt(stand, wide, middle), 1e-9)
+        assertEquals(
+            "the zoom's own tilt has not begun to move at the halfway point",
+            1.0,
+            Field.tiltFor(middle, 0.5),
+            1e-9,
+        )
+
+        // Never backwards, anywhere along it.
+        var last = 1.1
+        for (i in 0..40) {
+            val zoom = stand * (wide / stand).pow(i / 40.0)
+            val tilt = Field.pullTilt(stand, wide, zoom)
+            assertTrue("tilt went back up at step " + i, tilt <= last + 1e-12)
+            last = tilt
+        }
+
+        // Past either end, and nonsense, are all pinned rather than
+        // extrapolated -- a camera the chase has overshot must not tip
+        // further than flat or further than standing.
+        assertEquals(1.0, Field.pullTilt(stand, wide, stand * 2), 1e-9)
+        assertEquals(0.0, Field.pullTilt(stand, wide, wide / 2), 1e-9)
+        assertEquals("no floor at all, rather than a flat view", 0.0, Field.pullTilt(0.0, wide, stand), 1e-9)
     }
 
     @Test

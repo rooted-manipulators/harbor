@@ -4,6 +4,7 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -554,19 +555,51 @@ object Field {
      * all the way back you should be able to see where your garden sits in the
      * island, and at a cover fit the edges are still past the frame.
      *
-     * So this is a contain fit, the smaller ratio, and then a margin. The
-     * island lands inside the view with dark around it.
+     * So this is a contain fit, the smaller ratio, and then a factor.
      *
-     * The margin was 0.14 and is now 0.05. At the wider setting the island sat
-     * in the middle of the frame with a ring of empty dark around it, which
-     * reads as a map of somewhere rather than the place itself -- and the
-     * flowers, which are the point of pulling back at all, were a few pixels
-     * each. Filling all but a sliver of the frame keeps it a garden seen from
-     * above.
+     * That factor has been walked in twice, in the same direction both times,
+     * and it has now crossed over: 0.86, then 0.95, and now 1.20. Under one it
+     * was a margin and the island sat inside the frame with dark around it --
+     * a map of somewhere rather than the place itself, and the flowers, which
+     * are the whole point of pulling back, a few pixels each. Over one it is
+     * an overflow: the island is wider than the frame and the frame is full of
+     * garden.
+     *
+     * Which means this is no longer quite a contain fit, and the name is a
+     * little generous. It is the widest the view is allowed to get, and what
+     * it is worth is that the thing you pulled back to look at is still big
+     * enough to look at.
      */
     fun wideZoom(width: Double, height: Double): Double =
         if (width <= 0 || height <= 0) 0.2
-        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 0.95
+        else min(width / Terrain.FIELD_W, height / Terrain.FIELD_H) * 1.20
+
+    /**
+     * How much perspective a pull-back is still holding, by how far its
+     * camera has travelled.
+     *
+     * [tiltFor] answers the same question from the zoom alone, and that is
+     * the right answer everywhere except here. Its whole flat-to-perspective
+     * blend lives between 2.1x and 4.2x, which a pull crosses in about a
+     * fifth of its travel -- so a scroll that is even everywhere else tipped
+     * from standing in the field to an overhead map in one short stretch of
+     * the middle. Feeding this to [buildLens] as the floor spreads the same
+     * morph across the whole pull, and [buildLens] taking the greater of the
+     * two means the zoom's own tilt still wins wherever it is higher.
+     *
+     * In log space because zoom multiplies: halfway between 27x and 1x is
+     * about 5x, not 14x, and reading it linearly would claim the move was
+     * nearly done while most of it was still to come.
+     *
+     * Returns 1 at [stand] and 0 at [wide]. Zero for nonsense input, which
+     * means no floor at all rather than a flat view.
+     */
+    fun pullTilt(stand: Double, wide: Double, zoom: Double): Double {
+        if (stand <= 0.0 || wide <= 0.0 || zoom <= 0.0) return 0.0
+        val span = ln(stand / wide)
+        if (span <= 0.0) return 0.0
+        return 1.0 - (ln(stand / zoom) / span).coerceIn(0.0, 1.0)
+    }
 
     /** 0 is flat overhead, 1 is full perspective. Everything between is real. */
     fun tiltFor(zoom: Double, base: Double): Double =

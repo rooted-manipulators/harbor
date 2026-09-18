@@ -412,16 +412,11 @@ fun FieldCanvas(
             // destination and slows the chase right down while it is the thing
             // steering -- [PULL_TAU] against the tenth of a second a tap gets.
             chase.tau = PULL_TAU
-            // Keep the shot in perspective the whole way out.
-            //
-            // Tilt is otherwise a function of zoom, and the entire
-            // flat-to-perspective blend lives between 2.1x and 4.2x -- which
-            // the pull crosses in about a fifth of its travel. The view was
-            // tipping from standing in the field to an overhead map in the
-            // middle of a move that is even everywhere else, and that lurch is
-            // the stutter. Held at the floor it never happens: the same
-            // landscape, from higher up.
-            flatten.floor = 1.0
+            // Hand the tilt to the pull's own travel rather than to the zoom,
+            // so the view tips over the whole scroll instead of over a fifth
+            // of it. See [Flatten].
+            flatten.stand = standZoom
+            flatten.wide = wideZoom
             goal = Field.Camera(
                 x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
                 y = standY + (Terrain.FIELD_H / 2 - standY) * pull,
@@ -488,12 +483,12 @@ fun FieldCanvas(
                         touched = true
                         // Taking hold of the field hands the dial back: a
                         // pinch really is asking for the plan view.
-                        flatten.floor = 0.0
+                        flatten.release()
                         val tilt = Field.tiltFor(goal.zoom, base)
                         val nextZoom = Field.clampZoom(goal.zoom * zoom, base)
                         // A deliberate flight, not the pull: brisk again.
                         chase.tau = TAP_TAU
-                        flatten.floor = 0.0
+                        flatten.release()
                         goal = Field.Camera(
                             x = goal.x - pan.x / goal.zoom,
                             // Dragging up the screen has to cover more ground
@@ -512,7 +507,7 @@ fun FieldCanvas(
                             return@detectTapGestures
                         }
                         if (base <= 0 || frame.height == 0) return@detectTapGestures
-                        val lens = Field.buildLens(cam, base, frame.width.toDouble(), frame.height.toDouble(), flatten.floor)
+                        val lens = Field.buildLens(cam, base, frame.width.toDouble(), frame.height.toDouble(), flatten.floorAt(cam.zoom))
                         val point = Field.Point()
                         var best: Field.Patch? = null
                         var bestDist = 76.0
@@ -537,7 +532,7 @@ fun FieldCanvas(
                             touched = true
                             // Taking hold of the field hands the dial back: a
                             // pinch really is asking for the plan view.
-                            flatten.floor = 0.0
+                            flatten.release()
                             // A deliberate flight, not the pull: brisk again.
                             chase.tau = TAP_TAU
                             goal = Field.Camera(it.x, it.y, base * 6.5)
@@ -575,7 +570,7 @@ fun FieldCanvas(
             val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirring.speed)
             drawField(
                 built, patches, palette, cam, base, kit, tagInk, newest, art,
-                stir, stirring.headingX, stirring.headingY, flatten.floor,
+                stir, stirring.headingX, stirring.headingY, flatten.floorAt(cam.zoom),
             )
         }
 
@@ -585,7 +580,7 @@ fun FieldCanvas(
                 touched = true
                 // Taking hold of the field hands the dial back: a
                 // pinch really is asking for the plan view.
-                flatten.floor = 0.0
+                flatten.release()
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom * 1.45, base))
@@ -594,7 +589,7 @@ fun FieldCanvas(
                 touched = true
                 // Taking hold of the field hands the dial back: a
                 // pinch really is asking for the plan view.
-                flatten.floor = 0.0
+                flatten.release()
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom / 1.45, base))
@@ -610,7 +605,7 @@ fun FieldCanvas(
                 touched = true
                 // Taking hold of the field hands the dial back: a
                 // pinch really is asking for the plan view.
-                flatten.floor = 0.0
+                flatten.release()
                 // A deliberate flight, not the pull: brisk again.
                 chase.tau = TAP_TAU
                 goal = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
@@ -814,11 +809,46 @@ private const val PULL_TAU = 0.45
 /**
  * How much the pull refuses to let the view flatten, 0 to 1.
  *
+ * ## Why this is not simply held at 1
+ *
+ * It was, for one commit, and that was an overcorrection worth recording.
+ *
+ * Tilt is otherwise a function of zoom, and the whole flat-to-perspective
+ * blend lives between 2.1x and 4.2x -- which a pull crosses in about a fifth
+ * of its travel. So the view tipped from standing in the field to an overhead
+ * map in the middle of a move that is even everywhere else. Holding the floor
+ * at 1 did stop the lurch, by never flattening at all. It also threw away the
+ * top view, which turned out to be the thing the pull was *for*.
+ *
+ * The lurch was never the flattening. It was the flattening happening in a
+ * fifth of the distance. So the floor now falls from 1 to 0 across the pull's
+ * own travel, and because [Field.buildLens] takes the greater of this and the
+ * zoom's own tilt, the result is one even morph from standing in the field to
+ * looking down on it, spread over the whole scroll.
+ *
+ * ## Why the camera's zoom and not the scroll position
+ *
+ * The finger can stop anywhere and the camera keeps going -- that is the
+ * crane shot. Measured against the scroll, the tilt would arrive while the
+ * zoom was still travelling, and the view would flatten out from under a move
+ * that had not finished. Measured against the camera, the two cannot separate.
+ *
  * A plain object: written from the pull's effect, read while drawing, and
  * neither should recompose anything.
  */
 private class Flatten {
-    var floor: Double = 0.0
+    /** Where the pull starts and ends. Both zero when nothing is pulling. */
+    var stand: Double = 0.0
+    var wide: Double = 0.0
+
+    /** The floor for a camera at this zoom. The arithmetic is Field.pullTilt. */
+    fun floorAt(zoom: Double): Double = Field.pullTilt(stand, wide, zoom)
+
+    /** Hands the tilt back to the zoom. Every gesture takeover calls this. */
+    fun release() {
+        stand = 0.0
+        wide = 0.0
+    }
 }
 
 private class Stirring {

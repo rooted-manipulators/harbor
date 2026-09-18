@@ -45,16 +45,22 @@ import app.harbor.domain.Weather
  * | [Weather.BRIGHT] | the warm end of the yellow-through-green reference — a sky bleached by its own sun |
  * | [Weather.CLOUDY] | flat sage-grey, the calm register of the dark green-teal reference |
  * | [Weather.RAIN] | the cold end: teal carrying most of the colour, the light thin above it |
- * | [Weather.STORM] | the orange-over-green reference, more or less straight |
+ * | [Weather.STORM] | the dark teal reference: heavy, cold, still lit along the top |
  *
- * **Storm being the loudest of the five is on purpose, and it is not a
- * darkening.** [FieldSky] records an argument settled twice over: a heavy day
- * used to turn the app navy, that was reversed to the prototype's pale flat
- * overcast, and the principle that came out of it was that the reflection
- * belongs in the *quality* of the light rather than the amount. A lurid orange
- * sky keeps that principle — it is the brightest row in this table — while
- * being the one nobody could mistake for an ordinary afternoon. Storms really
- * do throw that light.
+ * **Storm has now been argued three times, and this is the third answer.** It
+ * turned the whole app navy; that was reversed to the ported palette's pale
+ * flat overcast; that was replaced with a lurid orange on the theory that a
+ * storm should be the loudest row rather than the darkest one. The orange was
+ * wrong in the way theories usually are -- it read as a sunset. Asked what a
+ * storm should actually look like, the answer was the dark teal reference:
+ * heavy and cold, with the light thin and grey-green along the top.
+ *
+ * So the old principle -- that the reflection belongs in the *quality* of the
+ * light rather than the amount -- survives only in the weaker form the
+ * references always implied: every row still has its light at the top and its
+ * dark at the bottom, and no row washes the whole app down. Within that,
+ * storm is allowed to be the dimmest, because it is the one that is supposed
+ * to feel like weather you would come inside from.
  */
 internal data class Wash(
     /** The lightest tone there is, at the very top. Also what the warm pool is made of. */
@@ -101,12 +107,12 @@ internal fun washFor(weather: Weather): Wash = when (weather) {
         sun = Color(0xFFDCE6E2),
     )
     Weather.STORM -> Wash(
-        high = Color(0xFFF4571B), pale = Color(0xFFE8791C),
-        // Olive on the way through, then a real green before the ground. The
-        // first mix went orange straight to the storm's own grey-green land
-        // and the whole middle of the screen turned to mud; the reference has
-        // a green band in it, and the green band is what stops it.
-        mid = Color(0xFFB08A28), deep = Color(0xFF4E8C3A),
-        sun = Color(0xFFFFE0B0),
+        // Darker than [Weather.RAIN] at every stop, and greener with it. The
+        // two are the closest pair in the table and they have to be told
+        // apart at a glance: rain is the brighter, bluer teal of weather you
+        // would walk in, storm the dim green-grey of weather you would not.
+        high = Color(0xFF8AAC9F), pale = Color(0xFF4E857A),
+        mid = Color(0xFF2F5F58), deep = Color(0xFF27544C),
+        sun = Color(0xFFB9CCC4),
     )
 }
