@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.IntOffset
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -1567,16 +1568,25 @@ private enum class WeekView { Day, Week }
  * short, exact, and impossible to mistake for each other -- where a calendar
  * glyph and a grid glyph are two rectangles with lines in them.
  *
- * Deliberately small and left-aligned. It is a change of view, not a change
- * of screen, and a control that announced itself would suggest the two were
- * different places rather than the same week seen twice.
+ * ## The colour
+ *
+ * Amber on the chosen half, dark ink on top of it. `docs/09-master-context.md`
+ * gives the accent to exactly three things -- the current tab, the primary
+ * action, and the selected chip -- and this is the third of those. The first
+ * pass used the neutral tile the day strip uses for its chosen day, which was
+ * consistent with the strip and wrong for the design: two greys a shade apart
+ * is not a choice you can see across a room, and a control nobody notices is
+ * a view nobody knows they can change.
+ *
+ * The track around it is a hairline rather than a fill, so the pair reads as
+ * a control rather than as another card on a screen that already has several.
  */
 @Composable
 private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Unit) {
     Row(
         Modifier
             .clip(RoundedCornerShape(99.dp))
-            .background(skin.tile.copy(alpha = 0.5f))
+            .border(1.dp, skin.line.copy(alpha = 0.7f), RoundedCornerShape(99.dp))
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -1585,15 +1595,19 @@ private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Uni
             Box(
                 Modifier
                     .clip(RoundedCornerShape(99.dp))
-                    .background(if (here) skin.tile else Color.Transparent)
+                    .background(if (here) Gold else Color.Transparent)
                     .clickable { onPick(option) }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
             ) {
                 Text(
                     if (option == WeekView.Day) "Day" else "Week",
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontSize = 13.sp,
-                        color = if (here) skin.ink else skin.muted,
+                        fontWeight = if (here) FontWeight.Bold else FontWeight.Normal,
+                        // Ink on amber, not the skin's ink: the pill is the
+                        // same amber in both dressings, so the text on it has
+                        // to be the same dark in both too.
+                        color = if (here) Ink else skin.muted,
                     ),
                 )
             }
