@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import app.harbor.R
+import app.harbor.domain.StudyArm
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.domain.FlowerKind
@@ -123,6 +125,28 @@ fun Specimen(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .padding(horizontal = 14.dp),
+                )
+            }
+
+            // The bee keeping them company, in the bees arm only.
+            //
+            // Added beside whatever the arch already holds rather than
+            // replacing it. The twenty flowers are the reward this app is
+            // built around, and one mascot standing in for all of them would
+            // be a smaller product rather than a different metaphor -- so the
+            // flower still grows, and the bee is what is new.
+            //
+            // Bottom left, because the flower is drawn bottom *centre* and the
+            // caption sits under the whole arch: the one corner where a 44dp
+            // figure lands on neither.
+            if (LocalStudyArm.current == StudyArm.BEES) {
+                Image(
+                    painter = painterResource(R.drawable.bee_standing),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 6.dp, bottom = 4.dp)
+                        .size(44.dp),
                 )
             }
         }

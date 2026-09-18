@@ -345,8 +345,11 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                     contentDescription = null,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .offset(x = thumbX - 9.dp, y = (-6).dp)
-                        .size(48.dp),
+                        // Centred on the 30dp disc: half the difference in
+                        // each direction, so the bee grows around the thumb
+                        // rather than drifting off it.
+                        .offset(x = thumbX - 17.dp, y = (-17).dp)
+                        .size(64.dp),
                 )
             }
         }
