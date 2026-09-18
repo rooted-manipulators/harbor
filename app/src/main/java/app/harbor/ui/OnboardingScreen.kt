@@ -596,14 +596,22 @@ private fun TheirSound(
     val contacts by store.contacts.collectAsState()
     val who = contacts.firstOrNull()
 
+    val context = LocalContext.current
     val pickSound = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && who != null) {
             val uri = result.data
                 ?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-                ?.toString()
-            scope.launch { store.upsertContact(who.copy(cueSoundRef = uri)) }
+            scope.launch {
+                // Copied, not referenced. The picker will happily return a
+                // file off their own storage, and that grant is gone by the
+                // time a cue fires. See CueSounds.
+                val ref = uri?.let {
+                    withContext(Dispatchers.IO) { CueSounds.store(context, who.id, it) }
+                }
+                store.upsertContact(who.copy(cueSoundRef = ref))
+            }
         }
     }
 

@@ -105,9 +105,15 @@ fun ContactScreen(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            soundRef = result.data
+            val uri = result.data
                 ?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-                ?.toString()
+            scope.launch {
+                // Copied, not referenced -- see CueSounds. A sound chosen here
+                // has to still play from a broadcast receiver days later.
+                soundRef = uri?.let {
+                    withContext(Dispatchers.IO) { CueSounds.store(context, id, it) }
+                }
+            }
         }
     }
 
