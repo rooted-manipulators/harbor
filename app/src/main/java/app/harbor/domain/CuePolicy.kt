@@ -96,6 +96,16 @@ object CuePolicy {
          * device calendar, or pulled from a campus system.
          */
         val busyNow: Boolean = false,
+
+        /**
+         * Today's cues broken down by what triggered them.
+         *
+         * Separate from [cuesToday] rather than summed from it, for the same
+         * reason [cuesToday] is separate from `entriesToday`: they count
+         * different things and a caller that conflated them would be wrong in
+         * a way nothing here could catch. Absent sources are zero.
+         */
+        val cuesTodayBySource: Map<TriggerSource, Int> = emptyMap(),
     )
 
     /** What the pipeline decided, and why. The why is worth keeping. */
@@ -108,6 +118,14 @@ object CuePolicy {
     }
 
     enum class Reason {
+        /**
+         * This trigger has had its share of the day, though the day as a whole
+         * has room. Distinct from [DAILY_CAP_REACHED] because they mean
+         * opposite things to whoever reads the logs: one says the person has
+         * been interrupted enough, the other says one source is monopolising a
+         * budget that is not full.
+         */
+        SOURCE_CAP_REACHED,
         /** The user has cues switched off. Their choice, and it is absolute. */
         CUES_DISABLED,
 
@@ -184,6 +202,12 @@ object CuePolicy {
         }
         if (day.cuesToday >= thresholds.dailyCap) {
             return Decision.Hold(Reason.DAILY_CAP_REACHED)
+        }
+        // And this trigger's own share of it. See Thresholds.sourceCap: a
+        // frequent trigger against a shared ceiling takes every slot and the
+        // rare one is never seen.
+        if (day.cuesTodayBySource.getOrDefault(signal.source, 0) >= thresholds.perSourceCap) {
+            return Decision.Hold(Reason.SOURCE_CAP_REACHED)
         }
         if (day.hasPendingReminder) {
             return Decision.Hold(Reason.REMINDER_PENDING)

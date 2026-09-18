@@ -206,6 +206,13 @@ class HarborStore(context: Context) : HarborRepository {
                 cuesToday = cues.count {
                     it.firedDate == date && it.triggerSource != TriggerSource.MANUAL
                 },
+                // The same rows, grouped. Manual is excluded here too: a cue
+                // somebody asked for should not spend the walking trigger's
+                // share any more than it spends the day's.
+                cuesTodayBySource = cues
+                    .filter { it.firedDate == date && it.triggerSource != TriggerSource.MANUAL }
+                    .groupingBy { it.triggerSource }
+                    .eachCount(),
                 // Across every day, not just today: the cooldown has to
                 // survive midnight. Manual cues are left out for the same
                 // reason they are left out of the cap — onboarding's preview

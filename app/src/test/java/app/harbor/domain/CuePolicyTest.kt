@@ -73,10 +73,12 @@ class CuePolicyTest {
         lastCueAt: Instant? = entriesToday.maxOfOrNull { it.occurredAt },
         hasPendingReminder: Boolean = false,
         busyNow: Boolean = false,
+        cuesTodayBySource: Map<TriggerSource, Int> = emptyMap(),
+        source: TriggerSource? = null,
     ) = CuePolicy.decide(
-        signal,
+        source?.let { signal.copy(source = it) } ?: signal,
         settings,
-        DayState(entriesToday, cuesToday, lastCueAt, hasPendingReminder, busyNow),
+        DayState(entriesToday, cuesToday, lastCueAt, hasPendingReminder, busyNow, cuesTodayBySource),
         now,
     )
 
@@ -209,6 +211,50 @@ class CuePolicyTest {
                 lastCueAt = now.minus(Duration.ofHours(9)),
             ),
         )
+    }
+
+    @Test
+    fun `one trigger cannot eat the whole day's allowance`() {
+        // The reason this exists: a walking stop happens once or twice a day,
+        // a phone-in-hand session ends dozens of times. Against a shared
+        // ceiling the frequent one takes every slot and the rare one is never
+        // seen -- so a week of running both would end with a hundred of one
+        // and four of the other.
+        val split = settings.copy(
+            thresholds = thresholds.copy(dailyCap = 4, sourceCap = 2),
+        )
+        // Two from this source already, and the day is only half spent.
+        assertEquals(
+            Decision.Hold(Reason.SOURCE_CAP_REACHED),
+            decide(
+                settings = split,
+                cuesToday = 2,
+                cuesTodayBySource = mapOf(TriggerSource.WALKING_STOP to 2),
+                lastCueAt = now.minus(Duration.ofHours(9)),
+            ),
+        )
+        // The other source still has its own share. This is the whole point:
+        // the day is not full, only one trigger's part of it is.
+        assertEquals(
+            Decision.Fire,
+            decide(
+                settings = split,
+                cuesToday = 2,
+                cuesTodayBySource = mapOf(TriggerSource.WALKING_STOP to 2),
+                source = TriggerSource.SESSION_END,
+                lastCueAt = now.minus(Duration.ofHours(9)),
+            ),
+        )
+    }
+
+    @Test
+    fun `a source cap left unset is just the daily cap`() {
+        // One sensed trigger cannot out-compete itself, so nothing should
+        // change for an install that never sets this.
+        assertEquals(2, thresholds.copy(dailyCap = 2).perSourceCap)
+        // And it must survive copy(): a default that read dailyCap directly
+        // would leave a stale source cap behind and fail the requirement.
+        assertEquals(1, thresholds.copy(dailyCap = 1).perSourceCap)
     }
 
     @Test

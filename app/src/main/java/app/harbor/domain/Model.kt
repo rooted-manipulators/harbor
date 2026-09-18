@@ -232,8 +232,34 @@ enum class CueSound { CHIME, SOFT, SILENT }
 data class Thresholds(
     val walkingMinutes: Int,
     val sessionMinutes: Int,
-    /** Hard ceiling on cues per day. */
+    /** Hard ceiling on cues per day, across every trigger. */
     val dailyCap: Int,
+
+    /**
+     * The most any one trigger may produce in a day.
+     *
+     * Exists because two triggers running at once do not share a cap fairly.
+     * A walking stop happens once or twice; a phone-in-hand session ends
+     * dozens of times. Against a single ceiling of two, the frequent trigger
+     * takes both slots most mornings and the rare one is never seen — so a
+     * study comparing them would end the week with a hundred of one and four
+     * of the other, and no comparison at all.
+     *
+     * Null means "the same as [dailyCap]", which makes it invisible while
+     * there is only one sensed trigger: one source cannot out-compete itself.
+     * It starts mattering the day a second one is switched on, and then it
+     * should be set with the total — four a day, two from each, rather than
+     * two that one trigger eats.
+     *
+     * Null rather than defaulting to [dailyCap] directly, because a default
+     * that reads another field is a trap on `copy`: `copy(dailyCap = 1)` would
+     * keep the old source cap and produce a Thresholds that fails its own
+     * requirement. Deriving it on read cannot drift.
+     *
+     * Not a study knob dressed as a setting: a person with both triggers on
+     * wants the same fairness for the same reason, study or no study.
+     */
+    val sourceCap: Int? = null,
     /** Minimum gap between two cues. Zero turns the gap off entirely. */
     val cooldownMinutes: Int,
 ) {
@@ -250,7 +276,13 @@ data class Thresholds(
         // -- this comment's promise that one layer never rejects what another
         // accepts is only kept if both move together.
         require(cooldownMinutes in 0..1440) { "cooldownMinutes out of range: $cooldownMinutes" }
+        require(sourceCap == null || sourceCap in 1..dailyCap) {
+            "sourceCap must be between 1 and dailyCap: $sourceCap of $dailyCap"
+        }
     }
+
+    /** The per-trigger ceiling actually in force. See [sourceCap]. */
+    val perSourceCap: Int get() = sourceCap ?: dailyCap
 
     companion object {
         /**
