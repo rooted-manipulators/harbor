@@ -18,11 +18,18 @@ import app.harbor.R
 import app.harbor.data.HarborStore
 import app.harbor.domain.CuePolicy
 import app.harbor.domain.TriggerSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -74,7 +81,7 @@ import java.time.Instant
  */
 class SensingService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var watching: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -104,7 +111,22 @@ class SensingService : Service() {
         // boot, package replace, the settings screen -- and each one arrives
         // here as another onStartCommand.
         if (watching?.isActive != true) {
-            watching = scope.launch { watch() }
+            watching = scope.launch {
+                // The outer net. tick() catches a bad tick; this catches a
+                // bad start -- a prefs file that will not parse, a system
+                // service missing on an OEM build. An uncaught throw in a
+                // launch goes to the thread's default handler, which means
+                // the whole app dies every time the service starts, which
+                // means the app cannot be opened to fix it. A trigger that
+                // does not run is survivable. That is not.
+                try {
+                    watch()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Log.e(TAG, "scroll watch stopped", e)
+                }
+            }
         }
 
         // Restarted if the system kills us, which is the whole point.
@@ -112,59 +134,116 @@ class SensingService : Service() {
     }
 
     /**
-     * Ask, every so often, how long the person has been in one app, and hand
-     * the answer to the policy when it gets long enough.
+     * Run the ticker, but only while somebody wants it.
      *
-     * Three things keep this cheap. It does nothing at all unless the
-     * scrolling trigger is switched on and its permission granted. It skips
-     * the query outright while the screen is off, which [ScrollWatch] checks
-     * first and which is most of the day. And it fires once per stretch:
-     * [SensingStore.firedStretch] is what stops a poll that keeps seeing the
-     * same twenty-minute session from reporting it again every two minutes.
-     *
-     * Everything after that is [CuePolicy]'s. The caps, the cooldown, the
-     * busy blocks and the off switch are all checked there, by the same code
-     * that judges a walk, which is the point of routing through [CueGate]
-     * rather than posting a notification from here.
+     * `collectLatest` on the switch rather than a check inside the loop: a
+     * participant who never takes the scrolling option should not have a
+     * coroutine waking their phone every two minutes all week for the
+     * privilege of reading a boolean and going back to sleep. Turning it off
+     * in Settings cancels the ticker within a frame; turning it on starts
+     * one.
      */
     private suspend fun watch() {
         val store = HarborStore(this)
+        store.settings
+            .map { it.cuesEnabled && it.scrollCues }
+            .distinctUntilChanged()
+            .collectLatest { wanted -> if (wanted) tick(store) }
+    }
+
+    /**
+     * Ask, every so often, how long the person has been in one app, and hand
+     * the answer to the policy when it gets long enough.
+     *
+     * Everything after the measurement is [CuePolicy]'s. The caps, the
+     * cooldown, the busy blocks and the off switch are all checked there, by
+     * the same code that judges a walk, which is the point of routing through
+     * [CueGate] rather than posting a notification from here.
+     *
+     * ## Why the whole body is inside a try
+     *
+     * Because this runs for a week without supervision. A single throw --
+     * a prefs file mid-write, an OEM usage service that 404s, an
+     * `IllegalStateException` out of the notification manager -- would kill
+     * the coroutine, and nothing restarts it until the next `onStartCommand`,
+     * which on a phone that is never rebooted may be never. The trigger would
+     * go quiet for the rest of the study and the app would still say it was
+     * on. One bad tick has to cost one tick.
+     *
+     * `ensureActive` before the catch so cancellation still cancels:
+     * [collectLatest] cancels this body by throwing into it, and a bare
+     * `catch (Throwable)` would swallow that and spin forever.
+     */
+    private suspend fun tick(store: HarborStore) {
         val sensing = SensingStore(this)
+        var wait = POLL
 
-        while (scope.isActive) {
-            delay(POLL.toMillis())
-
-            val settings = store.settings.value
-            if (!settings.cuesEnabled || !settings.scrollCues) continue
-            if (!ScrollWatch.hasPermission(this)) continue
-
-            val now = Instant.now()
-            val stretch = ScrollWatch.current(this, now) ?: continue
-            val minutes = stretch.minutesAt(now)
-            if (minutes < settings.thresholds.sessionMinutes) continue
-            if (sensing.firedStretch == stretch) continue
-
-            // Written before the policy is asked, not after. A held stretch
-            // must not be re-offered on the next tick either: the policy is
-            // saying no to this stretch, and asking it again in two minutes
-            // is the same question, not a new one.
-            sensing.firedStretch = stretch
-
-            CueGate.consider(
-                this,
-                store,
-                CuePolicy.Signal(
-                    source = TriggerSource.SESSION_END,
-                    activeMinutes = minutes,
-                    // There is no earlier moment this refers to. A walk's
-                    // signal points back at the instant the person went
-                    // still; a stretch is happening now, and now is when it
-                    // is worth interrupting.
-                    stillSince = now,
-                ),
-                now,
-            )
+        while (true) {
+            delay(wait.toMillis())
+            wait = POLL
+            try {
+                wait = consider(store, sensing)
+            } catch (e: Throwable) {
+                currentCoroutineContext().ensureActive()
+                Log.w(TAG, "scroll tick failed", e)
+            }
         }
+    }
+
+    /**
+     * One look at the clock.
+     *
+     * @return how long to wait before the next one. Normally [POLL], but
+     *   shortened when a stretch is already running and its threshold falls
+     *   inside the next tick — so the reminder lands near the twenty minutes
+     *   somebody asked for rather than up to two minutes past it. Nothing
+     *   here is allowed to wait less than [FLOOR]: a poll that tightens
+     *   without limit is a spin.
+     */
+    private suspend fun consider(store: HarborStore, sensing: SensingStore): Duration {
+        val settings = store.settings.value
+        if (!ScrollWatch.hasPermission(this)) return POLL
+
+        val now = Instant.now()
+        val stretch = ScrollWatch.current(this, now) ?: return POLL
+
+        val minutes = stretch.minutesAt(now)
+        val threshold = settings.thresholds.sessionMinutes
+        if (minutes < threshold) {
+            val left = Duration.ofMinutes((threshold - minutes).toLong())
+            return if (left < POLL) maxOf(left, FLOOR) else POLL
+        }
+
+        // Asked already? A stretch that fired is finished with; one that was
+        // held gets another go once the reasons have had time to change. See
+        // SensingStore.shouldAsk, where the argument and the tests live.
+        if (!SensingStore.shouldAsk(sensing.offer, stretch, now)) return POLL
+
+        val decision = CueGate.consider(
+            this,
+            store,
+            CuePolicy.Signal(
+                source = TriggerSource.SESSION_END,
+                activeMinutes = minutes,
+                // There is no earlier moment this refers to. A walk's signal
+                // points back at the instant the person went still; a stretch
+                // is happening now, and now is when it is worth interrupting.
+                stillSince = now,
+            ),
+            now,
+        )
+
+        val held = decision as? CuePolicy.Decision.Hold
+        sensing.offer = SensingStore.Offer(stretch, now, fired = held == null)
+        // Kept whatever the answer, because the refusals are what somebody
+        // goes looking for when nothing arrives. See SensingStore.lastStretch.
+        sensing.lastStretch = SensingStore.Watched(
+            packageName = stretch.packageName,
+            startedAt = stretch.startedAt,
+            minutes = minutes,
+            outcome = held?.reason?.name,
+        )
+        return POLL
     }
 
     companion object {
@@ -178,6 +257,16 @@ class SensingService : Service() {
          * it on every phone in the study, all week.
          */
         private val POLL: Duration = Duration.ofMinutes(2)
+
+        /**
+         * The shortest the poll may ever be, however close a threshold looks.
+         *
+         * A guard rather than a tuning knob. The arithmetic above shortens
+         * the wait to land on the threshold, and a clock that jumps backwards
+         * -- an NTP correction, a timezone with a DST rule -- can make that
+         * arithmetic ask for zero. Zero is a spin on a foreground service.
+         */
+        private val FLOOR: Duration = Duration.ofSeconds(20)
 
         private const val CHANNEL = "sensing"
         private const val NOTIFICATION_ID = 2
@@ -228,7 +317,11 @@ class SensingService : Service() {
             return NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("Listening for the quiet moment")
-                .setContentText("So a reminder can reach you after a walk.")
+                // Not "after a walk" any more. There are two triggers, and
+                // the permanent line in somebody's shade should not describe
+                // half of what the app is doing -- least of all the half
+                // that does not involve reading which app is in front.
+                .setContentText("So a reminder can reach you at a good moment.")
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .setOngoing(true)

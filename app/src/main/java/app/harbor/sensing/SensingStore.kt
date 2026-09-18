@@ -170,7 +170,8 @@ internal class SensingStore(context: Context) {
         }
 
     /**
-     * The scrolling stretch a reminder has already been fired for.
+     * The last scrolling stretch Harbor offered a reminder for, and what came
+     * of it.
      *
      * [ScrollWatch] is a poll, so a stretch that has crossed the threshold
      * keeps crossing it every time it is asked. Without this, twenty-one
@@ -180,31 +181,162 @@ internal class SensingStore(context: Context) {
      *
      * The start time is part of the identity, not just the package: putting
      * the phone down and picking the same app up again is a new stretch and
-     * may earn its own reminder, subject to every cap in CuePolicy.
+     * may earn its own reminder, subject to every cap in [CuePolicy].
      *
-     * This is the only thing about your apps that Harbor writes down, and it
-     * holds one at a time. See ScrollWatch for what is deliberately not kept.
+     * ## Why a held stretch is asked about again
+     *
+     * The first version of this remembered only that a stretch had been
+     * *offered*, fired or not, and never returned to it. That quietly lost
+     * cues. Half the reasons [CuePolicy] holds are temporary -- you were
+     * inside a busy block, you were in the cooldown, you had a later time
+     * planned -- and all three can stop being true while the same stretch is
+     * still going on. A person who hit twenty minutes at the end of a
+     * lecture would be refused at the one moment they could not be reached
+     * and never asked again, though they went on scrolling for an hour.
+     *
+     * So a hold is retried, after [SensingStore.RETRY], and a fire is not.
+     * See [Offer.fired], which is the whole difference.
+     *
+     * This and [lastStretch] are the only things about your apps that Harbor
+     * writes down, and they hold one at a time. See [ScrollWatch] for what is
+     * deliberately not kept.
      */
-    var firedStretch: ScrollWatch.Stretch?
+    var offer: Offer?
         get() {
-            val started = prefs.getLong(KEY_FIRED_STRETCH_AT, ABSENT)
+            val started = prefs.getLong(KEY_OFFER_STARTED, ABSENT)
             if (started == ABSENT) return null
-            val pkg = prefs.getString(KEY_FIRED_STRETCH_PKG, null) ?: return null
-            return ScrollWatch.Stretch(pkg, Instant.ofEpochMilli(started))
+            val pkg = prefs.getString(KEY_OFFER_PKG, null) ?: return null
+            val at = prefs.getLong(KEY_OFFER_AT, ABSENT)
+            if (at == ABSENT) return null
+            return Offer(
+                stretch = ScrollWatch.Stretch(pkg, Instant.ofEpochMilli(started)),
+                offeredAt = Instant.ofEpochMilli(at),
+                fired = prefs.getBoolean(KEY_OFFER_FIRED, false),
+            )
         }
         set(value) {
             prefs.edit().apply {
                 if (value == null) {
-                    remove(KEY_FIRED_STRETCH_AT)
-                    remove(KEY_FIRED_STRETCH_PKG)
+                    remove(KEY_OFFER_STARTED)
+                    remove(KEY_OFFER_PKG)
+                    remove(KEY_OFFER_AT)
+                    remove(KEY_OFFER_FIRED)
                 } else {
-                    putLong(KEY_FIRED_STRETCH_AT, value.startedAt.toEpochMilli())
-                    putString(KEY_FIRED_STRETCH_PKG, value.packageName)
+                    putLong(KEY_OFFER_STARTED, value.stretch.startedAt.toEpochMilli())
+                    putString(KEY_OFFER_PKG, value.stretch.packageName)
+                    putLong(KEY_OFFER_AT, value.offeredAt.toEpochMilli())
+                    putBoolean(KEY_OFFER_FIRED, value.fired)
                 }
             }.commit()
         }
 
+    /** A stretch that has already been put to [CuePolicy], and when. */
+    data class Offer(
+        val stretch: ScrollWatch.Stretch,
+        val offeredAt: Instant,
+        val fired: Boolean,
+    )
+
+    /**
+     * The last scrolling stretch that reached the threshold, and its verdict.
+     *
+     * The same job [lastBout] does for a walk, and for the same reason:
+     * "nothing arrived" has half a dozen causes and they are
+     * indistinguishable from outside. More so here, because this trigger has
+     * a failure the walk does not -- usage access revoked from Settings,
+     * which leaves the switch on, the screen saying nothing is wrong, and no
+     * reminder ever coming.
+     *
+     * A diagnostic. Nothing in the study reads it and it never leaves the
+     * device. The package name stays on the phone with everything else about
+     * your apps; [StudyExport] has no field for it.
+     */
+    var lastStretch: Watched?
+        get() {
+            val started = prefs.getLong(KEY_WATCHED_AT, ABSENT)
+            if (started == ABSENT) return null
+            val pkg = prefs.getString(KEY_WATCHED_PKG, null) ?: return null
+            return Watched(
+                packageName = pkg,
+                startedAt = Instant.ofEpochMilli(started),
+                minutes = prefs.getInt(KEY_WATCHED_MINUTES, 0),
+                outcome = prefs.getString(KEY_WATCHED_OUTCOME, null),
+            )
+        }
+        set(value) {
+            prefs.edit().apply {
+                if (value == null) {
+                    remove(KEY_WATCHED_AT)
+                    remove(KEY_WATCHED_PKG)
+                    remove(KEY_WATCHED_MINUTES)
+                    remove(KEY_WATCHED_OUTCOME)
+                } else {
+                    putLong(KEY_WATCHED_AT, value.startedAt.toEpochMilli())
+                    putString(KEY_WATCHED_PKG, value.packageName)
+                    putInt(KEY_WATCHED_MINUTES, value.minutes)
+                    if (value.outcome == null) remove(KEY_WATCHED_OUTCOME)
+                    else putString(KEY_WATCHED_OUTCOME, value.outcome)
+                }
+            }.commit()
+        }
+
+    /**
+     * A stretch that was long enough to ask about.
+     *
+     * [outcome] is null when it became a reminder -- the absence of a reason
+     * being the one good answer -- and otherwise a [CuePolicy.Reason] name.
+     */
+    data class Watched(
+        val packageName: String,
+        val startedAt: Instant,
+        val minutes: Int,
+        val outcome: String?,
+    )
+
     companion object {
+        /**
+         * How long before the same stretch is put to the policy again.
+         *
+         * Only ever after a hold, and the number is a compromise between two
+         * wrongs. Too short and a stretch inside an hour-long busy block is
+         * asked about thirty times, which costs nothing visible but fills the
+         * log with the same refusal. Too long and the trigger misses the
+         * minute a cooldown expires. Ten is roughly the shortest interval at
+         * which a second offer is a different question.
+         */
+        val RETRY: java.time.Duration = java.time.Duration.ofMinutes(10)
+
+        /**
+         * Whether this stretch should be put to [CuePolicy] now.
+         *
+         * Pure, and separate from the service, because it is the decision
+         * that sits between the two ways this trigger can be wrong. Say yes
+         * too readily and one long session produces a reminder every couple
+         * of minutes; say no too readily and a stretch refused for a reason
+         * that has since expired is never asked about again. Neither is
+         * visible from inside the app once it is happening, so it is tested
+         * instead. See `ScrollWatchTest`.
+         *
+         * @param last the offer already made, if any.
+         * @param stretch the one in front of us now.
+         */
+        fun shouldAsk(
+            last: Offer?,
+            stretch: ScrollWatch.Stretch,
+            now: Instant,
+        ): Boolean {
+            // A different sitting entirely. It gets its own hearing, and
+            // every cap in the policy still applies to it.
+            if (last == null || last.stretch != stretch) return true
+            // Asked and answered. The reminder happened; a second one for
+            // the same session is the behaviour this app exists not to have.
+            if (last.fired) return false
+            // Refused. Half the reasons a refusal happens are temporary, so
+            // the question is worth asking again -- but not every two
+            // minutes, which would be the same question.
+            return java.time.Duration.between(last.offeredAt, now) >= RETRY
+        }
+
         /** Set off again before the settle window was up. */
         const val WALKING_RESUMED = "WALKING_RESUMED"
 
@@ -221,8 +353,14 @@ internal class SensingStore(context: Context) {
         private const val KEY_PENDING_STILL_SINCE = "pending_still_since"
         private const val KEY_PENDING_SOURCE = "pending_source"
         private const val KEY_PENDING_MINUTES = "pending_active_minutes"
-        private const val KEY_FIRED_STRETCH_AT = "fired_stretch_at"
-        private const val KEY_FIRED_STRETCH_PKG = "fired_stretch_package"
+        private const val KEY_OFFER_STARTED = "offer_stretch_at"
+        private const val KEY_OFFER_PKG = "offer_stretch_package"
+        private const val KEY_OFFER_AT = "offer_made_at"
+        private const val KEY_OFFER_FIRED = "offer_fired"
+        private const val KEY_WATCHED_AT = "watched_stretch_at"
+        private const val KEY_WATCHED_PKG = "watched_stretch_package"
+        private const val KEY_WATCHED_MINUTES = "watched_stretch_minutes"
+        private const val KEY_WATCHED_OUTCOME = "watched_stretch_outcome"
         private const val ABSENT = -1L
     }
 }

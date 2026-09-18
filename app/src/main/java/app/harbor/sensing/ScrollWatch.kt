@@ -6,6 +6,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
@@ -28,9 +29,9 @@ import java.time.Instant
  *
  * Nothing is stored. Each call re-reads the last few hours from the system and
  * throws the events away; Harbor keeps no history of the apps you open. The
- * only thing that survives a call is [SensingStore.firedStretch], which is one
- * package name and one timestamp, kept so a single long stretch cannot produce
- * two reminders.
+ * only thing that survives a call is [SensingStore.offer], which is one
+ * package name and two timestamps, kept so a single long stretch cannot
+ * produce a reminder every two minutes.
  *
  * ## Why it is a poll and not a callback
  *
@@ -50,6 +51,14 @@ import java.time.Instant
  * judgement Harbor has no standing to make, and partly because it would be
  * wrong within a week of any of them changing package names. The person who
  * spends forty minutes in one app knows which app it was.
+ *
+ * ## The split between [fold] and [current]
+ *
+ * [fold] is the measurement and is pure: a list of events in, a stretch out.
+ * [current] is everything that needs a device — the system query, the screen
+ * state, the exclusions. The measurement is the part with rules in it and the
+ * part that was impossible to be sure of by reading, so it is the part that
+ * has tests. See `ScrollWatchTest`.
  */
 internal object ScrollWatch {
 
@@ -58,15 +67,47 @@ internal object ScrollWatch {
      *
      * A stretch longer than this is measured as exactly this, which only ever
      * under-reports, and three hours is well past any threshold the settings
-     * screen can be set to (180 minutes).
+     * screen can be set to (180 minutes). The poll runs every couple of
+     * minutes, so the only way to meet a stretch already older than this is
+     * for the service to have been dead for three hours — in which case a
+     * missed reminder is the least of it.
      */
-    private val LOOKBACK: Duration = Duration.ofHours(3)
+    val LOOKBACK: Duration = Duration.ofHours(3)
+
+    /**
+     * How long a package may be away from the front and still be the same
+     * stretch when it comes back.
+     *
+     * This is the rule that stops a phone in a pocket reading as four hours
+     * of scrolling, and it exists because the obvious defence is not
+     * reliable. [UsageEvents.Event.SCREEN_NON_INTERACTIVE] and `KEYGUARD_SHOWN`
+     * are API 28, Harbor's minSdk is 26, and OEM builds vary in whether they
+     * report them at all. Without them the stream for *open Instagram, screen
+     * off for two hours, unlock* is a pause and then a resume of the same
+     * package, which the continuity rule would happily treat as one session.
+     *
+     * Three minutes rather than seconds, because a stretch genuinely does
+     * survive small interruptions: answering a notification, checking the
+     * time, a system dialog. Those are the same sitting. Two hours in a
+     * pocket is not.
+     */
+    val RESUME_GAP: Duration = Duration.ofMinutes(3)
 
     /** A package that has been in front, uninterrupted, since [startedAt]. */
     data class Stretch(val packageName: String, val startedAt: Instant) {
         fun minutesAt(now: Instant): Int =
             Duration.between(startedAt, now).toMinutes().toInt()
     }
+
+    /**
+     * One usage event, reduced to the three fields the measurement uses.
+     *
+     * A hand-rolled type rather than [UsageEvents.Event] because that class
+     * cannot be constructed in a unit test — it is filled in by the framework
+     * through a package-private setter — and the measurement is the part most
+     * worth testing.
+     */
+    data class Ev(val type: Int, val packageName: String, val at: Instant)
 
     /**
      * Whether the user has granted usage access.
@@ -83,19 +124,27 @@ internal object ScrollWatch {
      */
     fun hasPermission(context: Context): Boolean {
         val ops = context.getSystemService(AppOpsManager::class.java) ?: return false
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ops.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName,
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            ops.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName,
-            )
+        val mode = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ops.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                ops.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    Process.myUid(),
+                    context.packageName,
+                )
+            }
+        } catch (e: Throwable) {
+            // Not documented to throw. Seen to, on builds where the op is not
+            // known. A permission we cannot ask about is one we do not have,
+            // and saying so beats taking the settings screen down with us.
+            Log.w(TAG, "could not check usage access", e)
+            return false
         }
         return if (mode == AppOpsManager.MODE_DEFAULT) {
             context.checkPermission(
@@ -125,84 +174,182 @@ internal object ScrollWatch {
     }
 
     /**
+     * Open it, and survive a device that resolved it and then refuses.
+     *
+     * [request] asking the package manager and the activity actually
+     * starting are two different claims, and on OEM builds they disagree --
+     * a settings screen can be present, resolvable, and guarded by a
+     * permission the caller does not hold. An uncaught
+     * `ActivityNotFoundException` or `SecurityException` here takes down the
+     * onboarding step it is offered from, which is the worst place in the
+     * app to crash.
+     */
+    fun open(context: Context, intent: Intent) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Throwable) {
+            Log.w(TAG, "could not open usage access settings", e)
+        }
+    }
+
+    /**
      * The stretch in progress, or null if there is not one.
      *
-     * Null means the screen is off, or the events do not reach back to a
-     * moment we can call a beginning, or the app in front is Harbor itself.
-     *
-     * The rules, which are the whole of the measurement:
-     *
-     *  - a foreground event for a *different* package starts a new stretch;
-     *    one for the same package continues it, which is what makes a stretch
-     *    survive the dozens of resumes a single session produces;
-     *  - the screen going off, or the keyguard appearing, ends it. Otherwise
-     *    an hour in a pocket would be read as an hour of scrolling, since the
-     *    same app resumes on unlock;
-     *  - Harbor itself never counts. A person reading their own garden for
-     *    twenty minutes is not the behaviour this is looking for, and a
-     *    reminder for it would be the app interrupting itself.
+     * Null means the screen is off, or a call is in progress, or the app in
+     * front is one that does not count, or the events do not reach back to a
+     * moment we can call a beginning.
      */
     fun current(context: Context, now: Instant = Instant.now()): Stretch? {
         val power = context.getSystemService(PowerManager::class.java)
-        if (power?.isInteractive == false) return null
+        if (power != null && !power.isInteractive) return null
+
+        // A forty-minute video call is forty minutes in one app, and a
+        // reminder to ring your mother in the middle of it would be the
+        // worst thing this trigger could do. Free to check and needs no
+        // permission, unlike TelephonyManager.getCallState.
+        val audio = context.getSystemService(AudioManager::class.java)
+        if (audio != null &&
+            (audio.mode == AudioManager.MODE_IN_CALL ||
+                audio.mode == AudioManager.MODE_IN_COMMUNICATION)
+        ) {
+            return null
+        }
 
         val usage = context.getSystemService(UsageStatsManager::class.java) ?: return null
 
         val events = try {
-            usage.queryEvents(now.minus(LOOKBACK).toEpochMilli(), now.toEpochMilli())
+            read(usage, now)
         } catch (e: Throwable) {
             // Documented to throw nothing, observed to throw on OEM builds
-            // where the service is missing. A trigger that cannot be measured
-            // is a trigger that does not fire, not a crash in a foreground
-            // service that keeps the other one alive.
+            // where the service is missing or the permission was revoked
+            // between the check and the call. A trigger that cannot be
+            // measured is a trigger that does not fire, not a crash in a
+            // foreground service that keeps the other one alive.
             Log.w(TAG, "usage events unavailable", e)
             return null
         }
 
-        var packageName: String? = null
-        var startedAt = 0L
-        val event = UsageEvents.Event()
+        val stretch = fold(events, LOOKBACK.let { now.minus(it) }) ?: return null
+        return if (counts(context, stretch.packageName)) stretch else null
+    }
 
-        while (events.getNextEvent(event)) {
-            when (event.eventType) {
+    /**
+     * Walk the events and work out what has been in front, and since when.
+     *
+     * The rules, which are the whole of the measurement:
+     *
+     *  - a foreground event for a **different** package starts a new stretch;
+     *  - one for the **same** package continues it, which is what makes a
+     *    stretch survive the dozens of resumes a single session produces as
+     *    you open a reel, a profile, a story;
+     *  - unless that package had been paused for longer than [RESUME_GAP], in
+     *    which case it is a new sitting. See that constant: this is the rule
+     *    that stops two hours in a pocket reading as two hours of scrolling
+     *    on the phones that do not report the screen going off;
+     *  - a pause on its own does **not** end the stretch. Pauses fire
+     *    constantly and are followed half a second later by a resume of the
+     *    same app; treating one as an ending would mean no stretch ever
+     *    reached twenty minutes;
+     *  - the screen going off, or the keyguard appearing, ends it outright,
+     *    where the device says so.
+     *
+     * @param since the start of the window the events came from. A stretch
+     *   whose beginning is older than this cannot be seen, so it is reported
+     *   as starting here — which under-reports, never over-reports.
+     */
+    fun fold(events: List<Ev>, since: Instant): Stretch? {
+        var front: String? = null
+        var startedAt: Instant? = null
+        var pausedAt: Instant? = null
+
+        for (event in events) {
+            when (event.type) {
                 MOVE_TO_FOREGROUND -> {
-                    if (event.packageName != packageName) {
-                        packageName = event.packageName
-                        startedAt = event.timeStamp
+                    val gapped = pausedAt != null &&
+                        Duration.between(pausedAt, event.at) > RESUME_GAP
+                    if (event.packageName != front || gapped) {
+                        front = event.packageName
+                        startedAt = event.at
+                    }
+                    pausedAt = null
+                }
+                MOVE_TO_BACKGROUND, ACTIVITY_STOPPED -> {
+                    // Only the app we are following, and only the first pause
+                    // of a run: a pause-resume-pause inside one app should
+                    // measure the gap from when it actually went away, not
+                    // from the most recent flicker.
+                    if (event.packageName == front && pausedAt == null) {
+                        pausedAt = event.at
                     }
                 }
                 SCREEN_NON_INTERACTIVE, KEYGUARD_SHOWN -> {
-                    packageName = null
-                    startedAt = 0L
+                    front = null
+                    startedAt = null
+                    pausedAt = null
                 }
             }
         }
 
-        val front = packageName ?: return null
-        if (front == context.packageName) return null
-        return Stretch(front, Instant.ofEpochMilli(startedAt))
+        val packageName = front ?: return null
+        // A stretch that began before the window can only be dated to its
+        // edge. Reporting the edge is the honest under-report; reporting the
+        // first event we happened to see would be a guess.
+        return Stretch(packageName, maxOf(startedAt ?: since, since))
     }
 
     /**
-     * API 28 constants, written out because minSdk is 26.
+     * Whether time spent in this package is the behaviour the trigger is for.
      *
-     * Referencing [UsageEvents.Event.SCREEN_NON_INTERACTIVE] directly compiles
-     * and inlines to the same number, but lint reads it as a call into a newer
-     * API and it is clearer to say what these are. They simply never appear in
-     * the stream on 26 and 27, where the effect is that a stretch is not
-     * ended by the screen going off — the interactive check above catches the
-     * live case, and the worst a stale one can do is over-report a stretch
-     * that has already stopped being one.
+     * Three exclusions, and no list of app names among them:
+     *
+     *  - **Harbor.** Somebody reading their own garden for twenty minutes is
+     *    not doomscrolling, and a reminder for it would be the app
+     *    interrupting itself.
+     *  - **The launcher.** Sitting on a home screen is not a sitting.
+     *  - **Anything with no way to launch it.** System UI, the keyguard, and
+     *    the various overlays that can be reported as foreground are not apps
+     *    anybody chose to be in.
      */
+    private fun counts(context: Context, packageName: String): Boolean {
+        if (packageName == context.packageName) return false
+        val pm = context.packageManager
+        if (pm.getLaunchIntentForPackage(packageName) == null) return false
+        return packageName != defaultLauncher(context)
+    }
+
+    private fun defaultLauncher(context: Context): String? {
+        val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        @Suppress("DEPRECATION")
+        val match = context.packageManager.resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY)
+        return match?.activityInfo?.packageName
+    }
+
+    private fun read(usage: UsageStatsManager, now: Instant): List<Ev> {
+        val stream = usage.queryEvents(now.minus(LOOKBACK).toEpochMilli(), now.toEpochMilli())
+        val out = ArrayList<Ev>()
+        val event = UsageEvents.Event()
+        while (stream.getNextEvent(event)) {
+            val name = event.packageName ?: continue
+            out += Ev(event.eventType, name, Instant.ofEpochMilli(event.timeStamp))
+        }
+        return out
+    }
+
     /**
-     * Renamed `ACTIVITY_RESUMED` in API 29, same number. Written out rather
-     * than suppressing a deprecation on a constant that cannot be referenced
-     * by its new name below API 29.
+     * Event type numbers, written out because minSdk is 26.
+     *
+     * The first two were renamed `ACTIVITY_RESUMED` and `ACTIVITY_PAUSED` in
+     * API 29 and the old names are deprecated; the last three cannot be
+     * referenced by name below API 28 and 29 respectively. The numbers are
+     * platform constants and do not move. Where a device does not report one,
+     * the effect is described in [fold] — [RESUME_GAP] is there because
+     * [SCREEN_NON_INTERACTIVE] cannot be relied on.
      */
     private const val MOVE_TO_FOREGROUND = 1
-
+    private const val MOVE_TO_BACKGROUND = 2
     private const val SCREEN_NON_INTERACTIVE = 16
     private const val KEYGUARD_SHOWN = 17
+    private const val ACTIVITY_STOPPED = 23
 
     private const val TAG = "HarborSensing"
 }

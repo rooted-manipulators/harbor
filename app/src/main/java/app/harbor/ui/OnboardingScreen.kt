@@ -1276,7 +1276,7 @@ private fun AskPermission(
                             )
                             ScrollWatch.request(context)?.let { intent ->
                                 FlowPill("Open usage access") {
-                                    context.startActivity(intent)
+                                    ScrollWatch.open(context, intent)
                                 }
                             }
                         }

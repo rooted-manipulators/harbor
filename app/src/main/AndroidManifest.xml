@@ -113,6 +113,52 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      Which other apps Harbor is allowed to see the existence of.
+
+      From Android 11 an app sees only itself and a short list of system
+      packages unless it says otherwise here, and `targetSdk` is 37, so the
+      filtering is fully on. Without this block the scrolling trigger
+      compiles, installs, senses correctly and then never fires: usage access
+      lets Harbor read that `com.instagram.android` was in front, but
+      `getLaunchIntentForPackage` on that name returns null, and
+      ScrollWatch.counts reads a null launch intent as "not an app anybody
+      chose to be in". Every real app would be excluded and the trigger would
+      be silent for the whole study, with nothing anywhere saying why.
+      Confirmed empty on the test phone before this was added.
+
+      The LAUNCHER filter rather than QUERY_ALL_PACKAGES, and the difference
+      is the point: this reveals exactly the apps that appear in the app
+      drawer, which is exactly the set the trigger cares about. Anything
+      without a launcher entry - system UI, the keyguard, the overlays that
+      can be reported as foreground - stays invisible, and stays invisible is
+      the same answer as excluded. QUERY_ALL_PACKAGES would grant more, is
+      restricted on Play, and would be a larger claim than the onboarding
+      screen makes.
+
+      HOME is separate because a launcher's home activity is not always also
+      a drawer entry, and ScrollWatch has to recognise the launcher in order
+      to not count sitting on a home screen as a sitting.
+
+      USAGE_ACCESS_SETTINGS is resolved before the "Open usage access" button
+      is offered. Unresolvable means no button, which on a phone where the
+      screen does exist would leave the permission ungrantable from inside
+      the app - the one permission with no dialog of its own.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.USAGE_ACCESS_SETTINGS" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

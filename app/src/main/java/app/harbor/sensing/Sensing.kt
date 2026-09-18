@@ -54,6 +54,17 @@ object Sensing {
      */
     suspend fun repair(context: Context, store: HarborRepository, replaced: Boolean = false) {
         if (!store.settings.value.cuesEnabled) return
+        // The service first, and deliberately above the permission check.
+        //
+        // It used to be the last line of this function, behind an early
+        // return for a missing activity-recognition permission, which made
+        // one refusal take down things that have nothing to do with it.
+        // Revoke that permission from Settings and the service never
+        // restarts after a reboot; the process goes back to being cached and
+        // frozen; the scrolling trigger, which does not use activity
+        // recognition at all, stops with it. Nothing on any screen says so,
+        // because as far as the app knows only one permission is missing.
+        SensingService.start(context)
         if (!ActivityTransitions.hasPermission(context)) return
         // Clear before asking again, but only after the package was replaced.
         //
@@ -72,11 +83,6 @@ object Sensing {
         // ACTION_MY_PACKAGE_REPLACED.
         if (replaced) ActivityTransitions.unregister(context)
         ActivityTransitions.register(context)
-        // Same reasoning as the registration: the service dies with the
-        // process when an OEM kills it outright, and START_STICKY is the
-        // system's promise, not a guarantee. Launching is a free chance to
-        // put it back.
-        SensingService.start(context)
     }
 
     /**
@@ -127,6 +133,22 @@ object Sensing {
      */
     internal fun lastBout(context: Context): SensingStore.Recorded? =
         SensingStore(context).lastBout
+
+    /**
+     * The same, for the scrolling trigger: the last stretch long enough to
+     * ask about, and what the policy said.
+     *
+     * This one matters more than [lastBout] does, because the scrolling
+     * trigger has a way to fail that the walk does not. Usage access is
+     * granted on a Settings screen and can be taken away on the same screen,
+     * by the person, months later, without any prompt that mentions Harbor.
+     * When that happens the switch still reads on, nothing on any screen is
+     * wrong, and no reminder ever comes again. A line saying when a stretch
+     * was last seen is the only thing that can tell that apart from a quiet
+     * week.
+     */
+    internal fun lastStretch(context: Context): SensingStore.Watched? =
+        SensingStore(context).lastStretch
 
     fun isActive(context: Context, store: HarborRepository): Boolean =
         store.settings.value.cuesEnabled && ActivityTransitions.hasPermission(context)

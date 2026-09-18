@@ -270,7 +270,7 @@ fun CuesSetupScreen(
                     )
                     ScrollWatch.request(context)?.let { intent ->
                         QuietAction("Open usage access") {
-                            context.startActivity(intent)
+                            ScrollWatch.open(context, intent)
                         }
                     }
                 }
@@ -366,6 +366,9 @@ fun CuesSetupScreen(
                     // opposite fixes.
                     Sensing.lastBout(context)?.let { bout ->
                         SmallCopy(lastWalkPhrase(bout, settings), size = 13)
+                    }
+                    if (settings.scrollCues && canSeeApps) {
+                        SmallCopy(lastStretchPhrase(context, settings), size = 13)
                     }
 
                     QuietAction("Turn reminders off") {
@@ -542,6 +545,69 @@ private fun lastWalkPhrase(
     }
 
     return "Last walk: $window, measured as $length. $outcome"
+}
+
+/**
+ * The same, for a long stretch in one app.
+ *
+ * Says the app's own name rather than its package, because `com.instagram.
+ * android` is not what somebody calls it, and because a screen that reports
+ * your behaviour back to you should do it in your words. The name is read
+ * from the installed package and never leaves the phone -- it is not in the
+ * ledger and [app.harbor.domain.StudyExport] has no field for it.
+ *
+ * The "nothing yet" case is the one this exists for. A participant whose
+ * usage access was revoked sees no stretches at all, which is the difference
+ * between a quiet week and a broken trigger, and nothing else on this screen
+ * can tell them apart.
+ */
+private fun lastStretchPhrase(
+    context: Context,
+    settings: app.harbor.domain.UserSettings,
+): String {
+    val watched = Sensing.lastStretch(context)
+        ?: return "No long stretch in one app yet. Harbor is watching for " +
+            "${settings.thresholds.sessionMinutes} minutes in the same one."
+
+    val clock = DateTimeFormatter.ofPattern("HH:mm")
+    val began = clock.format(watched.startedAt.atZone(ZoneId.systemDefault()))
+    val length = if (watched.minutes == 1) "1 minute" else "${watched.minutes} minutes"
+    val app = appLabel(context, watched.packageName)
+
+    val outcome = when (watched.outcome) {
+        null -> "That became a reminder."
+        CuePolicy.Reason.SOURCE_OFF.name ->
+            "No reminder — this trigger was off at the time."
+        CuePolicy.Reason.IN_CLASS.name ->
+            "No reminder — you had marked that time busy."
+        CuePolicy.Reason.DAILY_CAP_REACHED.name ->
+            "No reminder — today's ${settings.thresholds.dailyCap} were already used."
+        CuePolicy.Reason.SOURCE_CAP_REACHED.name ->
+            "No reminder — this trigger had had its " +
+                "${settings.thresholds.perSourceCap} for today."
+        CuePolicy.Reason.IN_COOLDOWN.name ->
+            "No reminder — less than " +
+                "${settings.thresholds.cooldownMinutes} minutes since the last one."
+        CuePolicy.Reason.ALREADY_CONNECTED_TODAY.name ->
+            "No reminder — you had already reached them today."
+        CuePolicy.Reason.REMINDER_PENDING.name ->
+            "No reminder — you had planned a later time."
+        CuePolicy.Reason.CUES_DISABLED.name ->
+            "No reminder — reminders were off at the time."
+        else -> "No reminder."
+    }
+
+    return "Last long stretch: $app from $began, $length. $outcome"
+}
+
+/** What the launcher calls a package, or the package name if it has gone. */
+private fun appLabel(context: Context, packageName: String): String = try {
+    val pm = context.packageManager
+    pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+} catch (e: Throwable) {
+    // Uninstalled since, or hidden behind package visibility. The package
+    // name is worse to read and better than dropping the line.
+    packageName
 }
 
 private fun openAppSettings(context: Context) {
