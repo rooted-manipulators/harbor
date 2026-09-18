@@ -308,6 +308,9 @@ class HarborStore(context: Context) : HarborRepository {
         write { putBoolean(KEY_ONBOARDED, true) }
     }
 
+    private val _arm = MutableStateFlow(StudyArm.of(prefs.getString(KEY_ARM, null)))
+    override val armFlow: StateFlow<StudyArm> = _arm.asStateFlow()
+
     override suspend fun arm(): StudyArm = withContext(Dispatchers.IO) {
         StudyArm.of(prefs.getString(KEY_ARM, null))
     }
@@ -330,6 +333,7 @@ class HarborStore(context: Context) : HarborRepository {
             putString(KEY_ARM, arm.wire)
             putString(KEY_CODE, code?.trim().orEmpty())
         }
+        _arm.value = arm
         arm
     }
 
@@ -367,6 +371,10 @@ class HarborStore(context: Context) : HarborRepository {
                 putString(KEY_ARM, arm.wire)
                 putString(KEY_CODE, code?.trim().orEmpty())
             }
+            // The screen is watching this. Without it the claim reaches the
+            // preferences file and not the app, and the first session runs
+            // in the wrong arm -- see HarborRepository.armFlow.
+            _arm.value = arm
             arm
         }
     }

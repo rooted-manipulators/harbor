@@ -146,6 +146,28 @@ interface HarborRepository {
      */
     suspend fun arm(): StudyArm
 
+    /**
+     * The same answer, as something the UI can watch.
+     *
+     * ## Why a flow, for a value that cannot change
+     *
+     * It can change exactly once: from the default to the claimed one, when
+     * somebody types their code on the first screen of their first run. That
+     * one transition is the whole problem. The arm was read once when the
+     * process started -- which is *before* the code screen -- and held for
+     * the life of the process, so a participant handed a bees phone typed
+     * their code and then did the entire first session in the control arm.
+     * The bee appeared the next time the app was launched from cold.
+     *
+     * First run is the session somebody is watched through. Getting the arm
+     * wrong for it is getting it wrong for the observation the study is
+     * built around, and nothing in the app said anything was amiss.
+     *
+     * So: still write-once, still refuses reassignment, but observable, so
+     * the screen follows the claim rather than predating it.
+     */
+    val armFlow: StateFlow<StudyArm>
+
     /** Whether an arm has been claimed yet. False only before the code screen. */
     suspend fun hasClaimedArm(): Boolean
 

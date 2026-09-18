@@ -313,14 +313,19 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(enabled = onboarded == true && screen != Screen.Home) { home() }
 
-                // The arm, read once and then constant for the run.
+                // The arm, watched rather than read once.
                 //
-                // Not a flow: HarborStore refuses to reassign an arm, so there
-                // is nothing to observe. A single read at start is the honest
-                // shape, and GARDEN until it arrives means the first frame is
-                // the app that already existed rather than a half-dressed one.
-                var arm by remember { mutableStateOf(StudyArm.GARDEN) }
-                LaunchedEffect(Unit) { arm = store.arm() }
+                // It used to be a single read in a LaunchedEffect, on the
+                // reasoning that an arm cannot be reassigned so there was
+                // nothing to observe. True of every moment except the one
+                // that matters: the arm is *claimed* on the first screen of
+                // the first run, which is after this composable has already
+                // read it. So a bees participant typed their code and then
+                // did the whole of onboarding -- the part somebody sits and
+                // watches them through -- in the control arm, with the bee
+                // turning up only after the next cold start. See
+                // HarborRepository.armFlow.
+                val arm by store.armFlow.collectAsState()
 
                 CompositionLocalProvider(
                     LocalReducedMotion provides reduceMotion,
