@@ -74,6 +74,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.IntOffset
 import app.harbor.ui.theme.LocalReducedMotion
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -766,6 +768,7 @@ private fun DayBoard(
     val slide = remember { Animatable(0f) }
     val swipes = rememberCoroutineScope()
     val stillness = LocalReducedMotion.current
+    val buzz = LocalHapticFeedback.current
     val hoursHeight = HOUR_HEIGHT * hours
 
     // The block under the finger, and the rest of the week without it.
@@ -815,11 +818,17 @@ private fun DayBoard(
                                 step <= 0f -> slide.snapTo(0f)
                                 went <= -far -> {
                                     if (!stillness) slide.animateTo(-step, DAY_SETTLE)
+                                    // Felt at the moment it lands, not when
+                                    // the finger lifts: the point of it is to
+                                    // confirm the day changed, and the day
+                                    // changes here.
+                                    buzz.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onShow(showing.plusDays(1))
                                     slide.snapTo(0f)
                                 }
                                 went >= far -> {
                                     if (!stillness) slide.animateTo(step, DAY_SETTLE)
+                                    buzz.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onShow(showing.minusDays(1))
                                     slide.snapTo(0f)
                                 }
@@ -854,11 +863,17 @@ private fun DayBoard(
         // The days either side, peeking in at the edges. They are the week you
         // are still in; the frames show them dimmed and mostly off-screen, and
         // a press on the sliver is the third way to change day.
+        // How far through a swipe we are, -1 to 1. The card being pulled
+        // towards brightens as it comes and the middle one dims to meet it,
+        // so the moment the day commits nothing has to change.
+        val progress = if (stepPx > 0f) (slide.value / stepPx).coerceIn(-1f, 1f) else 0f
+
         NeighbourDay(
             blocks = blocks,
             day = showing.minusDays(1).dayOfWeek,
             skin = skin,
             width = cardWidth,
+            presence = 0.5f + 0.5f * progress.coerceAtLeast(0f),
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(x = -(cardWidth + 16.dp))
@@ -870,6 +885,7 @@ private fun DayBoard(
             day = showing.plusDays(1).dayOfWeek,
             skin = skin,
             width = cardWidth,
+            presence = 0.5f + 0.5f * (-progress).coerceAtLeast(0f),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .offset(x = cardWidth + 16.dp)
@@ -883,6 +899,9 @@ private fun DayBoard(
                 .width(cardWidth)
                 .fillMaxHeight()
                 .offset { IntOffset(slide.value.roundToInt(), 0) }
+                // Dims on its way out by exactly what the incoming card
+                // gains, so the two cross over rather than swapping.
+                .alpha(1f - 0.5f * kotlin.math.abs(progress))
                 .clip(DayCardShape)
                 .background(skin.card)
                 .border(1.dp, skin.line.copy(alpha = 0.45f), DayCardShape),
@@ -1232,6 +1251,15 @@ private fun NeighbourDay(
     day: DayOfWeek,
     skin: WeekSkin,
     width: Dp,
+    /**
+     * How present this day is, 0.5 at rest and 1 when it has arrived.
+     *
+     * Interpolated by the caller from the swipe, so a card that slides into
+     * the middle is already at full strength by the time it becomes the
+     * centre one. It used to be a flat 0.5 and the day changed underneath it,
+     * which meant every swipe ended on a step from half to whole.
+     */
+    presence: Float,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -1245,12 +1273,18 @@ private fun NeighbourDay(
     Box(
         modifier
             .width(width)
-            .fillMaxHeight(0.9f)
+            // Full height, like the middle one.
+            //
+            // This was 0.9f, so a card that slid into the centre grew by a
+            // tenth at the instant the day committed -- the jolt at the end of
+            // every swipe. A carousel only reads as one if the thing arriving
+            // is the same size as the thing leaving.
+            .fillMaxHeight()
             .clip(DayCardShape)
             .background(skin.card)
             .border(1.dp, skin.line.copy(alpha = 0.3f), DayCardShape)
             .clickable(onClick = onClick)
-            .alpha(0.5f),
+            .alpha(presence),
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val hourPx = (size.height - headPx - footPx) / (LAST_HOUR - FIRST_HOUR)
