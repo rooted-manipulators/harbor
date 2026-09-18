@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -254,7 +255,10 @@ private fun MostGrown(summary: Growth.Summary, contacts: List<Contact>) {
             Canvas(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1.35f),
+                    // Wider than it was. At 1.35 a person with one kind sat
+                    // in a tall well of empty card, which read as something
+                    // failing to load rather than as one flower.
+                    .aspectRatio(1.7f),
             ) {
                 drawCluster(person.blooms.take(MOST_GROWN_KINDS))
             }
@@ -298,15 +302,28 @@ private fun DrawScope.drawCluster(blooms: List<Growth.Bloom>) {
     val top = blooms.first().flowers.toFloat().coerceAtLeast(1f)
     val unit = min(size.width, size.height)
 
-    blooms.forEachIndexed { index, bloom ->
+    val placed = blooms.mapIndexed { index, bloom ->
         val share = sqrt(bloom.flowers / top)
-        val radius = unit * (0.09f + 0.20f * share)
         val seat = SEATS[index % SEATS.size]
+        Triple(bloom.kind, seat, unit * (0.11f + 0.24f * share))
+    }
+
+    // Centre the posy on what is actually in it.
+    //
+    // The seats are fixed so the picture is stable, but a person with one
+    // kind only ever uses the first seat -- which is off-centre, because it
+    // is the seat that looks right when there are five. Centring the used
+    // ones puts a lone flower in the middle of the card without moving
+    // anything when the card is full.
+    val cx = (placed.minOf { it.second.first } + placed.maxOf { it.second.first }) / 2f
+    val cy = (placed.minOf { it.second.second } + placed.maxOf { it.second.second }) / 2f
+
+    placed.forEach { (kind, seat, radius) ->
         translate(
-            size.width / 2f + seat.first * unit,
-            size.height / 2f + seat.second * unit,
+            size.width / 2f + (seat.first - cx) * unit,
+            size.height / 2f + (seat.second - cy) * unit,
         ) {
-            drawBloom(Flowers.spec(bloom.kind), radius)
+            drawBloom(Flowers.spec(kind), radius)
         }
     }
 }
@@ -380,6 +397,23 @@ private fun DrawScope.drawDisc(blooms: List<Growth.Bloom>) {
     if (marks.isEmpty()) return
 
     val unit = min(size.width, size.height) / 2f
+
+    // A breath of light under the cluster, tinted by whatever grew most.
+    //
+    // It is doing a job, not decorating: against a near-black card the
+    // marks float with no ground, and the disc reads as scattered rather
+    // than as one thing. Faint enough that it cannot be mistaken for a
+    // mark of its own.
+    val glow = Color(blooms.first().kind.let { Flowers.spec(it).petal })
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(glow.copy(alpha = 0.14f), Color.Transparent),
+            center = Offset(size.width / 2f, size.height / 2f),
+            radius = unit * 0.95f,
+        ),
+        radius = unit * 0.95f,
+        center = Offset(size.width / 2f, size.height / 2f),
+    )
     // Room for a mark's own radius at the rim, so the outermost flowers are
     // inside the card rather than clipped by it.
     val spread = unit * 0.80f
@@ -423,7 +457,7 @@ private fun PeopleYouGrowWith(summary: Growth.Summary, contacts: List<Contact>) 
                             .aspectRatio(1f),
                     ) {
                         translate(size.width / 2f, size.height / 2f) {
-                            drawPersonBloom(person.petals, min(size.width, size.height) * 0.42f)
+                            drawPersonBloom(person.petals, min(size.width, size.height) * 0.38f)
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -478,41 +512,49 @@ private fun DrawScope.drawPersonBloom(petals: List<FlowerKind>, radius: Float) {
     val shown = petals.takeLast(PETAL_MAX)
     val n = shown.size
 
-    // A single call would be a lone oval, which reads as a mistake rather
-    // than as one. Three is the fewest that looks deliberate, so one and two
-    // are drawn at the width three would have.
+    // Narrow enough to read as petals. Wider than this and four of them
+    // merge into a disc with a notch in it, which is what the first version
+    // drew: the count stops being countable, and the count is the whole
+    // point of this one.
     val slice = 360f / n.coerceAtLeast(3)
     val half = (slice * 0.46f * PI / 180f).toFloat()
-    val rx = (radius * 0.40f).coerceAtMost(radius * sin(half) * 1.9f)
+    val rx = (radius * 0.30f).coerceAtMost(radius * sin(half) * 1.35f)
 
-    shown.forEachIndexed { index, kind ->
-        val spec = Flowers.spec(kind)
-        rotate(degrees = index * (360f / n), pivot = Offset.Zero) {
-            drawOval(
-                color = Color(spec.petal),
-                topLeft = Offset(-rx, -radius),
-                size = Size(rx * 2f, radius * 1.15f),
-            )
-            // The deep tone as a seam down the middle of each petal. It is
-            // what stops two neighbouring petals of the same kind reading as
-            // one wide blob, which is most of what a four-call flower is.
-            drawOval(
-                color = Color(spec.petalDeep),
-                topLeft = Offset(-rx * 0.34f, -radius * 0.94f),
-                size = Size(rx * 0.68f, radius * 0.9f),
-                alpha = 0.55f,
-            )
+    // One petal points somewhere, so a bloom made of one is all on one side
+    // of its own centre and hangs in the card like a balloon. Shifted back
+    // by half its own reach, which centres the shape without pretending
+    // there is more than one of it. From three up the petals balance each
+    // other and nothing moves.
+    val lift = if (n == 1) radius * 0.45f else 0f
+
+    translate(0f, lift) {
+        shown.forEachIndexed { index, kind ->
+            val spec = Flowers.spec(kind)
+            rotate(degrees = index * (360f / n), pivot = Offset.Zero) {
+                drawOval(
+                    color = Color(spec.petal),
+                    topLeft = Offset(-rx, -radius),
+                    size = Size(rx * 2f, radius * 1.18f),
+                )
+                // The deep tone as a seam down the middle of each petal. It
+                // is what stops two neighbouring petals of the same kind
+                // reading as one wide blob, which is most of what a
+                // four-call flower is.
+                drawOval(
+                    color = Color(spec.petalDeep),
+                    topLeft = Offset(-rx * 0.34f, -radius * 0.94f),
+                    size = Size(rx * 0.68f, radius * 0.92f),
+                    alpha = 0.5f,
+                )
+            }
+        }
+
+        val heart = shown.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+        if (heart != null) {
+            drawCircle(Color(Flowers.spec(heart).heart), radius * 0.26f, Offset.Zero)
         }
     }
 
-    // One heart, from the flower that came up most. The middle of a bloom is
-    // a single thing and has to be a single colour; taking the commonest is
-    // the only choice that is about this person rather than about the order
-    // their calls happened in.
-    val heart = shown.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
-    if (heart != null) {
-        drawCircle(Color(Flowers.spec(heart).heart), radius * 0.30f, Offset.Zero)
-    }
 }
 
 private const val PEOPLE_SHOWN = 2
