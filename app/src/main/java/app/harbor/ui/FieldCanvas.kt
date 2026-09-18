@@ -636,12 +636,6 @@ fun FieldCanvas(
                         color = MaterialTheme.colorScheme.onBackground,
                     ),
                 )
-                Text(
-                    "A call, and how it felt. That is the whole of it.",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                )
             }
         }
 
@@ -657,11 +651,15 @@ fun FieldCanvas(
         // screen and the readout was drawing straight over the third line of
         // the card.
         if (controls && base > 0 && showing == null) {
-            FieldReadout(
-                relative = cam.zoom / base,
-                tilt = Field.tiltFor(cam.zoom, base),
-                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
-            )
+            // The zoom readout is not drawn.
+            //
+            // "6.5x - landscape" is true, and it is the only monospace,
+            // letter-spaced text in the app, sitting in a white pill over the
+            // field. It reads as instrumentation somebody forgot to strip,
+            // which is a bad first impression of a screen whose whole job is
+            // to look like a place. FieldReadout is kept below rather than
+            // deleted -- it is genuinely useful when tuning the lens, and the
+            // one line that calls it is easy to put back.
         }
     }
 }

@@ -116,7 +116,10 @@ class MainActivity : ComponentActivity() {
         Cues(null, "Reminders"),
         Contact(null, "Your person"),
         Garden(null, "Your garden"),
-        Notes(null, "A petal"),
+        // "Send a petal", matching the page's own title. The bar used to
+        // say "A petal" while the page said "Send a petal." -- two names for
+        // one screen, a centimetre apart.
+        Notes(null, "Send a petal"),
         Person(null, null),
         Reflect(null, null),
         SignIn(null, "Your account"),

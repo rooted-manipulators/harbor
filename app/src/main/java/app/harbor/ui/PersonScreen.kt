@@ -655,18 +655,31 @@ private fun GlyphAction(label: String, glyph: Glyph, onClick: () -> Unit) {
                 // rectangle and two discs rather than from curves, because the
                 // curve call in this library has been renamed once already and
                 // a fifteen-point glyph is not worth a deprecation.
-                Glyph.Phone -> rotate(degrees = -34f) {
-                    val w = size.width
-                    val h = size.height
-                    drawRoundRect(
+                // A handset, the same one the reminder draws.
+                //
+                // This used to be a thin rounded rect with a disc at each end,
+                // rotated 34 degrees. That is a handset in principle; at 18dp
+                // with a 1.5px stroke it is a pen, and it sat next to the word
+                // "Call" on the primary action of the screen. The cue surface
+                // already had a handset that reads correctly at this size, so
+                // this is that path rather than a third attempt.
+                Glyph.Phone -> {
+                    val s = size.width
+                    drawPath(
+                        Path().apply {
+                            moveTo(s * 0.26f, s * 0.12f)
+                            lineTo(s * 0.44f, s * 0.12f)
+                            lineTo(s * 0.52f, s * 0.36f)
+                            lineTo(s * 0.38f, s * 0.46f)
+                            cubicTo(s * 0.46f, s * 0.64f, s * 0.58f, s * 0.74f, s * 0.72f, s * 0.8f)
+                            lineTo(s * 0.82f, s * 0.66f)
+                            lineTo(s * 0.94f, s * 0.76f)
+                            lineTo(s * 0.94f, s * 0.92f)
+                            cubicTo(s * 0.6f, s * 0.94f, s * 0.22f, s * 0.56f, s * 0.26f, s * 0.12f)
+                        },
                         color = Chalk,
-                        topLeft = Offset(w * 0.40f, h * 0.10f),
-                        size = Size(w * 0.20f, h * 0.80f),
-                        cornerRadius = CornerRadius(w * 0.10f),
-                        style = Stroke(1.5f),
+                        style = Stroke(1.6f),
                     )
-                    drawCircle(Chalk, radius = w * 0.11f, center = Offset(w * 0.50f, h * 0.20f))
-                    drawCircle(Chalk, radius = w * 0.11f, center = Offset(w * 0.50f, h * 0.80f))
                 }
 
                 Glyph.Plane -> {
@@ -746,9 +759,16 @@ private fun ActivityCard(entry: LedgerEntry, open: Boolean, onToggle: () -> Unit
                         ),
                     )
                     Spacer(Modifier.size(8.dp))
+                    // The time, not just the day.
+                    //
+                    // Six things can happen to one person in an afternoon, and
+                    // dated to the day they were six identical rows: "Made room
+                    // to talk, 18 Sept '26" three times over. The clock is what
+                    // makes a log a log -- and it is the difference between
+                    // rows that only some of which will open.
                     Text(
                         entry.occurredAt.atZone(ZoneId.systemDefault())
-                            .format(DateTimeFormatter.ofPattern("d MMM ''yy")),
+                            .format(DateTimeFormatter.ofPattern("d MMM, HH:mm")),
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontSize = 11.sp,
                             color = Muted,
@@ -839,16 +859,23 @@ private val LedgerEntry.title: String
             hour < 17 -> "Afternoon"
             else -> "Evening"
         }
+        // Sentence case, against the frames.
+        //
+        // These were Title Case because the frames were, and they were the
+        // only Title Case strings in the app -- every other screen writes like
+        // a person talking. Six of them stacked in a list read like proper
+        // nouns, as though "Kept the Quiet" were the name of something rather
+        // than a description of an evening.
         return when (resolution) {
-            Resolution.CALLED -> "$part Call"
-            Resolution.MESSAGE -> if (note.isNullOrBlank()) "Sent a Photograph" else "Left a Line"
-            Resolution.REACTED -> "Sent a Little Love"
-            Resolution.PLAYED -> "Played the Daily Question"
-            Resolution.PROPOSED_LATER -> "Made Room to Talk"
-            Resolution.DISMISSED -> "Kept the Quiet"
+            Resolution.CALLED -> "$part call"
+            Resolution.MESSAGE -> if (note.isNullOrBlank()) "Sent a photograph" else "Left a line"
+            Resolution.REACTED -> "Sent a little love"
+            Resolution.PLAYED -> "Played the daily question"
+            Resolution.PROPOSED_LATER -> "Made room to talk"
+            Resolution.DISMISSED -> "Kept the quiet"
             // Never "you failed to reach them". They went to call, which is
             // the part this app is trying to encourage.
-            Resolution.NOT_REACHED -> "Tried to Call"
+            Resolution.NOT_REACHED -> "Tried to call"
         }
     }
 

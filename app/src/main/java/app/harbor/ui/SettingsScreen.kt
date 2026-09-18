@@ -34,6 +34,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
@@ -365,6 +366,15 @@ internal fun Pill(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Whether it can be pressed at all.
+     *
+     * Defaults to true so every existing caller is unchanged. It exists for
+     * the one on the petal screen, which was the accent pill whether or not
+     * there was a line to send -- and pressing it with nothing typed did
+     * nothing, silently, because the guard was in the click handler.
+     */
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) = Box(
     modifier
@@ -379,7 +389,8 @@ internal fun Pill(
             else MaterialTheme.colorScheme.outlineVariant,
             RoundedCornerShape(99.dp),
         )
-        .clickable(onClick = onClick)
+        .clickable(enabled = enabled, onClick = onClick)
+        .alpha(if (enabled) 1f else 0.45f)
         .padding(horizontal = 14.dp, vertical = 10.dp),
     contentAlignment = Alignment.Center,
 ) {
