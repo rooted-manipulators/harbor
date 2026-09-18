@@ -186,23 +186,23 @@ fun ScheduleScreen(
             TextLink("Back", onDone)
         },
     ) {
-        // Nothing above the grid.
+        // The heading, and nothing under it.
         //
-        // This screen used to open with a title, a subtitle and three
+        // This screen used to open with a title, a subtitle *and* three
         // sentences explaining why it exists -- 870 pixels of a 2340 pixel
         // phone, so a screen called "drag and drop slots on your calendar"
         // showed the calendar as the smallest thing on it, cut off at 15:00
         // with the nav bar over the rest.
         //
-        // The explanation was not wrong. It was written because testers asked
-        // what the calendar was *for*, and it answered them. But it answered
-        // them once, and then charged every later visit the same 870 pixels.
-        // A tab you return to is not a tab that needs re-introducing, and the
-        // tab is already labelled Schedule.
+        // The three sentences are what went. They were not wrong: they were
+        // written because testers asked what the calendar was *for*, and they
+        // answered that. They answered it once, and then charged every later
+        // visit the same space. The how-to under the grid says what to do, and
+        // that is the part you come back needing.
         //
-        // The first run still gets the heading -- see WeekSetupScreen, where
-        // somebody is meeting this for the first time and there is no nav bar
-        // to tell them where they are.
+        // The two lines stay. They are what the screen is called, and a grid
+        // of seven unlabelled columns wants a name above it.
+        WeekHeading(skin)
     }
 }
 
