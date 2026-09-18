@@ -463,8 +463,23 @@ fun FieldCanvas(
             // two gesture events reads as a dead stop, and the ground should
             // not twitch because the touch stream did.
             stirring.speed += ((moved / seconds) - stirring.speed) * 0.25
+            // Which way you are going, in screen terms. Eased like the speed
+            // is, so a direction does not snap between two gesture events, and
+            // kept from the last frame that actually moved -- a still camera
+            // has no heading, and the one it had last is the honest answer
+            // while the ground settles.
+            val stepX = cam.x - was.x
+            val stepY = cam.y - was.y
+            val step = hypot(stepX, stepY)
+            if (step > 1e-9) {
+                stirring.headingX += (stepX / step - stirring.headingX) * 0.25
+                stirring.headingY += (stepY / step - stirring.headingY) * 0.25
+            }
             val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirring.speed)
-            drawField(built, patches, palette, cam, base, kit, tagInk, newest, art, stir)
+            drawField(
+                built, patches, palette, cam, base, kit, tagInk, newest, art,
+                stir, stirring.headingX, stirring.headingY,
+            )
         }
 
         if (controls) {
@@ -662,6 +677,10 @@ private class Stirring {
     var at: Long = System.nanoTime()
     var from: Field.Camera? = null
     var speed: Double = 0.0
+
+    /** The way you are going, normalised, kept from the last frame that moved. */
+    var headingX: Double = 0.0
+    var headingY: Double = 0.0
 }
 
 private class Tag(val text: String, val x: Float, var y: Float, val stemY: Float)
@@ -680,6 +699,9 @@ private fun DrawScope.drawField(
     art: Map<FlowerKind, Bitmap>,
     /** How hard the ground is stirring, nought to one. See [Field.stirAmount]. */
     stir: Double,
+    /** Which way you are travelling, in screen terms, normalised. */
+    headingX: Double,
+    headingY: Double,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -736,7 +758,16 @@ private fun DrawScope.drawField(
         if (stir > 0.0) {
             val near = Field.stirNear(p.x, p.y, w, h)
             if (near > 0.0) {
-                Field.stirOffset(c.tone, stir * near, r, kit.stirPoint)
+                Field.stirPush(
+                    fromX = p.x - w / 2,
+                    fromY = p.y - h / 2,
+                    tone = c.tone,
+                    travelX = headingX,
+                    travelY = headingY,
+                    amount = stir * near,
+                    radius = r,
+                    out = kit.stirPoint,
+                )
                 p.x += kit.stirPoint.x
                 p.y += kit.stirPoint.y
             }

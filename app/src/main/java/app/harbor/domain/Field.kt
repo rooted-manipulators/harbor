@@ -255,24 +255,90 @@ object Field {
     }
 
     /**
-     * Which way this cell leans while the ground is stirring.
+     * How much harder the ground ahead of you is disturbed than the ground
+     * behind, as the share of the push that does not depend on direction.
      *
-     * A cell's direction is its own [Cell.tone] and never changes, so the
-     * field leans in a fixed scatter rather than swirling — the same reason
-     * [wisp] hashes rather than counts. Returned through [out] because this is
-     * called per cell per frame and an allocation there is forty thousand
-     * allocations a frame.
+     * Nought would mean only what is dead ahead moves at all; one would mean
+     * direction stops mattering and the field breathes evenly, which is the
+     * shiver this replaced. Just over half leaves everything in the box
+     * moving, with the ground you are arriving at moving most.
      */
-    fun stirOffset(tone: Double, amount: Double, radius: Double, out: Point): Point {
-        if (amount <= 0.0) {
-            out.x = 0.0
-            out.y = 0.0
-            return out
+    const val STIR_EVEN = 0.55
+
+    /** How far a cell may lean off straight-outward, in radians. */
+    const val STIR_SCATTER = 0.7
+
+    /**
+     * Which way this cell is pushed as you travel through it.
+     *
+     * Not a shiver. Walking into long grass parts it: what is in front of you
+     * bends away as you arrive, what is beside you goes sideways, and what is
+     * behind you has already sprung back. So the push is radial — outward from
+     * the middle of the frame, which is where you are — and then weighted by
+     * whether the cell is ahead of your travel or behind it. A cell directly
+     * in your path takes the full lean; one behind your shoulder takes about a
+     * tenth of it.
+     *
+     * [travelX] and [travelY] are the direction of travel in screen terms,
+     * already normalised, or both nought when the camera is only zooming —
+     * in which case the push is purely outward, which is exactly right, since
+     * moving straight in parts the ground around you evenly.
+     *
+     * The per-cell scatter from [Cell.tone] is what keeps it from reading as a
+     * machine. Perfectly radial pushes make a clean starburst, and a clean
+     * starburst is an effect; a field bending roughly away from you, each
+     * plant a little differently, is grass. The scatter is the cell's own and
+     * never changes, so a plant leans its own way every time you pass it.
+     *
+     * Returned through [out] because this runs per cell per frame, and an
+     * allocation there is forty thousand allocations a frame.
+     */
+    fun stirPush(
+        fromX: Double,
+        fromY: Double,
+        tone: Double,
+        travelX: Double,
+        travelY: Double,
+        amount: Double,
+        radius: Double,
+        out: Point,
+    ): Point {
+        out.x = 0.0
+        out.y = 0.0
+        if (amount <= 0.0) return out
+
+        // Straight out from where you are. A cell sitting exactly on the spot
+        // has no outward to point along, so it borrows its own angle rather
+        // than dividing by nothing.
+        val span = kotlin.math.hypot(fromX, fromY)
+        var dirX: Double
+        var dirY: Double
+        if (span < 1e-6) {
+            val angle = tone * 6.283185307179586
+            dirX = cos(angle)
+            dirY = sin(angle)
+        } else {
+            dirX = fromX / span
+            dirY = fromY / span
         }
-        val angle = tone * 6.283185307179586
-        val reach = radius * STIR * amount
-        out.x = cos(angle) * reach
-        out.y = sin(angle) * reach
+
+        // Ahead of you or behind you, as -1 to 1, and nought while the camera
+        // is only zooming.
+        val ahead = dirX * travelX + dirY * travelY
+        val gain = STIR_EVEN + (1.0 - STIR_EVEN) * ahead
+        if (gain <= 0.0) return out
+
+        // Each plant leans its own way about that. Same tone, same lean, every
+        // time — a scatter that changed frame to frame would boil.
+        val skew = (tone - 0.5) * STIR_SCATTER
+        val cosS = cos(skew)
+        val sinS = sin(skew)
+        val turnedX = dirX * cosS - dirY * sinS
+        val turnedY = dirX * sinS + dirY * cosS
+
+        val reach = radius * STIR * amount * gain
+        out.x = turnedX * reach
+        out.y = turnedY * reach
         return out
     }
 

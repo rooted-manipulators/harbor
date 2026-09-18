@@ -607,7 +607,7 @@ class FieldTest {
         // The one that keeps the garden a place rather than an aquarium. If
         // this ever returns more than nought, the ground simmers forever.
         assertEquals(0.0, Field.stirAmount(0.0), 0.0)
-        val out = Field.stirOffset(0.37, Field.stirAmount(0.0), 12.0, Field.Point())
+        val out = push(40.0, 25.0, travelX = 1.0, amount = Field.stirAmount(0.0))
         assertEquals(0.0, out.x, 0.0)
         assertEquals(0.0, out.y, 0.0)
     }
@@ -622,6 +622,16 @@ class FieldTest {
         assertTrue("a slow drag should be nearly still", slow < 0.05)
     }
 
+    private fun push(
+        fromX: Double,
+        fromY: Double,
+        tone: Double = 0.5,
+        travelX: Double = 0.0,
+        travelY: Double = 0.0,
+        amount: Double = 1.0,
+        radius: Double = 9.0,
+    ) = Field.stirPush(fromX, fromY, tone, travelX, travelY, amount, radius, Field.Point())
+
     @Test
     fun `a cell never wanders further than its own radius`() {
         // A dot that can travel further than it is wide stops reading as that
@@ -629,26 +639,66 @@ class FieldTest {
         val radius = 9.0
         for (step in 0..20) {
             val tone = step / 20.0
-            val out = Field.stirOffset(tone, 1.0, radius, Field.Point())
+            val out = push(40.0, -15.0, tone = tone, travelX = 1.0, radius = radius)
             val reach = kotlin.math.hypot(out.x, out.y)
             assertTrue("a cell reached $reach on a radius of $radius", reach <= radius)
-            assertEquals("the reach is the radius times STIR", radius * Field.STIR, reach, 1e-9)
         }
     }
 
     @Test
-    fun `a cell leans the same way every time it is asked`() {
-        // Direction comes from the cell's own tone and nothing else. A stir
-        // built on a running clock would make the field swim rather than lean.
-        val first = Field.stirOffset(0.61, 0.8, 7.0, Field.Point())
-        val x = first.x
-        val y = first.y
-        val again = Field.stirOffset(0.61, 0.8, 7.0, Field.Point())
+    fun `the ground you are arriving at moves more than the ground behind you`() {
+        // The whole point. Walking into long grass parts it in front of you;
+        // what is behind your shoulder has already sprung back.
+        val ahead = push(60.0, 0.0, travelX = 1.0)
+        val behind = push(-60.0, 0.0, travelX = 1.0)
+        val beside = push(0.0, 60.0, travelX = 1.0)
+        val front = kotlin.math.hypot(ahead.x, ahead.y)
+        val back = kotlin.math.hypot(behind.x, behind.y)
+        val side = kotlin.math.hypot(beside.x, beside.y)
+        assertTrue("ground ahead has to move most", front > side)
+        assertTrue("ground beside has to move more than ground behind", side > back)
+        assertTrue("and ground behind should barely move", back < front * 0.25)
+    }
+
+    @Test
+    fun `a cell is pushed away from you, not towards you`() {
+        // Radial, outward. A field that closed in on you as you travelled
+        // would read as the ground swallowing the view.
+        for (step in 0..11) {
+            val angle = step / 12.0 * 6.283185307179586
+            val fx = kotlin.math.cos(angle) * 50
+            val fy = kotlin.math.sin(angle) * 50
+            val out = push(fx, fy, travelX = 1.0, tone = 0.5)
+            val outward = (out.x * fx + out.y * fy) / 50.0
+            assertTrue("a cell at $step was pulled inward", outward >= 0.0)
+        }
+    }
+
+    @Test
+    fun `only zooming parts the ground evenly`() {
+        // No heading at all. Everything in the box should still move, equally,
+        // because moving straight in parts what is around you on all sides.
+        val a = kotlin.math.hypot(push(50.0, 0.0).x, push(50.0, 0.0).y)
+        val b = kotlin.math.hypot(push(-50.0, 0.0).x, push(-50.0, 0.0).y)
+        val c = kotlin.math.hypot(push(0.0, -50.0).x, push(0.0, -50.0).y)
+        assertEquals(a, b, 1e-9)
+        assertEquals(a, c, 1e-9)
+        assertTrue("a zoom should still disturb the ground", a > 0.0)
+    }
+
+    @Test
+    fun `a plant leans its own way, and the same way every time`() {
+        // Perfectly radial pushes draw a clean starburst, and a starburst is
+        // an effect. The scatter is what makes it grass -- and it is the
+        // cell's own, so a plant leans its own way every time you pass it.
+        val once = push(40.0, 40.0, tone = 0.61, travelX = 1.0)
+        val x = once.x
+        val y = once.y
+        val again = push(40.0, 40.0, tone = 0.61, travelX = 1.0)
         assertEquals(x, again.x, 0.0)
         assertEquals(y, again.y, 0.0)
-        // And two different cells do not lean together.
-        val other = Field.stirOffset(0.14, 0.8, 7.0, Field.Point())
-        assertTrue("two cells leaned identically", x != other.x || y != other.y)
+        val neighbour = push(40.0, 40.0, tone = 0.12, travelX = 1.0)
+        assertTrue("two plants in the same place leaned identically", x != neighbour.x)
     }
 
     @Test
