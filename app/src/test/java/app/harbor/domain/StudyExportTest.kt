@@ -86,6 +86,7 @@ class StudyExportTest {
         ),
         lastTransitionAt = at,
         arm = arm,
+        studyCode = if (arm == StudyArm.BEES) "B-07" else "A-07",
         beats = listOf(
             Beat(at, Moment.APP_OPENED),
             Beat(at, Moment.CALL_STARTED, TriggerSource.WALKING_STOP.name),

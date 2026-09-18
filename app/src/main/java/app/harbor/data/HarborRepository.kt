@@ -135,8 +135,21 @@ interface HarborRepository {
      */
     suspend fun arm(): StudyArm
 
+    /** Whether an arm has been claimed yet. False only before the code screen. */
+    suspend fun hasClaimedArm(): Boolean
+
     /**
-     * Put this install in an arm, if it is not in one already.
+     * The study code this install was opened with, or null if it was never
+     * asked, or empty if somebody went past without one.
+     *
+     * Kept beside the arm so the export can tell an assigned participant from
+     * one who skipped: both are in [StudyArm.GARDEN], and only one of them was
+     * meant to be.
+     */
+    suspend fun studyCode(): String?
+
+    /**
+     * Put this install in the arm a code names, if it is not in one already.
      *
      * Claim rather than set, and it is the whole design. A participant who
      * could be moved between arms halfway through is a participant whose
@@ -146,7 +159,7 @@ interface HarborRepository {
      *
      * @return the arm this install is in, which may not be the one asked for.
      */
-    suspend fun claimArm(arm: StudyArm): StudyArm
+    suspend fun claimCode(code: String?): StudyArm
 
     /**
      * Every cue still held, for the study export.

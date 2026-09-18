@@ -66,6 +66,16 @@ object StudyExport {
          * in the only place it can be stated.
          */
         val arm: StudyArm,
+        /**
+         * The code the arm was derived from, blank if somebody went past the
+         * screen without one.
+         *
+         * The arm alone cannot tell an assigned control participant from
+         * somebody who skipped: both are [StudyArm.GARDEN]. This is how the
+         * two are told apart afterwards, and how a row is matched back to
+         * whatever list the study keeps on paper.
+         */
+        val studyCode: String?,
         val settings: UserSettings,
         val contacts: List<Contact>,
         val blocks: List<WeekBlock>,
@@ -139,6 +149,7 @@ object StudyExport {
         "app_version" to str(bundle.appVersion),
         "participant" to str(bundle.participant.toString()),
         "arm" to str(bundle.arm.wire),
+        "study_code" to str(bundle.studyCode.orEmpty()),
         "exported_at" to str(bundle.exportedAt.toString()),
         "last_transition_at" to str(bundle.lastTransitionAt?.toString()),
 

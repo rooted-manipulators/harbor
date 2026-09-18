@@ -73,6 +73,7 @@ object StudyFile {
                     cues = store.allCues(),
                     entries = store.recentEntries(),
                     arm = store.arm(),
+                    studyCode = store.studyCode(),
                     lastTransitionAt = Sensing.lastTransition(context),
                 )
                 val dir = File(context.getExternalFilesDir(null), FOLDER).apply { mkdirs() }

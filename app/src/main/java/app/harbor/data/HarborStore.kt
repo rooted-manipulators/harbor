@@ -305,15 +305,27 @@ class HarborStore(context: Context) : HarborRepository {
         StudyArm.of(prefs.getString(KEY_ARM, null))
     }
 
-    override suspend fun claimArm(arm: StudyArm): StudyArm = withContext(Dispatchers.IO) {
-        // First call wins. See HarborRepository.claimArm: an arm that could be
-        // reassigned is an arm that cannot be trusted on the rows already
+    override suspend fun hasClaimedArm(): Boolean =
+        withContext(Dispatchers.IO) { prefs.getString(KEY_ARM, null) != null }
+
+    override suspend fun studyCode(): String? =
+        withContext(Dispatchers.IO) { prefs.getString(KEY_CODE, null) }
+
+    override suspend fun claimCode(code: String?): StudyArm = withContext(Dispatchers.IO) {
+        // First call wins. See HarborRepository.claimCode: an arm that could
+        // be reassigned is an arm that cannot be trusted on the rows already
         // written under it.
         val held = prefs.getString(KEY_ARM, null)
         if (held != null) {
             StudyArm.of(held)
         } else {
-            write { putString(KEY_ARM, arm.wire) }
+            val arm = StudyArm.fromCode(code)
+            // The code is stored even when it is blank, because blank is
+            // itself the answer: somebody went past the screen without one.
+            write {
+                putString(KEY_ARM, arm.wire)
+                putString(KEY_CODE, code?.trim().orEmpty())
+            }
             arm
         }
     }
@@ -401,6 +413,9 @@ class HarborStore(context: Context) : HarborRepository {
          * participant into the other arm.
          */
         const val KEY_ARM = "study_arm"
+
+        /** The code as typed, trimmed. Empty means asked and skipped. */
+        const val KEY_CODE = "study_code"
         const val KEY_PARTICIPANT = "participant_id"
         const val KEY_SYNCED_CUES = "synced_cue_ids"
         const val KEY_SYNCED_ENTRIES = "synced_entry_ids"

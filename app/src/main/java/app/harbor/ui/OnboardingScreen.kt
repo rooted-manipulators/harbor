@@ -166,6 +166,20 @@ fun OnboardingScreen(
     var step by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
+    // The study code comes before onboarding, not inside it.
+    //
+    // It could have been step zero with everything shifted up by one, and that
+    // would have quietly broken the funnel: ONBOARDING_STEP is the number the
+    // study lives on, and a step 3 that used to mean the sound and now means
+    // the picture makes every week of telemetry disagree with the one before
+    // it. Outside the numbered flow, the steps keep meaning what they meant.
+    //
+    // Null while the answer is still being read off disk -- a frame or two,
+    // during which nothing is drawn rather than the code screen flashing at
+    // somebody who already gave one.
+    var needsCode by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(Unit) { needsCode = !store.hasClaimedArm() }
+
     fun next() { step++ }
     fun finish() {
         scope.launch {
@@ -199,16 +213,37 @@ fun OnboardingScreen(
             .background(FlowGround)
             .drawBehind { drawDusk() },
     ) {
+        when {
+            needsCode == null -> Unit
+            needsCode == true -> StudyCodeGate(store, scope) { needsCode = false }
+            else -> Steps(store, scope, step, ::next, ::finish)
+        }
+    }
+}
+
+/**
+ * The step the flow is on. Lifted out so the code gate above reads as one
+ * decision rather than a `when` with eleven branches and two conditions.
+ */
+@Composable
+private fun Steps(
+    store: HarborRepository,
+    scope: CoroutineScope,
+    step: Int,
+    next: () -> Unit,
+    finish: () -> Unit,
+) {
+    run {
         when (step) {
-            0 -> Welcome(::next)
-            1 -> YourName(store, scope, ::next)
-            2 -> WhoToCall(store, scope, ::next)
-            3 -> TheirSound(store, scope, ::next)
-            4 -> TheirPicture(store, scope, ::next)
-            5 -> WhenFree(::next)
-            6 -> AskPermission(store, scope, ::next)
-            7 -> AlmostComplete(store, ::next)
-            8 -> GoodJob(::next)
+            0 -> Welcome(next)
+            1 -> YourName(store, scope, next)
+            2 -> WhoToCall(store, scope, next)
+            3 -> TheirSound(store, scope, next)
+            4 -> TheirPicture(store, scope, next)
+            5 -> WhenFree(next)
+            6 -> AskPermission(store, scope, next)
+            7 -> AlmostComplete(store, next)
+            8 -> GoodJob(next)
             // The week is the last thing onboarding asks for.
             //
             // Four explainer cards used to follow it -- the weather metaphor,
@@ -218,7 +253,7 @@ fun OnboardingScreen(
             // stopped reading: nine screens in, past a consent page, with the
             // app still not visible. That content belongs in a tutorial
             // somebody chooses to open, not at the end of a queue.
-            9 -> WeekSetupScreen(store, onFinish = ::finish, onSkip = ::finish)
+            9 -> WeekSetupScreen(store, onFinish = finish, onSkip = finish)
             else -> finish()
         }
     }
@@ -463,6 +498,64 @@ private fun EmphasisLink(text: String, onClick: () -> Unit) = Text(
  * wonders what an app is telling their mother until it asks to watch them
  * walk.
  */
+/**
+ * Before anything: which version of Harbor this is.
+ *
+ * The participant does not choose this and mostly should not think about it.
+ * A code is read off a sheet by whoever is handing the phone over, it names an
+ * arm, and the arm is fixed for good from that moment — see
+ * [app.harbor.domain.StudyArm] and `HarborRepository.claimCode`.
+ *
+ * ## Why there is a way past it
+ *
+ * A locked door here would mean a lost code is a brick. Going past lands in
+ * the arm that already existed, which is the safe failure: somebody still gets
+ * a working Harbor, and nobody can reach the other arm by guessing. The code
+ * is stored either way, blank if skipped, so the export can tell an assigned
+ * control participant from somebody who shrugged.
+ *
+ * ## Why it says so little
+ *
+ * "Two versions are being compared and you are in one of them" is true and
+ * would change how people use it. Everything about the screen is deliberately
+ * flat: no explanation, no reassurance, nothing to read into.
+ */
+@Composable
+private fun StudyCodeGate(
+    store: HarborRepository,
+    scope: CoroutineScope,
+    onClaimed: () -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+
+    FlowPage {
+        Spacer(Modifier.height(40.dp))
+        Question("Enter your code", size = 21)
+        Spacer(Modifier.height(18.dp))
+        Question("The person setting this up has it", size = 15)
+        Spacer(Modifier.height(30.dp))
+
+        FlowField(code, "code") { code = it.take(12) }
+
+        Spacer(Modifier.height(34.dp))
+        FlowPill("Continue") {
+            scope.launch {
+                store.claimCode(code)
+                onClaimed()
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        // Blank on purpose: claimCode records the empty string, which is how
+        // the export distinguishes this from an assigned control.
+        TextLink("I do not have one") {
+            scope.launch {
+                store.claimCode(null)
+                onClaimed()
+            }
+        }
+    }
+}
+
 @Composable
 private fun Welcome(onNext: () -> Unit) = FlowPage(bloom = true) {
     Question("Let’s build our first Flower together", size = 22)
