@@ -67,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
+import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.min
 
@@ -267,6 +268,7 @@ fun FieldCanvas(
     // with mutableStateOf first and the comment above it already said not to.
     val reducedMotion = LocalReducedMotion.current
     val stirring = remember { Stirring() }
+    val chase = remember { Chase() }
 
     // Nothing planted yet is its own opening shot, not a smaller version of
     // the usual one.
@@ -377,6 +379,8 @@ fun FieldCanvas(
         cam = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
         goal = cam
         delay(520)
+        // A deliberate flight, not the pull: brisk again.
+        chase.tau = TAP_TAU
         goal = Field.Camera(here.first, here.second, base * Field.BLOOM_ZOOM)
     }
 
@@ -399,21 +403,15 @@ fun FieldCanvas(
         // you are being shown. See Field.wideZoom.
         val wideZoom = Field.wideZoom(frame.width.toDouble(), frame.height.toDouble())
         snapshotFlow { pullBack().coerceIn(0f, 1f).toDouble() }.collect { pull ->
-            // Set the camera itself, and the goal with it, so the chase below
-            // has nothing left to do.
+            // Only the goal, and the camera takes its time getting there.
             //
-            // Writing only the goal meant the pull inherited the flight the
-            // camera uses for taps -- an ease at 0.13 a frame toward wherever
-            // the goal had got to. Scrolled quickly the goal runs ahead and the
-            // camera trails it, then carries on travelling after the finger has
-            // stopped: the view arrives somewhere, pauses, and takes off again
-            // by itself. That is two motions fighting, and the second one is
-            // not wanted here at all.
-            //
-            // A scroll is already a continuous gesture. The hand is the
-            // animation; anything easing on top of it is a second opinion
-            // about where the camera should be.
-            val next = Field.Camera(
+            // A short flick should start a long move: the finger says where to
+            // go and then lets go, and the view keeps travelling like a camera
+            // on a crane rather than a map being dragged. So the pull sets a
+            // destination and slows the chase right down while it is the thing
+            // steering -- [PULL_TAU] against the tenth of a second a tap gets.
+            chase.tau = PULL_TAU
+            goal = Field.Camera(
                 x = standX + (Terrain.FIELD_W / 2 - standX) * pull,
                 y = standY + (Terrain.FIELD_H / 2 - standY) * pull,
                 // Geometrically, not linearly. Zoom multiplies -- halfway
@@ -424,20 +422,34 @@ fun FieldCanvas(
                 // the same proportion, which is what makes it feel even.
                 zoom = standZoom * (wideZoom / standZoom).pow(pull),
             )
-            cam = next
-            goal = next
         }
     }
 
     // The camera chases its goal rather than snapping, which is what makes a
     // tap on a patch read as travelling there.
+    //
+    // Eased over time rather than per frame. It used to move a flat 0.13 of
+    // the remaining distance every frame, which makes the speed of every move
+    // in the app a function of the frame rate: the same tap travels at two
+    // speeds on a 60Hz phone and a 120Hz one, and slows to a crawl on a phone
+    // dropping frames -- exactly when it is already struggling. A time
+    // constant is the same motion on any of them.
+    //
+    // Zoom eases geometrically for the same reason the pull maps it that way:
+    // it multiplies. Easing it linearly makes the wide end of a long move
+    // crawl and the close end arrive in a rush.
     LaunchedEffect(Unit) {
+        var previous = 0L
         while (true) {
-            androidx.compose.runtime.withFrameNanos {
+            androidx.compose.runtime.withFrameNanos { now ->
+                val seconds = if (previous == 0L) 1.0 / 60
+                else ((now - previous) / 1_000_000_000.0).coerceIn(1.0 / 240, 0.1)
+                previous = now
+                val k = 1.0 - exp(-seconds / chase.tau)
                 val next = Field.Camera(
-                    x = cam.x + (goal.x - cam.x) * 0.13,
-                    y = cam.y + (goal.y - cam.y) * 0.13,
-                    zoom = cam.zoom + (goal.zoom - cam.zoom) * 0.13,
+                    x = cam.x + (goal.x - cam.x) * k,
+                    y = cam.y + (goal.y - cam.y) * k,
+                    zoom = cam.zoom * (goal.zoom / cam.zoom).pow(k),
                 )
                 if (next != cam) cam = next
             }
@@ -465,6 +477,8 @@ fun FieldCanvas(
                         touched = true
                         val tilt = Field.tiltFor(goal.zoom, base)
                         val nextZoom = Field.clampZoom(goal.zoom * zoom, base)
+                        // A deliberate flight, not the pull: brisk again.
+                        chase.tau = TAP_TAU
                         goal = Field.Camera(
                             x = goal.x - pan.x / goal.zoom,
                             // Dragging up the screen has to cover more ground
@@ -506,6 +520,8 @@ fun FieldCanvas(
                         showing = best
                         best?.let {
                             touched = true
+                            // A deliberate flight, not the pull: brisk again.
+                            chase.tau = TAP_TAU
                             goal = Field.Camera(it.x, it.y, base * 6.5)
                         }
                     }
@@ -549,10 +565,14 @@ fun FieldCanvas(
             FieldControls(
             onIn = {
                 touched = true
+                // A deliberate flight, not the pull: brisk again.
+                chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom * 1.45, base))
             },
             onOut = {
                 touched = true
+                // A deliberate flight, not the pull: brisk again.
+                chase.tau = TAP_TAU
                 goal = goal.copy(zoom = Field.clampZoom(goal.zoom / 1.45, base))
             },
             // Pull back is a framing like any other, and it stays put.
@@ -564,6 +584,8 @@ fun FieldCanvas(
             // anything reframes.
             onFit = {
                 touched = true
+                // A deliberate flight, not the pull: brisk again.
+                chase.tau = TAP_TAU
                 goal = Field.Camera(Terrain.FIELD_W / 2, Terrain.FIELD_H / 2, base)
             },
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -736,6 +758,32 @@ private class DrawKit(buckets: Int) {
  * be snapshot state: it is written during the draw, and state written during a
  * draw invalidates that draw.
  */
+/**
+ * How long the camera takes to close the distance to its goal, as a time
+ * constant in seconds: the time to cover about two thirds of what is left.
+ *
+ * Mutable because the two things that move the camera want different motions.
+ * A tap on a patch is an answer to a question and should arrive; a pull-back
+ * is a shot, and a shot is slow. A plain object rather than state -- it is
+ * read inside the frame loop and written from an effect, and neither should
+ * recompose anything.
+ */
+private class Chase {
+    var tau: Double = TAP_TAU
+}
+
+/** A tap travels there. Brisk, because you asked a question. */
+private const val TAP_TAU = 0.12
+
+/**
+ * A pull-back drifts there, and keeps drifting after the finger has gone.
+ *
+ * Nearly four times a tap's. Short flick, long move: the scroll says where to
+ * point and lets go, and the view carries on like a camera on a crane rather
+ * than a map being dragged about.
+ */
+private const val PULL_TAU = 0.45
+
 private class Stirring {
     var at: Long = System.nanoTime()
     var from: Field.Camera? = null
