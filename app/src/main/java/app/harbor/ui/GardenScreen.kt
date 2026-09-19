@@ -214,7 +214,7 @@ private fun inWords(entry: LedgerEntry, who: String?): String {
  * phone; a much shorter screen will still need a scroll to see the
  * indicator, which is the right thing to give up first.
  */
-private val FIELD_BAND = 250.dp
+private val FIELD_BAND = 210.dp
 
 @Composable
 fun GardenCanvas(store: HarborRepository, modifier: Modifier = Modifier) {
