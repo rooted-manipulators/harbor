@@ -205,6 +205,21 @@ for anybody who has not turned the trigger on, and nothing while the screen is
 off. That reverses the "this service does no work" rule in that file for this
 one case only.
 
+**It takes the screen, and that costs a heavy permission.** A
+full-screen intent covers the locked or dark phone and does nothing on an
+unlocked one: there the system shows a heads-up banner and leaves you where
+you were. Correct for almost everything and wrong for this trigger, whose
+job is to interrupt the feed in front of you — a banner over a feed is a
+thing people flick away unread. `SYSTEM_ALERT_WINDOW` is the only grant that
+lets an activity start from the background on a phone in somebody's hand, so
+Harbor asks for it: late, only of people who took the trigger, and never as
+a condition of the app working. Without it the cue is the banner it already
+was. Not for a Play listing as it stands; this is a one-week study build.
+
+A consequence worth stating: with that grant, the *walking* cue takes the
+screen on an unlocked phone too, where it used to be a banner. That is what
+ADR-009 asks for and it had never actually happened before.
+
 The caps move with it: four reminders a day, two from each trigger
 (`Thresholds.sourceCap`). Against a single shared ceiling the frequent trigger
 takes every slot and the rare one is never seen, and a week of running both

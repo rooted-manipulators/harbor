@@ -17,7 +17,7 @@ android {
         // APK whose versionCode is below the installed one, so a participant
         // who gets builds out of order is told no rather than quietly
         // downgraded onto a version that may read their data differently.
-        versionCode = 3
+        versionCode = 4
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

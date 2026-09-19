@@ -4,8 +4,11 @@ Written for a teammate opening a fresh Claude Code session against this repo.
 Everything in it was checked against the running code, not recalled from
 memory — where something is a belief rather than a checked fact, it says so.
 
-Last corrected **19 Sep 2026**. One thing changed since the 18 Sep pass and
-it is the largest change to what the app *does* in a fortnight:
+Last corrected **19 Sep 2026**, twice: once when the second trigger landed
+and again after an overnight audit before the first real testing session.
+**Read "What the audit found" before the study runs.**
+
+Two things changed since the 18 Sep pass, and the second is the larger:
 
 - **There are two triggers now.** A reminder can arrive after a walk, or
   after a long stretch in one app, and which ones you get is a choice made
@@ -13,6 +16,8 @@ it is the largest change to what the app *does* in a fortnight:
   section of this file before touching the cue pipeline, read that one — the
   two are opposite in shape and the difference is easy to reverse by
   accident.
+- **The A/B arms were not comparable, and the arm did not apply on the run
+  it was claimed on.** Both fixed. See *What the audit found*.
 
 Still true from the 18 Sep pass:
 
@@ -324,10 +329,10 @@ each layer:
 
 **19 Sep 2026. Everything below is committed.**
 
-- **Branch:** `dark-reskin`. Tip is `a766b5f` ("Sense the long stretch, so
-  the scrolling trigger can actually fire"). Eighty-eight commits since
-  `0f50449`, which is where the 17 Sep version of this file stopped.
-- **Tests: 331, all passing**, under Gradle (`testDebugUnitTest`) and under
+- **Branch:** `dark-reskin`. Tip is the overnight audit pass; `versionCode`
+  is 4 and `app/build/outputs/apk/release/app-release.apk` is the build to
+  hand out.
+- **Tests: 373, all passing**, under Gradle (`testDebugUnitTest`) and under
   the standalone kotlinc recipe in `CLAUDE.md`. Two notes if you use the
   standalone recipe: the test source set needs `-Xfriend-paths` pointed at
   the main output or `internal` is invisible, and anything touching
@@ -353,10 +358,69 @@ each layer:
 
 | What | Where |
 | --- | --- |
+| Your activity: three pictures of what grew, as a swipeable deck | `ui/GardenActivity.kt`, `domain/Growth.kt` |
+| The scrolling cue taking the screen over another app | `cue/CueNotifier.canOpenOverApps` |
+| The arm applying on the run it was claimed on | `HarborRepository.armFlow` |
+| Both arms answering on the slider thumb | `ui/WeatherBar.kt`, `Sky.drawEmblem` |
+| The five grants and the per-trigger cap on the export | `domain/StudyExport.kt` (format 4) |
+| The detent tick, replacing a long-press thud on swipes | `ui/theme/Buzz.kt` |
+
+**What landed earlier on 19 Sep:**
+
+| What | Where |
+| --- | --- |
 | The second trigger: opt-in, consent, policy gate | `domain/Model.kt`, `domain/CuePolicy.kt`, `ui/OnboardingScreen.kt` |
 | The sensing behind it | `sensing/ScrollWatch.kt`, `sensing/SensingService.kt`, `sensing/SensingStore.kt` |
 | Four a day, two per trigger | `Thresholds.sourceCap`, `0015` |
 | `0012` and `0014` corrected: both named a table that does not exist | `backend/supabase/migrations/` |
+
+---
+
+## What the audit found
+
+An overnight pass on 19 Sep, the night before the first session with real
+participants. Everything here is fixed and committed; it is written down
+because each one was invisible from inside the app and could come back the
+same way.
+
+**Three things would have broken the study rather than the app.**
+
+1. **The arm did not apply on the run it was claimed on.** It was read once
+   in a `LaunchedEffect` at process start — before the code screen. Typing a
+   B code wrote `bees` to preferences and left the running app in the garden
+   arm; the bee appeared after the next cold start. Every bees participant
+   would have done the whole of their first session, the observed one, in
+   the control. `armFlow` is observable now.
+
+2. **The control arm's slider had stopped doing anything.** It used to paint
+   the sky; when the sky became the hour (`SkyHour`) nothing replaced it, and
+   nothing a participant sees reads `settings.weather` any more. The bees arm
+   meanwhile had a face on the thumb that changed as you dragged — so the arm
+   under test was the responsive one and the control was inert. Both arms now
+   answer on the thumb, same value, same place.
+
+3. **The scrolling trigger could never have fired on a real phone.**
+   `targetSdk 37` filters package visibility, so `getLaunchIntentForPackage`
+   returned null for every third-party app and every stretch was excluded.
+   A `<queries>` block fixes it. **If you raise targetSdk or touch
+   `ScrollWatch.counts`, re-check this on a device with a real app.**
+
+**And one about reading the results.** A week of zero cues has five
+explanations — notifications off, no full-screen grant, no overlay grant, no
+usage access, a process the OEM froze — and only one of them is a finding.
+The export carries all five now (`grants`, format 4). Without them every
+failure looks like behaviour.
+
+**Still open, deliberately:** arm B is a bee on the slider and a bee in the
+arch; the bee flying into the field and the mother bee watering a bud are
+designed and unbuilt (`bee_tending.webp` ships unused). `GardenCanvas` and
+`HomeBud` are dead code with zero callers, and `GardenCanvas` dying takes
+most of `domain/Garden`, `Sky.gradient`, `Sky.veil` and `drawWheel` with it.
+
+**One procedure item, not a code fix:** `StudyArm.fromCode` reads the first
+letter, so a mistyped code silently assigns the garden arm with no feedback.
+Telling the participant their arm on screen would be worse. **Check Account →
+Study code on every phone before handing it over.**
 
 ---
 
