@@ -143,14 +143,18 @@ fun CallFlow(
                 // The headline asks the feeling; the flower is how you answer
                 // it, not a fact being reported. "Which flower was it?" read as
                 // a memory test the first time somebody saw it.
+                // The question, and then the flowers.
+                //
+                // "Choose the flower that matches" sat under this and told
+                // somebody to do the thing the screen is already only
+                // capable of: a shelf of flowers, one of them large and
+                // named, and a button that says grow. The line was there in
+                // case the shelf did not read as an answer; with the notes
+                // gone it plainly does, and a sentence explaining an
+                // interface is a sentence the interface has failed to make
+                // unnecessary.
                 Text("How did that call leave you feeling?", style = MaterialTheme.typography.headlineMedium)
-                Spacer(Modifier.size(8.dp))
-                Text(
-                    "Choose the flower that matches.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.size(18.dp))
+                Spacer(Modifier.size(22.dp))
 
                 // A shelf you push along rather than a grid you scan.
                 //
