@@ -98,8 +98,27 @@ class HarborStore(context: Context) : HarborRepository {
     }
 
     override suspend fun setSettings(settings: UserSettings) {
+        // Noted here rather than at each stepper, because there are five
+        // screens that can move one of these and a sixth would forget.
+        // Compared field by field so a settings write that changed the mood
+        // or the sound does not report a threshold that did not move.
+        val was = _settings.value.thresholds
+        val now = settings.thresholds
         write { putString(KEY_SETTINGS, LedgerJson.settings(settings).toString()) }
         _settings.value = settings
+
+        if (was.walkingMinutes != now.walkingMinutes) {
+            note(Moment.THRESHOLD_MOVED, "walking_minutes", now.walkingMinutes)
+        }
+        if (was.sessionMinutes != now.sessionMinutes) {
+            note(Moment.THRESHOLD_MOVED, "session_minutes", now.sessionMinutes)
+        }
+        if (was.dailyCap != now.dailyCap) {
+            note(Moment.THRESHOLD_MOVED, "daily_cap", now.dailyCap)
+        }
+        if (was.cooldownMinutes != now.cooldownMinutes) {
+            note(Moment.THRESHOLD_MOVED, "cooldown_minutes", now.cooldownMinutes)
+        }
     }
 
     // --- contacts ---------------------------------------------------------

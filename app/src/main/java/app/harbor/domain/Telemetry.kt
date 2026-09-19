@@ -1,5 +1,6 @@
 package app.harbor.domain
 
+import app.harbor.domain.CuePolicy
 import java.time.Instant
 
 /**
@@ -108,6 +109,57 @@ enum class Moment {
 
     /** The daily word was answered. The word itself is not recorded. */
     ANSWER_KEPT,
+
+    /**
+     * A cue the policy refused, and why. `detail` is a [CuePolicy.Reason].
+     *
+     * The denominator, and without it the numerator means very little.
+     *
+     * Held cues are deliberately kept out of the ledger -- they are not
+     * events in anybody's life, and a ledger padded with near-misses would
+     * make its own counts mean something other than what they say. That
+     * argument is about the ledger and it still stands. It is not an
+     * argument for the study never learning they happened.
+     *
+     * Because right now a week of no reminders has two completely
+     * different explanations and the file cannot tell them apart: the
+     * trigger never fired at all, or it fired thirty times and the
+     * cooldown swallowed every one. The first is a sensing problem, the
+     * second is a settings problem, and they want opposite fixes. With two
+     * triggers being compared the gap is worse still -- "the scrolling one
+     * produced nothing" reads as a dead feature when it may be a feature
+     * that was suppressed, by name, thirty times.
+     */
+    CUE_HELD,
+
+    /**
+     * A cue reached the phone, and how. `detail` is `screen` or `banner`.
+     *
+     * These are not the same event and the difference is not the
+     * participant's. A cue that takes the screen is nearly impossible to
+     * miss; a banner over a feed is the easiest thing in the world to flick
+     * away unread. Whether a given cue got one or the other depends on a
+     * permission, on whether the screen happened to be on, and on the
+     * phone's own notification behaviour -- none of which the person chose.
+     *
+     * The export already carries the permission states, but only as they
+     * stood at export time. This is per cue, which is the grain the
+     * question is actually asked at: of the cues this person was sent, how
+     * many were ever really put in front of them.
+     */
+    CUE_DELIVERED,
+
+    /**
+     * A threshold was moved. `detail` names which, `value` is the new one.
+     *
+     * The third study question is how far people drift from the suggested
+     * calibration, and until now the file answered it only as a final
+     * position: these were the numbers at the end of the week. That cannot
+     * tell a participant who moved a dial on day one and left it from one
+     * who fought it all week, and those are different findings about the
+     * same end state.
+     */
+    THRESHOLD_MOVED,
 }
 
 /**

@@ -5,6 +5,7 @@ import android.util.Log
 import app.harbor.cue.CueNotifier
 import app.harbor.data.HarborStore
 import app.harbor.domain.Cue
+import app.harbor.domain.Moment
 import app.harbor.domain.CuePolicy
 import java.time.Instant
 import java.time.ZoneId
@@ -42,9 +43,12 @@ internal object CueGate {
         )
 
         if (decision is CuePolicy.Decision.Hold) {
-            // Held cues are not written anywhere. They are not events in the
-            // user's life, and a ledger full of near-misses would make the
-            // study's numbers mean something other than what they say.
+            // Still not written to the ledger -- a held cue is not an event
+            // in anybody's life and the ledger's counts have to stay clean.
+            // It does go in the beats, which is the shapes log and exists
+            // for exactly this: without it, a quiet week cannot be told
+            // apart from a week of suppressed ones. See Moment.CUE_HELD.
+            store.note(Moment.CUE_HELD, decision.reason.name)
             Log.i(TAG, "reminder held: ${decision.reason}")
             return decision
         }
@@ -61,6 +65,13 @@ internal object CueGate {
         store.recordCue(cue)
 
         CueNotifier.post(context, cue, store.contacts.value.firstOrNull())
+        // Whether it will take the screen or arrive as a banner. Asked here
+        // rather than inside post(), so the answer recorded is the same one
+        // post() acted on. See Moment.CUE_DELIVERED.
+        store.note(
+            Moment.CUE_DELIVERED,
+            if (CueNotifier.canOpenOverApps(context)) "screen" else "banner",
+        )
         Log.i(TAG, "reminder fired: ${cue.id} after ${signal.activeMinutes} min")
         return decision
     }

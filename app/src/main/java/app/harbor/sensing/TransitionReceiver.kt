@@ -8,6 +8,7 @@ import app.harbor.cue.CueNotifier
 import app.harbor.data.HarborStore
 import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
+import app.harbor.domain.Moment
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
@@ -156,9 +157,10 @@ class TransitionReceiver : BroadcastReceiver() {
             if (decision.reason == CuePolicy.Reason.TRANSITION_UNSETTLED) {
                 SettleAlarm.arm(context, signal)
             }
-            // Held cues are not written anywhere. They are not events in the
-            // user's life, and a ledger full of near-misses would make the
-            // study's numbers mean something other than what they say.
+            // Not in the ledger, in the beats. See Moment.CUE_HELD: the
+            // ledger stays a record of things that happened, and the study
+            // still gets to know how often one nearly did and why not.
+            store.note(Moment.CUE_HELD, decision.reason.name)
             Log.i(TAG, "cue held: ${decision.reason}")
             return
         }
@@ -175,6 +177,10 @@ class TransitionReceiver : BroadcastReceiver() {
         store.recordCue(cue)
 
         CueNotifier.post(context, cue, store.contacts.value.firstOrNull())
+        store.note(
+            Moment.CUE_DELIVERED,
+            if (CueNotifier.canOpenOverApps(context)) "screen" else "banner",
+        )
         Log.i(TAG, "cue fired: ${cue.id} after ${signal.activeMinutes} min")
     }
 
