@@ -234,8 +234,13 @@ fun CallFlow(
                     )
                     Opening(
                         kind = chosen,
-                        // A longer call opens a fuller bloom, bounded at both
-                        // ends so a short call is still a whole flower.
+                        // How wide this one opens, which is a flourish and
+                        // not the mechanic. What a long call actually earns
+                        // is *more* flowers -- see Flowers.flowerCount, and
+                        // the line under this animation, which used to
+                        // describe the flourish as though it were the rule.
+                        // Bounded at both ends so a short call still opens a
+                        // whole flower.
                         full = Flowers.bloomScale(minutes).toFloat(),
                         reducedMotion = reducedMotion,
                     )
@@ -244,9 +249,33 @@ fun CallFlow(
                 Spacer(Modifier.size(24.dp))
                 Text("It opened.", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.size(8.dp))
+                // Say the rule the garden actually runs on.
+                //
+                // This read "A longer call opens a fuller bloom", which
+                // describes the animation immediately above it and nothing
+                // else. The bloom's width is a two-second flourish; what a
+                // call leaves behind is one flower a minute
+                // (Flowers.flowerCount), and that is the number every other
+                // surface in the app counts -- "46 flowers have grown here",
+                // "25 flowers, from 2 calls", the whole of Your activity.
+                //
+                // So the one screen whose job is to explain the reward was
+                // teaching a model that contradicts every screen that shows
+                // it. Somebody told a long call makes a bigger flower, who
+                // then opens the garden and finds a drift of them, has to
+                // work out on their own which of the two the app meant.
+                //
+                // It was also singular about a plural: "this one is planted"
+                // for a call that planted thirty.
+                val grew = Flowers.flowerCount(minutes)
                 Text(
-                    "A longer call opens a fuller bloom. This one is planted in " +
-                        "$who's patch, and it stays there.",
+                    if (grew == 1) {
+                        "Every minute of a call is a flower, and this was a minute. " +
+                            "It is planted in $who's patch, and it stays there."
+                    } else {
+                        "Every minute of a call is a flower, so this one grew $grew. " +
+                            "They are planted in $who's patch, and they stay there."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
