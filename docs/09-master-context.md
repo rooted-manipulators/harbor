@@ -30,6 +30,10 @@ Still true from the 18 Sep pass:
   from logcat, with the prefs read back afterwards.
 - **The sky is hand-mixed per weather** (`ui/WeatherWash.kt`), no longer
   derived from the ported landscape palette.
+- **The sky is the A/B.** Garden arm: the slider paints it, five weathers,
+  rain and all (`washFor`). Bees arm: the clock paints it, three hours
+  (`washForHour`), and the slider paints the bee instead. One variable in one
+  of two places, which is the whole experiment.
 
 Still true from 17 Sep, and still the two ADRs to read before touching
 anything:
@@ -394,10 +398,14 @@ same way.
 
 2. **The control arm's slider had stopped doing anything.** It used to paint
    the sky; when the sky became the hour (`SkyHour`) nothing replaced it, and
-   nothing a participant sees reads `settings.weather` any more. The bees arm
+   nothing a participant saw read `settings.weather` any more. The bees arm
    meanwhile had a face on the thumb that changed as you dragged — so the arm
-   under test was the responsive one and the control was inert. Both arms now
-   answer on the thumb, same value, same place.
+   under test was the responsive one and the control was inert. Fixed twice
+   over, and both are wanted: a thumb that carries the answer in **both**
+   arms, and — since 19 Sep — the garden arm's sky painting from the slider
+   again, which is what the control arm is supposed to *be*. `SkySays` in
+   `ui/FieldSky.kt` is the fork; there is no longer a way to paint that sky
+   without naming an arm.
 
 3. **The scrolling trigger could never have fired on a real phone.**
    `targetSdk 37` filters package visibility, so `getLaunchIntentForPackage`

@@ -3,19 +3,27 @@ package app.harbor.ui
 import java.time.LocalTime
 
 /**
- * What the sky is doing, which is now a question about the hour.
+ * What the sky is doing, in the arm where that is a question about the hour.
  *
- * ## Why the slider stopped painting it
+ * ## Whose sky this is
  *
- * The wash used to be the mood the user set: a stormy answer made the whole
- * app stormy. That was the most distinctive thing Harbor did, and it stopped
- * making sense the moment the slider began opening on a guess read off the
- * calendar. A timetable saying "you have six hours of lectures" is not a
- * reason to darken somebody's sky, and a wash that changed because the app
- * inferred something is a wash nobody asked for.
+ * The bees arm's. See [SkySays]: the garden arm's sky is still the slider's
+ * answer, because that is the thing being compared against and taking it
+ * away left the control with nothing to show.
  *
- * So the two came apart. The slider says how full the day is; the sky says
- * what time it is. Both are true without either one speaking for the other.
+ * ## Why the bees arm's sky is not the slider either
+ *
+ * The wash is the mood the user set: a stormy answer makes the whole app
+ * stormy. That is the most distinctive thing Harbor does, and in the bees
+ * arm it would be the second place the same answer appeared -- the bee
+ * already carries it, and an arm that showed the mood twice would not be one
+ * metaphor against another, it would be both.
+ *
+ * There is a smaller reason too, and it applies to either arm: the slider
+ * began opening on a guess read off the calendar, and a timetable saying
+ * "you have six hours of lectures" is a thin reason to darken somebody's
+ * sky. In the garden arm that is a cost worth paying, because the sky *is*
+ * the feature. In the bees arm there is nothing to pay it for.
  *
  * ## Why the clock rather than a weather service
  *

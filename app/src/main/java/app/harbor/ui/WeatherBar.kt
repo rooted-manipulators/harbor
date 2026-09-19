@@ -413,21 +413,23 @@ fun WeatherBar(
             //
             // ## Why the garden arm has one too
             //
-            // It did not, and that was the study quietly breaking. The
-            // slider's answer used to paint the sky, so in the garden arm
-            // moving it changed the whole screen -- then the sky became the
-            // hour (see SkyHour) and stopped being the slider's answer, and
-            // nobody noticed that the control had been left saying nothing.
-            // Meanwhile the bees arm had a face on the thumb that changed as
-            // you dragged.
+            // It did not, and for a day that was the study quietly breaking.
+            // The garden arm's answer lives in the sky; when the sky briefly
+            // became the hour in both arms, dragging the slider in the
+            // control changed nothing at all, while in the bees arm it
+            // changed a face. The arm under test was the responsive one and
+            // the control was inert, and any difference in how much people
+            // touched the slider would have measured that rather than the
+            // metaphor.
             //
-            // So the comparison had inverted: the arm being tested was the
-            // responsive one and the control was inert, and any difference
-            // in how much people used the slider would have measured that
-            // rather than the metaphor. Both arms now answer on the thumb,
-            // from the same stored value, at the same size, in the same
-            // place. One shows a sky, one shows a bee, and that difference
-            // is the only difference -- which is what makes them comparable.
+            // The sky is the slider's again in the garden arm (see
+            // SkySays), so that particular hole is closed. The thumb stays
+            // anyway, in both arms, because it is worth having the answer
+            // readable without looking up: the sky is behind a field of
+            // dots and a bee is off wandering, and neither is a label. Same
+            // stored value, same size, same place, in both. One carries a
+            // sky, one carries a bee, and that difference is the only
+            // difference -- which is what makes them comparable.
             when (LocalStudyArm.current) {
                 StudyArm.BEES -> Image(
                     painter = painterResource(beeFace(settings.weather)),

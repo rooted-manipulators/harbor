@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.harbor.domain.Weather
+import app.harbor.domain.StudyArm
+import java.time.LocalTime
 import app.harbor.ui.theme.Paper
 
 /**
@@ -69,7 +71,7 @@ import app.harbor.ui.theme.Paper
  * are sourced differently.
  */
 @Composable
-fun FieldSky(hour: SkyHour, modifier: Modifier = Modifier) {
+fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
     val clock = rememberInfiniteTransition(label = "sky")
     val slow by clock.animateFloat(
         initialValue = 0f,
@@ -101,8 +103,12 @@ fun FieldSky(hour: SkyHour, modifier: Modifier = Modifier) {
         WindowInsets.statusBars.getTop(this).toFloat()
     }
 
+    // Whose sky this is. Read here because this is the composable -- the draw
+    // scope below cannot ask a CompositionLocal anything.
+    val says = skySays(weather)
+
     Canvas(modifier.fillMaxSize()) {
-        val sky = fieldTintOf(hour)
+        val sky = fieldTintOf(says)
 
         // Where the light is, and how far it carries. Every layer below reads
         // these two rather than its own copy: the wash, the warm pool and the
@@ -220,7 +226,7 @@ fun FieldSky(hour: SkyHour, modifier: Modifier = Modifier) {
         // reads as a loop.
         if (sky.cloud > 0f) {
             drawFieldCloud(88.dp.toPx(), barTop + 16.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
-            if (hour != SkyHour.DAY) {
+            if (sky.extraClouds) {
                 drawFieldCloud(66.dp.toPx(), barTop + 44.dp.toPx(), loopPhase(slow, 60_000f, 48_000f, 0.19f), sky)
                 drawFieldCloud(112.dp.toPx(), barTop + 28.dp.toPx(), loopPhase(slow, 60_000f, 60_000f, 0.40f), sky)
             }
@@ -308,6 +314,43 @@ private fun DrawScope.drawFieldRain(phase: Float, alpha: Float) {
     }
 }
 
+/**
+ * What the sky over the field is painted from.
+ *
+ * ## Why this is a choice and not a value
+ *
+ * The two study arms ask the same question -- how full is the day -- and put
+ * the answer in different places. In the garden arm the answer *is* the
+ * screen: drag the slider and the whole sky changes, which is the thing
+ * Harbor has always done and the thing the bees arm is being compared
+ * against. In the bees arm the answer went onto the bee, and a sky that moved
+ * as well would mean both arms had the metaphor, so the sky there tells the
+ * time instead. [SkyHour] is still exactly right about why a clock and not a
+ * forecast; it was only ever wrong about who it applied to.
+ *
+ * That is the whole A/B: one variable, in one of two places. Putting the
+ * clock in both arms quietly took the variable out of the control -- arm A's
+ * slider moved a thumb and nothing else, while arm B's changed a face -- and
+ * any difference in how much people touched it would have measured that
+ * rather than the metaphor. This type is what stops it happening twice:
+ * there is no longer a way to paint this sky without saying which arm it is
+ * for.
+ */
+private sealed interface SkySays {
+    /** The garden arm: the slider's own answer, as it always was. */
+    data class Mood(val weather: Weather) : SkySays
+
+    /** The bees arm: the hour, because the answer is on the bee. */
+    data class Hour(val at: SkyHour) : SkySays
+}
+
+/** Which of the two this build is, asked of the arm rather than assumed. */
+@Composable
+private fun skySays(weather: Weather): SkySays = when (LocalStudyArm.current) {
+    StudyArm.GARDEN -> SkySays.Mood(weather)
+    StudyArm.BEES -> SkySays.Hour(SkyHour.of(LocalTime.now()))
+}
+
 private class SkyTint(
     /**
      * The lightest tone there is, at the very top.
@@ -357,6 +400,15 @@ private class SkyTint(
     /** The disc's own colour, which is the weather's rather than one yellow. */
     val sunColour: Color,
     val cloud: Float,
+    /**
+     * Whether to draw the other two.
+     *
+     * One cloud on the clearest sky and three on every other -- which both
+     * halves of [SkySays] want and neither can say as a number. [cloud] is
+     * how strongly a cloud is drawn, and a bright noon wants its one cloud at
+     * full strength rather than three faint ones.
+     */
+    val extraClouds: Boolean,
     val cloudColour: Color,
     val rain: Float,
     val dim: Float,
@@ -504,13 +556,23 @@ private fun grainTile(size: Int = 128): Bitmap {
  * band at the top of a dark app and not the whole page. That is what keeps the
  * flowers fading into the UI below them.
  */
-private fun fieldTintOf(hour: SkyHour): SkyTint {
-    // The ground keeps a weather even though the sky no longer has one: the
-    // meadow palette is where the land's greens come from, and they have to
-    // agree with the dots the field draws. Clear is the daylight version of
-    // them, which is what the terrain was always tuned against.
-    val meadow = meadowFor(Weather.CLEAR)
-    val wash = washForHour(hour)
+private fun fieldTintOf(says: SkySays): SkyTint {
+    val meadow = meadowFor(
+        when (says) {
+            // The land moves with the sky, which is what it did for the whole
+            // of this app's life before the clock briefly owned both.
+            is SkySays.Mood -> says.weather
+            // An hour is not a weather and the meadow palette has no row for
+            // one. Clear is the daylight version of those greens and is what
+            // the terrain was tuned against, so the dots still stand on
+            // ground that agrees with them.
+            is SkySays.Hour -> Weather.CLEAR
+        },
+    )
+    val wash = when (says) {
+        is SkySays.Mood -> washFor(says.weather)
+        is SkySays.Hour -> washForHour(says.at)
+    }
     // The ground stops, each capped against the one above it so the ladder
     // can only darken. Hoisted out of the constructor because each cap needs
     // the colour before it -- see [noBrighterThan] for the ring this stops.
@@ -542,23 +604,37 @@ private fun fieldTintOf(hour: SkyHour): SkyTint {
         land = land,
         grass = grass,
         ground = ground,
-        // A sun is only a sun on the two days that have one. On the others the
-        // prototype still names a disc, but it is the overcast's bright patch
-        // 
-        // A sun by day, a softer one at dusk, none at night.
-        sun = when (hour) {
-            SkyHour.DAY -> 1f
-            SkyHour.DUSK -> 0.45f
-            SkyHour.NIGHT -> 0f
+        sun = when (says) {
+            // A sun is only a sun on the two days that have one. On the
+            // others the prototype still names a disc, but it is the
+            // overcast's bright patch rather than the sun itself.
+            is SkySays.Mood -> when (says.weather) {
+                Weather.CLEAR -> 0.55f
+                Weather.BRIGHT -> 1f
+                else -> 0.12f
+            }
+            // A sun by day, a softer one at dusk, none at night.
+            is SkySays.Hour -> when (says.at) {
+                SkyHour.DAY -> 1f
+                SkyHour.DUSK -> 0.45f
+                SkyHour.NIGHT -> 0f
+            }
         },
         sunColour = wash.sun,
-        // Straight from the prototype's own count, scaled to the three this
-        // canvas draws.
-        // Fewer clouds after dark, and none of them lit.
-        cloud = when (hour) {
-            SkyHour.DAY -> 0.62f
-            SkyHour.DUSK -> 0.45f
-            SkyHour.NIGHT -> 0.22f
+        cloud = when (says) {
+            // Straight from the prototype's own count, scaled to the three
+            // this canvas draws.
+            is SkySays.Mood -> (meadow.cloudCount / 8f).coerceIn(0f, 1f)
+            // Fewer clouds after dark, and none of them lit.
+            is SkySays.Hour -> when (says.at) {
+                SkyHour.DAY -> 0.62f
+                SkyHour.DUSK -> 0.45f
+                SkyHour.NIGHT -> 0.22f
+            }
+        },
+        extraClouds = when (says) {
+            is SkySays.Mood -> says.weather != Weather.BRIGHT
+            is SkySays.Hour -> says.at != SkyHour.DAY
         },
         // Clouds were white against a blue overhead. Overhead is now the
         // palest tone in the palette, and white on near-white is nothing at
@@ -570,8 +646,15 @@ private fun fieldTintOf(hour: SkyHour): SkyTint {
         // prototype's. A cloud tinted with a sky it is no longer floating in
         // is the one thing in the frame that would still be the old colour.
         cloudColour = lerp(meadow.cloud, wash.mid, 0.34f),
-        // No rain. The sky is an hour now, not a forecast -- see SkyHour.
-        rain = 0f,
+        rain = when (says) {
+            is SkySays.Mood -> when (says.weather) {
+                Weather.RAIN -> 0.7f
+                Weather.STORM -> 1f
+                else -> 0f
+            }
+            // No rain on a clock. An hour is not a forecast.
+            is SkySays.Hour -> 0f
+        },
         // Nothing dims any more. See the note above: the heavy weathers are
         // pale now, and a wash over a pale sky only makes it muddy.
         dim = 0f,

@@ -88,7 +88,9 @@ internal data class Wash(
  * The sky for an hour of the day.
  *
  * Three rows rather than five, and they are not weathers: nothing here is
- * about rain. See [SkyHour] for why the wash came off the slider.
+ * about rain. Used by the bees arm only -- see [SkyHour] for why that arm's
+ * sky tells the time, and the five below for the arm whose sky is still the
+ * slider's answer.
  *
  * Day reuses the clear sky, which is what a good afternoon already looked
  * like. Dusk is the warm one the onboarding flow has always stood on, brought
