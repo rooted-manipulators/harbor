@@ -186,8 +186,16 @@ private fun Deck(summary: Growth.Summary, contacts: List<Contact>) {
         pageSpacing = 12.dp,
         modifier = Modifier.fillMaxWidth(),
     ) { index ->
+        // getOrNull, not [index]. The deck is rebuilt when the span
+        // changes and can get shorter -- all time with two people is four
+        // pages, this week with one is three -- and a pager that is on its
+        // last page when that happens asks for an index that has just
+        // stopped existing. PagerState clamps itself a frame later; this is
+        // that frame, and the alternative to a blank card is a crash in
+        // front of somebody.
+        val page = pages.getOrNull(index) ?: return@HorizontalPager
         Card(Modifier.height(CARD_HEIGHT)) {
-            when (val page = pages[index]) {
+            when (page) {
                 is Page.OnePerson -> MostGrown(page.person, contacts)
                 Page.Everything -> EverythingYouGrew(summary)
                 Page.Together -> PeopleYouGrowWith(summary, contacts)

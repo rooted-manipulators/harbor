@@ -259,7 +259,15 @@ internal fun CueSurface(
 
                 // .cue-privacy
                 SmallCopy(
-                    "Your walking stays on this phone. $who never sees it.",
+                    // "Your walking" was the whole of what Harbor noticed
+                    // when this line was written. A reminder that arrives
+                    // mid-scroll was noticed another way, and naming only the
+                    // walk on that one would be reassuring somebody about a
+                    // thing that did not happen while saying nothing about
+                    // the thing that did. Generic rather than branching: it
+                    // is true either way and needs no plumbing to stay true
+                    // when a third trigger arrives.
+                    "What Harbor noticed stays on this phone. $who never sees it.",
                     size = 13,
                 )
             }

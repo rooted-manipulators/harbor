@@ -1207,6 +1207,23 @@ private fun AskPermission(
                 onDown = { walking(store, scope, settings, -1) },
                 onUp = { walking(store, scope, settings, +1) },
             )
+            // The other trigger's number, for the people who just asked
+            // for it two screens ago.
+            //
+            // This card is titled "What you keep control of" and listed
+            // every threshold except the one governing the trigger the
+            // participant had just chosen -- which made the title not quite
+            // true for exactly the people the new trigger is being tested
+            // on. Same stepper as the settings screen, same five-minute
+            // steps, same range.
+            if (settings.scrollCues) {
+                Stepper(
+                    label = "Time in one app",
+                    value = settings.thresholds.sessionMinutes.toString() + " min",
+                    onDown = { session(store, scope, settings, -5) },
+                    onUp = { session(store, scope, settings, +5) },
+                )
+            }
             Stepper(
                 label = "Most reminders a day",
                 value = settings.thresholds.dailyCap.toString(),
@@ -1389,8 +1406,14 @@ private fun TermsPopup(
         )
         SectionHeading("Where it stays")
         FlowNote(
-            "On this phone. Your walking never leaves it and is never shared " +
-                "with your family — not as a summary, not ever.",
+            if (scrolling) {
+                "On this phone. Neither your walking nor which apps you open " +
+                    "ever leaves it, and neither is shared with your family — " +
+                    "not as a summary, not ever."
+            } else {
+                "On this phone. Your walking never leaves it and is never " +
+                    "shared with your family — not as a summary, not ever."
+            },
         )
         SectionHeading("What a reminder does")
         FlowNote(
@@ -1425,6 +1448,21 @@ private fun walking(
         settings.copy(
             thresholds = settings.thresholds.copy(
                 walkingMinutes = (settings.thresholds.walkingMinutes + by).coerceIn(1, 120),
+            ),
+        ),
+    )
+}
+
+private fun session(
+    store: HarborRepository,
+    scope: kotlinx.coroutines.CoroutineScope,
+    settings: app.harbor.domain.UserSettings,
+    by: Int,
+) = scope.launch {
+    store.setSettings(
+        settings.copy(
+            thresholds = settings.thresholds.copy(
+                sessionMinutes = (settings.thresholds.sessionMinutes + by).coerceIn(1, 180),
             ),
         ),
     )

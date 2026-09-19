@@ -193,10 +193,16 @@ fun CuesSetupScreen(
 
                 SectionHeading("Where it stays")
                 SmallCopy(
-                    "On this phone. Your movement is never sent to us and never " +
-                        "shared with your family — not as a summary, not ever. " +
-                        "The only things that leave are the ones you chose: that " +
-                        "a reminder appeared, and what you decided to do about it.",
+                    "On this phone. " +
+                        if (settings.scrollCues) {
+                            "Neither your movement nor which apps you open is "
+                        } else {
+                            "Your movement is "
+                        } +
+                        "ever sent to us or shared with your family — not as a " +
+                        "summary, not ever. The only things that leave are the " +
+                        "ones you chose: that a reminder appeared, and what you " +
+                        "decided to do about it.",
                 )
 
                 SectionHeading("What you keep control of")
