@@ -105,7 +105,7 @@ empty arch is what every participant sees before their first call.
 
 ---
 
-## Open — not fixed
+## Open — worked through later the same morning
 
 ### A. Arm B is still a bee on a thumb and a bee in an arch
 Agreed in the A/B design and not built: the bee flying into the field on a
@@ -144,3 +144,45 @@ reports it as a change.
 ### G. Supabase schema does not carry the new export fields
 `grants` and `scroll_cues` exist in the JSON the study actually reads.
 Nothing syncs settings to the backend, so this is only a tidiness gap.
+
+
+---
+
+## Second pass — the open list, worked through
+
+All seven revisited. Two of the notes above turned out to be wrong and are
+corrected here rather than quietly fixed.
+
+**A — done, in the half that could be built.** A bee leaves the slider and
+goes into the field, where it now lives permanently: one bee, always there,
+its pose and its pace set by the mood. The flight is animated from the
+illustrator's reel. The mother bee watering a bud is still blocked —
+`bee_tending.webp` is a still and the animation was never sent.
+
+**B — done, and the note was wrong twice.** `GardenCanvas`, `HomeBud`,
+`drawPlot`, `blobPath`, `toneOf`, `Sky.gradient`, `Sky.veil`, `drawWheel`
+and `drawRing` are gone: 593 lines. But `domain/Garden` is **not** dead —
+`Field`, `Terrain` and `PersonScreen` all use its geometry — and
+`Sky.drawEmblem` is **not** dead either, since the mood slider's thumb
+wears it in the garden arm. Both were checked rather than assumed before
+anything was deleted.
+
+**C — nothing to change.** Still procedure. Check Account → Study code on
+every phone before handing it over.
+
+**D — done.** The keyboard's own action key now submits: Done on the name
+step, Next-then-Done across the contact pair. The number field gets a phone
+pad, which it should always have had.
+
+**E — done, and narrower than the note claimed.** `FlowerLanding` and
+`Petal` already honoured the setting through a parameter rather than the
+composition local, which is why a grep for the local missed them. The two
+real gaps — the nav tab's springy scale and the person screen's disclosure
+— are closed. Colour cross-fades deliberately stay: colour is not motion,
+and snapping it is a harsher screen rather than a calmer one.
+
+**F — nothing to change.** Informational: with the overlay grant, walk cues
+take the screen too. That is what ADR-009 asks for.
+
+**G — done.** Six nullable grant columns, folded into 0015 rather than
+stacked on top of it, since 0015 has never been applied.
