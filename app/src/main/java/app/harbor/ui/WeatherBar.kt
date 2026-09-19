@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.Image
@@ -76,7 +78,16 @@ import kotlin.math.roundToInt
  * wants to say.
  */
 @Composable
-fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
+fun WeatherBar(
+    store: HarborRepository,
+    modifier: Modifier = Modifier,
+    /**
+     * Where the thumb was, in root coordinates, at the moment an answer was
+     * committed. Only the bees arm has anything to do with it -- see
+     * [BeeFlight] -- and a caller that does not want one passes nothing.
+     */
+    onBeeOff: ((Offset) -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by store.settings.collectAsState()
@@ -161,7 +172,17 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
     }
 
     /** Called when the gesture ends: what was actually decided, recorded once. */
+    // Where the thumb is right now, in the root's space. Kept up to date
+    // by the thumb's own layout rather than recomputed from the fraction,
+    // so it is right whatever the card's position on the page turns out to
+    // be.
+    var thumbAt by remember { mutableStateOf(Offset.Zero) }
+
     fun settle() {
+        // The bee leaves on the release, not on every pixel of the drag.
+        // Dragging across four moods is one answer and should launch one
+        // bee, from where the thumb finished.
+        onBeeOff?.invoke(thumbAt)
         scope.launch {
             val chosen = store.settings.value.weather
             store.note(Moment.WEATHER_SET, chosen.name.lowercase())
@@ -367,6 +388,7 @@ fun WeatherBar(store: HarborRepository, modifier: Modifier = Modifier) {
                 Modifier
                     .align(Alignment.CenterStart)
                     .offset(x = thumbX)
+                    .onGloballyPositioned { thumbAt = it.positionInRoot() }
                     .size(30.dp)
                     .clip(CircleShape)
                     // Solid white, which in this design is the brightest thing

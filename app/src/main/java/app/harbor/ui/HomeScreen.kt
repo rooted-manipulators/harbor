@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
@@ -122,6 +123,9 @@ fun HomeScreen(
     val grown = entries
         .filter { it.resolution == Resolution.CALLED && it.flower != null }
         .sumOf { Flowers.flowerCount(it.callMinutes) }
+
+    // Where a bee took off from, while one is in the air. See BeeFlight.
+    var beeFrom by remember { mutableStateOf<Offset?>(null) }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         // How tall the field can be, given how tall the phone actually is.
@@ -466,7 +470,15 @@ fun HomeScreen(
                 // reads as the sky over the garden rather than something to get
                 // past before the call button, and it is compact enough now to
                 // sit there without pushing anybody below the fold.
-                WeatherBar(store)
+                WeatherBar(
+                    store,
+                    // Only the bees arm draws anything with this; BeeFlight
+                    // returns immediately in the garden. Reported from here
+                    // rather than handled inside the bar because the bee has
+                    // to fly out of the bar and into the field, and only the
+                    // page contains both.
+                    onBeeOff = { beeFrom = it },
+                )
 
                 // No "Your people" heading. A row of faces with a call button
                 // under each one does not need to be told what it is, and the
@@ -522,6 +534,21 @@ fun HomeScreen(
 
             }
         }
+
+        // Last in the box, so it flies over the page rather than under it.
+        //
+        // It has to be outside the scrolling column: the bee's launch point
+        // is the thumb's position in root space, and a child of a scroller
+        // is offset by however far that scroller has moved. Here the
+        // coordinates it is given are the coordinates it draws in.
+        BeeFlight(
+            from = beeFrom,
+            weather = settings.weather,
+            // Into the lower part of the field, which is where the flowers
+            // are and so where a bee would be going.
+            toY = with(LocalDensity.current) { (fieldHeight * 0.55f).toPx() },
+            onDone = { beeFrom = null },
+        )
     }
 }
 
