@@ -124,8 +124,12 @@ fun HomeScreen(
         .filter { it.resolution == Resolution.CALLED && it.flower != null }
         .sumOf { Flowers.flowerCount(it.callMinutes) }
 
-    // Where a bee took off from, while one is in the air. See BeeFlight.
+    // Where a bee took off from, while one is in the air, and where the
+    // last one came down. See BeeFlight and FieldBee: the flight hands the
+    // resident bee its position so the arrival is one bee continuing rather
+    // than one vanishing and another appearing.
     var beeFrom by remember { mutableStateOf<Offset?>(null) }
+    var beeLanded by remember { mutableStateOf<Offset?>(null) }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         // How tall the field can be, given how tall the phone actually is.
@@ -541,13 +545,22 @@ fun HomeScreen(
         // is the thumb's position in root space, and a child of a scroller
         // is offset by however far that scroller has moved. Here the
         // coordinates it is given are the coordinates it draws in.
+        // The one that lives here. Hidden only while a flight is in the
+        // air, so there is never two of them on screen at once.
+        FieldBee(
+            weather = settings.weather,
+            fieldHeight = fieldHeight + FieldDrop,
+            startAt = beeLanded,
+            visible = beeFrom == null,
+        )
+
         BeeFlight(
             from = beeFrom,
             weather = settings.weather,
             // Into the lower part of the field, which is where the flowers
             // are and so where a bee would be going.
             toY = with(LocalDensity.current) { (fieldHeight * 0.55f).toPx() },
-            onDone = { beeFrom = null },
+            onDone = { beeLanded = it; beeFrom = null },
         )
     }
 }

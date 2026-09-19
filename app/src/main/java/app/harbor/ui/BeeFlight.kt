@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.harbor.R
 import app.harbor.domain.StudyArm
 import app.harbor.domain.Weather
 import app.harbor.ui.theme.LocalReducedMotion
@@ -23,7 +24,33 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /** How long a bee takes to get from the slider into the field. */
-private const val FLIGHT_MS = 1150
+private const val FLIGHT_MS = 1500
+
+/**
+ * The flapping, as frames.
+ *
+ * Twenty stills cut from the illustrator's ten-second reel -- the last one
+ * and two-thirds seconds of it, where the bee is airborne rather than
+ * standing on a ground line this app does not have. Each one is cropped
+ * around the bee itself, so the sprite is a bee flapping in place and the
+ * travel is entirely the app's. See `tools`-side notes in the commit: a
+ * shared crop box left the bee wandering inside its own frame, and that
+ * plus the arc read as two motions fighting.
+ *
+ * Twelve a second, which is the reel's own cadence halved and still well
+ * inside what reads as continuous for a wing.
+ */
+private val FLY_FRAMES = intArrayOf(
+    R.drawable.bee_fly_00, R.drawable.bee_fly_01, R.drawable.bee_fly_02,
+    R.drawable.bee_fly_03, R.drawable.bee_fly_04, R.drawable.bee_fly_05,
+    R.drawable.bee_fly_06, R.drawable.bee_fly_07, R.drawable.bee_fly_08,
+    R.drawable.bee_fly_09, R.drawable.bee_fly_10, R.drawable.bee_fly_11,
+    R.drawable.bee_fly_12, R.drawable.bee_fly_13, R.drawable.bee_fly_14,
+    R.drawable.bee_fly_15, R.drawable.bee_fly_16, R.drawable.bee_fly_17,
+    R.drawable.bee_fly_18, R.drawable.bee_fly_19,
+)
+
+private const val FLY_FPS = 12
 
 /**
  * A bee leaves the slider and goes into the field. Bees arm only.
@@ -64,8 +91,11 @@ fun BeeFlight(
     weather: Weather,
     /** Root y to climb to — somewhere inside the field's band. */
     toY: Float,
-    /** Called when the flight is over, so the next answer can start one. */
-    onDone: () -> Unit,
+    /**
+     * Called when the flight is over, with where it ended, so the resident
+     * bee can pick up from exactly there rather than appearing elsewhere.
+     */
+    onDone: (Offset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     
@@ -84,16 +114,19 @@ fun BeeFlight(
     // arc every time either.
     val drift = remember(from) { Random(from.hashCode()).nextFloat() * 2f - 1f }
 
+    val landing = Offset(from.x, toY)
+
     LaunchedEffect(from) {
         // Nothing to watch for somebody who asked for less movement, and
         // this is the one place that can be skipped without taking any
         // information with it: the thumb still wears the face, which is
-        // where the answer actually lives.
+        // where the answer actually lives, and the bee is already in the
+        // field waiting.
         if (!still) {
             travel.snapTo(0f)
             travel.animateTo(1f, tween(FLIGHT_MS, easing = FastOutSlowInEasing))
         }
-        onDone()
+        onDone(landing)
     }
 
     if (still) return
@@ -101,13 +134,17 @@ fun BeeFlight(
     val t = travel.value
     val rise = (from.y - toY).coerceAtLeast(0f)
 
+    // Which still to show. Wrapped, so a slow flight keeps flapping rather
+    // than freezing on the last frame halfway up.
+    val step = ((t * FLIGHT_MS / 1000f) * FLY_FPS).toInt() % FLY_FRAMES.size
+
     Image(
-        painter = painterResource(beeFace(weather)),
+        painter = painterResource(FLY_FRAMES[step]),
         contentDescription = null,
         modifier = modifier
-            // The size it is on the thumb, so it reads as the same bee
-            // leaving rather than a smaller one appearing.
-            .size(64.dp)
+            // Bigger than the thumb's bee, because this art has the
+            // wings spread and a good deal of transparent air around it.
+            .size(92.dp)
             .offset {
                 IntOffset(
                     // Sideways drift, plus a wobble across it. Bees do not
@@ -128,9 +165,9 @@ fun BeeFlight(
                 scaleX = shrink
                 scaleY = shrink
             }
-            // Solid for most of the climb, then out over the last third.
-            // Fading from the first frame meant it was already half gone by
-            // the time it cleared the card it took off from.
-            .alpha(((1f - t) / 0.35f).coerceIn(0f, 1f)),
+            // Solid all the way, and out only at the very end, where the
+            // resident bee takes over from it. Anything more than a hand-off
+            // frame or two of fade and the two of them are visibly two.
+            .alpha(((1f - t) / 0.12f).coerceIn(0f, 1f)),
     )
 }

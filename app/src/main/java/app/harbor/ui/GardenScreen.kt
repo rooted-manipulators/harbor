@@ -105,6 +105,7 @@ import app.harbor.ui.theme.SurfaceSky
 @Composable
 fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
     val contacts by store.contacts.collectAsState()
+    val settings by store.settings.collectAsState()
     var entries by remember { mutableStateOf<List<LedgerEntry>>(emptyList()) }
 
     LaunchedEffect(Unit) { entries = store.recentEntries() }
@@ -135,7 +136,13 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         // it is also pannable and zoomable, so somebody who wants more of it
         // has a way to get more of it; the deck does not, and a card you
         // cannot see the bottom of is a card you do not know is swipeable.
-        FieldCanvas(store, Modifier.fillMaxWidth().height(FIELD_BAND), standClose = true)
+        Box {
+            FieldCanvas(store, Modifier.fillMaxWidth().height(FIELD_BAND), standClose = true)
+            // The resident bee lives on this field too. It is the same
+            // garden; a bee that existed only on home would be a home
+            // decoration rather than something living in the place.
+            FieldBee(weather = settings.weather, fieldHeight = FIELD_BAND)
+        }
 
         Column(
             Modifier
