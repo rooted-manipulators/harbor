@@ -66,9 +66,11 @@ fun StudyCodeScreen(
             .padding(horizontal = 24.dp),
     ) {
         PageIntro(
-            eyebrow = "Set once, when the phone was handed over",
+            eyebrow = "For the study team",
             title = "Study code.",
-            subtitle = "Only change this if the wrong one was entered.",
+            subtitle = "Set once, when this phone was handed over. If you are " +
+                "using Harbor rather than running the study, nothing on this " +
+                "screen is for you — go back.",
         )
 
         Spacer(Modifier.height(20.dp))
@@ -88,12 +90,25 @@ fun StudyCodeScreen(
         Spacer(Modifier.height(24.dp))
 
         Surface {
-            SectionHeading("Enter a different code")
+            SectionHeading("Hand this phone to someone else")
             SmallCopy(
-                "This clears everything on this phone — the person, the week, " +
-                    "every call and flower — and starts again at the first " +
-                    "screen. It cannot be undone, and it is the only way the " +
-                    "version changes.",
+                "Type the next code and this phone becomes a new one: the " +
+                    "person, the week, every call and flower, all gone, back " +
+                    "to the first screen. There is nothing to undo it with, " +
+                    "and it is the only way the version changes.",
+            )
+            Spacer(Modifier.height(8.dp))
+            // Said out loud because the field accepts anything.
+            //
+            // A code is only ever read for its first letter, so a typo does
+            // not fail -- it silently assigns the other version and wipes a
+            // week on the way. The button being dead until something is
+            // typed is the only guard there is, and it is worth saying that
+            // whatever gets typed is what the phone becomes.
+            SmallCopy(
+                "Whatever you type is taken as the code. Check it against " +
+                    "your sheet before pressing.",
+                size = 12,
             )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(

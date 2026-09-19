@@ -258,11 +258,21 @@ fun SettingsScreen(
             // somebody whether you may see when they are free.
             Destination("Your account", onOpenAccount)
 
-            // Last, and quietly. Nobody using Harbor needs this; it is here
-            // for the minute after a phone is handed over and the code turns
-            // out to have been the wrong one. What it does is destructive, so
-            // the screen behind it says so rather than this row.
-            Destination("Study code", onOpenStudyCode)
+            // Last, and labelled as somebody else's.
+            //
+            // Everything above this row is the participant's: their name,
+            // their thresholds, their week. This one is the study team's,
+            // and the difference was invisible -- it read as one more
+            // setting in a list of settings, on a screen where every other
+            // row is an invitation to change something.
+            //
+            // The screen behind it still carries the warning about what it
+            // destroys. This is only about whose row it is.
+            Destination(
+                "Study code",
+                onOpenStudyCode,
+                note = "For whoever set this phone up",
+            )
 
             // Not a fourth destination.
             //
@@ -285,17 +295,31 @@ fun SettingsScreen(
  * enough to read as a list of doors.
  */
 @Composable
-private fun Destination(label: String, onClick: () -> Unit) {
+private fun Destination(label: String, onClick: () -> Unit, note: String? = null) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = 15.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
-            )
+            Column {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
+                )
+                // Only the one row uses this, and it is the row that needs
+                // it: everything else under Account is the participant's to
+                // change, and this one is not.
+                if (note != null) {
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                    )
+                }
+            }
             // Drawn, not a library icon -- see docs/05-changing-the-ui.md.
             val ink = MaterialTheme.colorScheme.onSurfaceVariant
             Canvas(Modifier.size(9.dp)) {
