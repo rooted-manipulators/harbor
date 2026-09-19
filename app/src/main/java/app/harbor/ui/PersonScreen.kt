@@ -83,6 +83,7 @@ import app.harbor.domain.WeekBlock
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
 import app.harbor.ui.theme.CardEdge
+import app.harbor.ui.theme.LocalReducedMotion
 import app.harbor.ui.theme.Chalk
 import app.harbor.ui.theme.Gold
 import app.harbor.ui.theme.Hairline
@@ -839,10 +840,15 @@ private fun ActivityCard(entry: LedgerEntry, open: Boolean, onToggle: () -> Unit
             }
         }
 
+        // The row growing is movement; the text arriving is not. Somebody
+        // who asked for less motion still gets the fade, so the disclosure
+        // does not blink into existence -- it just does not push the rows
+        // below it down over two hundred milliseconds.
+        val still = LocalReducedMotion.current
         AnimatedVisibility(
             visible = open,
-            enter = expandVertically(tween(180)) + fadeIn(tween(180)),
-            exit = shrinkVertically(tween(140)) + fadeOut(tween(140)),
+            enter = if (still) fadeIn(tween(120)) else expandVertically(tween(180)) + fadeIn(tween(180)),
+            exit = if (still) fadeOut(tween(100)) else shrinkVertically(tween(140)) + fadeOut(tween(140)),
         ) {
             Column(Modifier.padding(top = 10.dp)) {
                 entry.note?.takeIf { it.isNotBlank() }?.let {

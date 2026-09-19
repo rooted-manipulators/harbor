@@ -40,6 +40,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -358,6 +364,22 @@ private fun FlowField(
     value: String,
     placeholder: String,
     modifier: Modifier = Modifier,
+    /**
+     * What the keyboard's action key says and does.
+     *
+     * Worth the parameter. Every text field in this flow sat above a Next
+     * button the keyboard covered, so the shape of a step was: type your
+     * name, dismiss the keyboard, then press the button you can now see.
+     * The keyboard already has a button exactly where the thumb is -- it
+     * was simply wired to nothing.
+     *
+     * [ImeAction.Next] moves to the field below; [ImeAction.Done] submits
+     * the step.
+     */
+    imeAction: ImeAction = ImeAction.Default,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    focusRequester: FocusRequester? = null,
+    onAction: (() -> Unit)? = null,
     onValueChange: (String) -> Unit,
 ) {
     Box(
@@ -375,7 +397,17 @@ private fun FlowField(
             singleLine = true,
             cursorBrush = SolidColor(FlowInk),
             textStyle = TextStyle(fontSize = 16.sp, color = FlowInk),
-            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                imeAction = imeAction,
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = { onAction?.invoke() },
+                onDone = { onAction?.invoke() },
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier),
         )
         if (value.isEmpty()) {
             Text(placeholder, style = TextStyle(fontSize = 16.sp, color = MutedInk))
@@ -576,20 +608,29 @@ private fun YourName(
     val settings by store.settings.collectAsState()
     var draft by remember { mutableStateOf(settings.name) }
 
+    // Advance *after* the write, not beside it. Shared by the button and
+    // by the keyboard's Done, so the two cannot come apart.
+    fun submit() {
+        if (draft.isBlank()) return
+        scope.launch {
+            store.setSettings(settings.copy(name = draft.trim()))
+            onNext()
+        }
+    }
+
     FlowPage(petal = 0) {
         Question("First, a little about yourself")
         Spacer(Modifier.height(46.dp))
         Question("What do we call you?")
         Spacer(Modifier.height(20.dp))
-        FlowField(draft, "your name") { draft = it.take(40) }
+        FlowField(
+            draft,
+            "your name",
+            imeAction = ImeAction.Done,
+            onAction = ::submit,
+        ) { draft = it.take(40) }
         Spacer(Modifier.height(52.dp))
-        // Advance *after* the write, not beside it.
-        FlowNext(enabled = draft.isNotBlank()) {
-            scope.launch {
-                store.setSettings(settings.copy(name = draft.trim()))
-                onNext()
-            }
-        }
+        FlowNext(enabled = draft.isNotBlank(), onClick = ::submit)
     }
 }
 
@@ -635,6 +676,30 @@ private fun WhoToCall(
         }
     }
 
+    // One place the step is committed from, whether it was the button or
+    // the keyboard's Done.
+    fun submit() {
+        if (name.isBlank() || number.isBlank()) return
+        scope.launch {
+            val who = existing ?: Contact(UUID.randomUUID(), name.trim(), number.trim())
+            // Their contact photo, copied in the same step that learned
+            // their number, so the next screen already has a face on it.
+            val photo = picked?.let { src ->
+                withContext(Dispatchers.IO) {
+                    ContactPhotos.store(context, who.id, Uri.parse(src))
+                }
+            } ?: who.photoRef
+            store.upsertContact(
+                who.copy(
+                    label = name.trim(),
+                    phoneE164 = number.trim(),
+                    photoRef = photo,
+                ),
+            )
+            onNext()
+        }
+    }
+
     FlowPage(petal = 1) {
         Question("Who would you like to call more often?")
         Spacer(Modifier.height(18.dp))
@@ -650,31 +715,32 @@ private fun WhoToCall(
         FlowNote("Harbor only ever sees the one person you tap.")
         Spacer(Modifier.height(22.dp))
 
-        FlowField(name, "their name") { name = it.take(40) }
+        // Name to number to done, so the keyboard is never in the way of
+        // the thing you press next.
+        val toNumber = remember { FocusRequester() }
+        FlowField(
+            name,
+            "their name",
+            imeAction = ImeAction.Next,
+            onAction = { toNumber.requestFocus() },
+        ) { name = it.take(40) }
         Spacer(Modifier.height(12.dp))
-        FlowField(number, "their number") { number = it.take(20) }
+        FlowField(
+            number,
+            "their number",
+            // A phone pad rather than a QWERTY. This field takes digits and
+            // a leading plus, and it has been offering letters all along.
+            keyboardType = KeyboardType.Phone,
+            imeAction = ImeAction.Done,
+            focusRequester = toNumber,
+            onAction = ::submit,
+        ) { number = it.take(20) }
 
         Spacer(Modifier.height(36.dp))
-        FlowNext(enabled = name.isNotBlank() && number.isNotBlank()) {
-            scope.launch {
-                val who = existing ?: Contact(UUID.randomUUID(), name.trim(), number.trim())
-                // Their contact photo, copied in the same step that learned
-                // their number, so the next screen already has a face on it.
-                val photo = picked?.let { src ->
-                    withContext(Dispatchers.IO) {
-                        ContactPhotos.store(context, who.id, Uri.parse(src))
-                    }
-                } ?: who.photoRef
-                store.upsertContact(
-                    who.copy(
-                        label = name.trim(),
-                        phoneE164 = number.trim(),
-                        photoRef = photo,
-                    ),
-                )
-                onNext()
-            }
-        }
+        FlowNext(
+            enabled = name.isNotBlank() && number.isNotBlank(),
+            onClick = ::submit,
+        )
     }
 }
 

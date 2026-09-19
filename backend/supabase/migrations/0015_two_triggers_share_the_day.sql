@@ -75,3 +75,45 @@ comment on column user_settings.source_cap is
 
 comment on column user_settings.scroll_cues is
   'Whether the long-app-stretch trigger was switched on. Off until opted into.';
+
+-- ## The five grants
+--
+-- Added in the same file because it has never been applied, so there is
+-- nothing to migrate from -- see the note at the top about 0012 and 0014.
+--
+-- A week with no cues has five explanations and only one of them is a
+-- finding: notifications off, no full-screen grant, no overlay grant, no
+-- usage access, or a process the phone's own battery manager was free to
+-- freeze. Every one turns the study's first question into a zero that
+-- reads as behaviour. `StudyExport` carries them in the JSON the study
+-- actually reads (format 4); these columns are so the same rows can land
+-- here without a reader having to hold two shapes in their head.
+--
+-- Nullable rather than defaulted false, and the difference matters: false
+-- means the app looked and the grant was absent, null means nobody has
+-- told this table yet. Defaulting to false would record every un-synced
+-- row as a phone that could not reach its participant.
+
+alter table user_settings
+  add column if not exists grant_activity_recognition boolean;
+
+alter table user_settings
+  add column if not exists grant_notifications boolean;
+
+alter table user_settings
+  add column if not exists grant_full_screen boolean;
+
+alter table user_settings
+  add column if not exists grant_over_apps boolean;
+
+alter table user_settings
+  add column if not exists grant_usage_access boolean;
+
+alter table user_settings
+  add column if not exists grant_unrestricted boolean;
+
+comment on column user_settings.grant_over_apps is
+  'Could take the screen over another app. The scrolling cue is a banner without it.';
+
+comment on column user_settings.grant_usage_access is
+  'Could read which app is in front. The scrolling trigger cannot fire without it.';

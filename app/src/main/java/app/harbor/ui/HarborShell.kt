@@ -26,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
@@ -281,12 +283,24 @@ private fun NavItem(tab: HarborTab, current: Boolean, onClick: () -> Unit) {
         animationSpec = tween(220),
         label = "tab label",
     )
+    // The one part of this that is movement rather than colour.
+    //
+    // The three cross-fades above stay whatever the setting says: a colour
+    // arriving over two hundred milliseconds is not motion, and snapping
+    // them would be a harsher screen rather than a calmer one. A bouncing
+    // scale is motion, and somebody who asked for less of it gets the tab
+    // at its size straight away.
+    val still = LocalReducedMotion.current
     val lift by animateFloatAsState(
         targetValue = if (current) 1f else 0.92f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
+        animationSpec = if (still) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            )
+        },
         label = "tab lift",
     )
 
