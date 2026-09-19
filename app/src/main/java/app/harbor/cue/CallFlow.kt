@@ -182,15 +182,23 @@ fun CallFlow(
                 }
 
                 Spacer(Modifier.size(6.dp))
+                // The name, and only the name.
+                //
+                // The flower's note used to sit under it -- "That one left
+                // me lighter" beneath "Glad we talked" -- and the two say
+                // the same thing twice, once in the words somebody would use
+                // and once in a gloss on them. On a shelf you push along,
+                // that is a second line re-rendering on every swipe, which
+                // makes the shelf feel heavier than it is and gives the eye
+                // something to read instead of look at.
+                //
+                // The notes are not lost: FlowerSpec.note still carries them
+                // and the garden's list still says them, where there is one
+                // line per call and room to be discursive. Here the picture
+                // is the argument and the name is the label.
                 Text(
                     Flowers.spec(chosen).name,
                     style = MaterialTheme.typography.headlineMedium.copy(fontSize = 22.sp),
-                )
-                Spacer(Modifier.size(4.dp))
-                Text(
-                    Flowers.spec(chosen).note,
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
                 )
 
                 Spacer(Modifier.size(14.dp))
@@ -202,7 +210,13 @@ fun CallFlow(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.size(8.dp))
-                PrimaryAction("Grow ${Flowers.spec(chosen).name.lowercase()}") {
+                // "Grow this one", not "Grow glad we talked".
+                //
+                // With the note gone the name is two lines above the button,
+                // and naming it again there is the same word twice inside an
+                // inch. The flower is on screen, its name is under it, and
+                // the button is the verb.
+                PrimaryAction("Grow this one") {
                     onPlant(minutes, chosen, initialTopic)
                     step = Step.Bloom
                 }
