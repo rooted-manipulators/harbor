@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -244,8 +245,15 @@ private sealed interface Page {
  * Fixed rather than measured. A pager sizes itself to the page being shown,
  * so pages of different heights make the whole panel -- and everything below
  * it -- jump on each swipe, which is the one thing a deck must not do.
+ *
+ * 300, down from 430. The number is not a taste: it is what is left of a
+ * 6.7in screen after the field's band, this panel's own header, the
+ * indicator and the count beneath it -- so the whole first card, including
+ * the thing that tells you there are more, is visible the moment the page
+ * opens. A card whose bottom is off screen is a card nobody discovers they
+ * can swipe.
  */
-private val CARD_HEIGHT = 430.dp
+private val CARD_HEIGHT = 300.dp
 
 /**
  * Where you are in the deck, and a way to get somewhere else.
@@ -551,29 +559,37 @@ private const val DISC_MAX = 90
 private fun ColumnScope.PeopleYouGrowWith(summary: Growth.Summary, contacts: List<Contact>) {
     CardTitle("People you grow with")
     Spacer(Modifier.height(6.dp))
-    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+    // The bloom takes what is left, rather than claiming a square.
+    //
+    // It was aspectRatio(1f), which asks for a canvas as tall as the column
+    // is wide. On half of a 411dp card that is 178dp, and with the avatar
+    // and the name under it the column wanted 254dp of a 194dp box -- so
+    // the card clipped the moment CARD_HEIGHT came down to fit the screen.
+    // A weight cannot overflow: the flower is as big as the space allows
+    // and the label is always under it.
+    Box(Modifier.fillMaxWidth().weight(1f)) {
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             summary.people.take(PEOPLE_SHOWN).forEach { person ->
                 val who = contacts.firstOrNull { it.id == person.contactId }
                 Column(
-                    Modifier.weight(1f),
+                    Modifier.weight(1f).fillMaxHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Canvas(
                         Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1f),
+                            .weight(1f),
                     ) {
                         translate(size.width / 2f, size.height / 2f) {
                             drawPersonBloom(person.petals, min(size.width, size.height) * 0.38f)
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
                     if (who != null) Avatar(who.label, who.tone, size = AvatarSize.SM)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(5.dp))
                     Text(
                         who?.label ?: "Someone",
                         style = MaterialTheme.typography.bodyLarge.copy(

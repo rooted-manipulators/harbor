@@ -125,12 +125,22 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         // Standing at the newest flower rather than out at the overview:
         // this screen is opened right after growing one, and that is what
         // somebody has come to look at.
-        FieldCanvas(store, Modifier.fillMaxWidth().weight(1f), standClose = true)
+        //
+        // A fixed band rather than half the screen.
+        //
+        // It used to take weight(1f) against the panel's 0.85f, which is
+        // most of the phone, and left the deck below it cut off at the
+        // bottom edge on open -- you arrived at this screen looking at the
+        // top third of a card. The field is the reward and wants room, but
+        // it is also pannable and zoomable, so somebody who wants more of it
+        // has a way to get more of it; the deck does not, and a card you
+        // cannot see the bottom of is a card you do not know is swipeable.
+        FieldCanvas(store, Modifier.fillMaxWidth().height(FIELD_BAND), standClose = true)
 
         Column(
             Modifier
                 .fillMaxWidth()
-                .weight(0.85f)
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -193,6 +203,18 @@ private fun inWords(entry: LedgerEntry, who: String?): String {
         .format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
     return "$name — $meaning" + (who?.let { ", with $it" } ?: "") + ". $date"
 }
+
+/**
+ * How much of the screen the field keeps on the garden page.
+ *
+ * Enough to be a place rather than a thumbnail, and little enough that the
+ * whole of the first card -- title, picture, caption, indicator and the
+ * count under it -- is on screen when the page opens. Those two pull in
+ * opposite directions and this is where they were balanced on a 6.7in
+ * phone; a much shorter screen will still need a scroll to see the
+ * indicator, which is the right thing to give up first.
+ */
+private val FIELD_BAND = 250.dp
 
 @Composable
 fun GardenCanvas(store: HarborRepository, modifier: Modifier = Modifier) {

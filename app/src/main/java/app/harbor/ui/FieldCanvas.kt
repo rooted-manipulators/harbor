@@ -1333,7 +1333,7 @@ private fun FieldControls(
     onFit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
         ControlButton("+", "Zoom in", onIn)
         ControlButton("−", "Zoom out", onOut)
         ControlButton("⤡", "Pull back", onFit)
@@ -1342,9 +1342,17 @@ private fun FieldControls(
 
 @Composable
 private fun ControlButton(glyph: String, label: String, onClick: () -> Unit) {
+    // 52dp, not 38.
+    //
+    // These sit over a canvas that pans and zooms under the finger, so a
+    // near-miss does not do nothing -- it drags the field. That makes them
+    // worse to miss than an ordinary button, and 38dp was already under the
+    // 48dp minimum a touch target is supposed to clear. The glyphs grow with
+    // them, because a bigger disc with the same small mark in it reads as a
+    // button with a stain rather than a larger button.
     Box(
         Modifier
-            .size(38.dp)
+            .size(52.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .clickable(onClick = onClick),
@@ -1353,6 +1361,7 @@ private fun ControlButton(glyph: String, label: String, onClick: () -> Unit) {
         Text(
             glyph,
             style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = 22.sp,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
             ),
