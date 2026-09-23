@@ -129,6 +129,8 @@ fun HomeScreen(
     // than one vanishing and another appearing.
     var beeFrom by remember { mutableStateOf<Offset?>(null) }
     var beeLanded by remember { mutableStateOf<Offset?>(null) }
+    // Whether the field is zoomed in enough to have a bee in it at all.
+    var closeUp by remember { mutableStateOf(true) }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         // How tall the field can be, given how tall the phone actually is.
@@ -282,6 +284,7 @@ fun HomeScreen(
                     // which is what the close opening shot costs otherwise.
                     interactive = true,
                     standClose = true,
+                    onCloseUp = { closeUp = it },
                     // Measured against whichever is shorter: a field's height,
                     // or everything the page actually has to scroll.
                     //
@@ -551,6 +554,7 @@ fun HomeScreen(
             fieldHeight = fieldHeight + FieldDrop,
             startAt = beeLanded,
             visible = beeFrom == null,
+            near = closeUp,
         )
 
         BeeFlight(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import java.util.UUID
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -37,6 +38,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
@@ -182,6 +185,12 @@ fun FieldCanvas(
      * somewhere to put a control panel: the field screen.
      */
     controls: Boolean = interactive,
+    /**
+     * Told whenever the view crosses into or out of close-up -- the zoom at
+     * which grass stands up. Anything that only makes sense up close, like
+     * the resident bee, listens to this instead of guessing at the camera.
+     */
+    onCloseUp: ((Boolean) -> Unit)? = null,
 ) {
     val contacts by store.contacts.collectAsState()
     val settings by store.settings.collectAsState()
@@ -189,23 +198,21 @@ fun FieldCanvas(
 
     LaunchedEffect(Unit) { entries = store.recentEntries() }
 
-    val people = remember(contacts, entries) {
-        // Oldest first, because that is the order the ground is planted in
-        // and a flower has to keep its place as the ones after it arrive.
-        val grown = entries
-            .filter { it.resolution == Resolution.CALLED && it.flower != null }
-            .sortedBy { it.occurredAt }
-            .groupBy { it.contactId }
+    // Every flower each person has grown, as the call that grew it, in
+    // planting order. One per *minute*, not one per call -- see
+    // Flowers.flowerCount -- so a long call is a run of the same entry.
+    //
+    // Worked out once and read twice: the planting below takes the kinds from
+    // it, and a tap takes the entry back out of it by the same index. Two
+    // copies of this counting would be two chances for a tap to open the
+    // wrong call.
+    val grownBy = remember(entries) { grownEntries(entries) }
+
+    val people = remember(contacts, grownBy) {
         contacts.map { contact ->
-            val theirs = grown[contact.id].orEmpty()
-            // Every flower this person has grown, in order, each in the kind
-            // that was chosen on the call that grew it. One flower a minute,
-            // not one a call -- see Flowers.flowerCount -- so a long call
-            // puts down a run of the same answer, which is the honest shape
-            // of it.
-            val kinds = theirs.flatMap { entry ->
-                List(Flowers.flowerCount(entry.callMinutes)) { entry.flower!! }
-            }
+            val grown = grownBy[contact.id].orEmpty()
+            val theirs = grown.distinct()
+            val kinds = grown.map { it.flower!! }
             Field.Person(
                 contactId = contact.id,
                 label = contact.label,
@@ -278,6 +285,21 @@ fun FieldCanvas(
     val stirring = remember { Stirring() }
     val chase = remember { Chase() }
     val flatten = remember { Flatten() }
+
+    // Close-up, reported once per crossing rather than per frame. Worked out
+    // from the camera off the draw path -- the draw pass must not write state
+    // (see the note above) -- and with the same tilt the lens uses, floor
+    // included, so "close enough for grass" and "close enough for a bee" are
+    // one answer.
+    val tellCloseUp by rememberUpdatedState(onCloseUp)
+    LaunchedEffect(base) {
+        if (base <= 0.0) return@LaunchedEffect
+        snapshotFlow {
+            maxOf(Field.tiltFor(cam.zoom, base), flatten.floorAt(cam.zoom)) > Field.GRASS_TILT
+        }
+            .distinctUntilChanged()
+            .collect { tellCloseUp?.invoke(it) }
+    }
 
     // Nothing planted yet is its own opening shot, not a smaller version of
     // the usual one.
@@ -532,6 +554,10 @@ fun FieldCanvas(
         )
     }
 
+    // The flower somebody tapped, and who it was with.
+    var picked by remember { mutableStateOf<Pair<LedgerEntry, String>?>(null) }
+    picked?.let { (entry, who) -> FlowerCard(entry, who) { picked = null } }
+
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
 
@@ -541,6 +567,16 @@ fun FieldCanvas(
             Modifier
                 .fillMaxSize()
                 .onSizeChanged { frame = it }
+                .pointerInput(interactive, patches, grownBy) {
+                    if (!interactive) return@pointerInput
+                    val slop = 20.dp.toPx()
+                    detectTapGestures { at ->
+                        val (pi, bi) = kit.bloomAt(at.x, at.y, slop) ?: return@detectTapGestures
+                        val patch = patches.getOrNull(pi) ?: return@detectTapGestures
+                        val entry = grownBy[patch.contactId]?.getOrNull(bi) ?: return@detectTapGestures
+                        picked = entry to patch.label
+                    }
+                }
                 .pointerInput(base, interactive) {
                     if (!interactive) return@pointerInput
                     detectTransformGestures { _, pan, zoom, _ ->
@@ -835,6 +871,38 @@ private class DrawKit(buckets: Int) {
 
     /** Rock, collected so it can go down after the ground rather than under it. */
     val rocks = NativePath()
+
+    /**
+     * Where each bloom landed in the last frame: x, y, drawn radius, patch
+     * index, flower index. Read by the tap, written by the draw -- a plain
+     * buffer, not state, for the same reason as [Stirring]: a state write in
+     * the draw would redraw forever.
+     */
+    var hits = FloatArray(5 * 64)
+    var hitN = 0
+
+    fun addHit(x: Float, y: Float, r: Float, patch: Float, bloom: Float) {
+        if (hitN + 5 > hits.size) hits = hits.copyOf(hits.size * 2)
+        hits[hitN] = x; hits[hitN + 1] = y; hits[hitN + 2] = r
+        hits[hitN + 3] = patch; hits[hitN + 4] = bloom
+        hitN += 5
+    }
+
+    /** The bloom under [x], [y], as patch and flower index, or null. */
+    fun bloomAt(x: Float, y: Float, slop: Float): Pair<Int, Int>? {
+        var best = -1
+        var bestD = Float.MAX_VALUE
+        var i = 0
+        while (i < hitN) {
+            val d = kotlin.math.hypot(hits[i] - x, hits[i + 1] - y)
+            if (d <= maxOf(hits[i + 2] * 1.2f, slop) && d < bestD) {
+                bestD = d
+                best = i
+            }
+            i += 5
+        }
+        return if (best < 0) null else hits[best + 3].toInt() to hits[best + 4].toInt()
+    }
     val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     // Rock and the patch outlines went up with the ground under them. Both
     // were pitched against a land that has since been lifted off the page,
@@ -1013,6 +1081,7 @@ private fun DrawScope.drawField(
     for (path in kit.paths) path.rewind()
     kit.washN = 0
     kit.rocks.rewind()
+    kit.hitN = 0
     kit.stem.rewind()
 
     // Flowers and rock are drawn after the bulk, so they sit on top of it.
@@ -1193,15 +1262,23 @@ private fun DrawScope.drawField(
         // to be worth it, one once the drawn flower has nothing left to add.
         val shown = if (picture == null) 0f else
             ((b[2] - Field.ARTWORK_AT) / Field.ARTWORK_FADE).coerceIn(0.0, 1.0).toFloat()
+        // Drawn bigger than the cell as you come in -- see Field.bloomDrawn.
+        // The thresholds above still read the cell's own radius, so the
+        // ladder from dot to flower to artwork happens where it always did.
+        val drawn = Field.bloomDrawn(b[2].toDouble()).toFloat()
         if (shown < 1f) {
-            drawFlower(canvas, kind, b[0], b[1], b[2], b[4], b[5].toInt(), kit, 1f - shown)
+            drawFlower(canvas, kind, b[0], b[1], drawn, b[4], b[5].toInt(), kit, 1f - shown)
         }
         if (shown > 0f && picture != null) {
-            drawBloom(canvas, picture, b[0], b[1], b[2], shown, kit)
+            drawBloom(canvas, picture, b[0], b[1], drawn, shown, kit)
         }
+        kit.addHit(b[0], b[1], drawn, b[3], b[6])
     }
 
-    marked?.let { drawMark(canvas, it[0], it[1], it[2], kit, unit) }
+    marked?.let {
+        val r = if (it[2] > Field.FLOWER_AT) Field.bloomDrawn(it[2].toDouble()).toFloat() else it[2]
+        drawMark(canvas, it[0], it[1], r, kit, unit)
+    }
 
     drawTags(canvas, patches, cam, lens, w, h, kit, tagInk, unit)
 }
@@ -1594,3 +1671,19 @@ private fun defaultFlower(tone: Tone): FlowerKind = when (tone) {
     Tone.ORANGE -> FlowerKind.FELT_LOVED
     Tone.SKY -> FlowerKind.WORTH_SLOWING_DOWN
 }
+
+/**
+ * Every flower each person has grown, as the call that grew it.
+ *
+ * Oldest first, because that is the order the ground is planted in and a
+ * flower has to keep its place as the ones after it arrive. One entry per
+ * flower, which is one per minute of call.
+ */
+private fun grownEntries(entries: List<LedgerEntry>): Map<UUID?, List<LedgerEntry>> =
+    entries
+        .filter { it.resolution == Resolution.CALLED && it.flower != null }
+        .sortedBy { it.occurredAt }
+        .groupBy { it.contactId }
+        .mapValues { (_, calls) ->
+            calls.flatMap { entry -> List(Flowers.flowerCount(entry.callMinutes)) { entry } }
+        }

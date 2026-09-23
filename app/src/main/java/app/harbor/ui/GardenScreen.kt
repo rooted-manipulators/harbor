@@ -101,11 +101,19 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         // has a way to get more of it; the deck does not, and a card you
         // cannot see the bottom of is a card you do not know is swipeable.
         Box {
-            FieldCanvas(store, Modifier.fillMaxWidth().height(FIELD_BAND), standClose = true)
+            // The garden opens standing close, so the bee starts in view; it
+            // leaves as soon as somebody pulls back to the map.
+            var closeUp by remember { mutableStateOf(true) }
+            FieldCanvas(
+                store,
+                Modifier.fillMaxWidth().height(FIELD_BAND),
+                standClose = true,
+                onCloseUp = { closeUp = it },
+            )
             // The resident bee lives on this field too. It is the same
             // garden; a bee that existed only on home would be a home
             // decoration rather than something living in the place.
-            FieldBee(weather = settings.weather, fieldHeight = FIELD_BAND)
+            FieldBee(weather = settings.weather, fieldHeight = FIELD_BAND, near = closeUp)
         }
 
         Column(

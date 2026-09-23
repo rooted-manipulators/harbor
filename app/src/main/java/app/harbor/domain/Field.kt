@@ -169,6 +169,31 @@ object Field {
     const val GROUND_WATER = 0xFF84B4C6
 
     /**
+     * How much bigger a flower is drawn than its cell, once it is close.
+     *
+     * Flowers were drawn at exactly their cell's radius, which made them the
+     * same size as a blade of grass -- the one thing on the field that is
+     * yours read as part of the ground. They now grow as you approach, up to
+     * this multiple at [ARTWORK_AT]. See [bloomDrawn] for why it ramps rather
+     * than simply multiplying.
+     */
+    const val BLOOM_SCALE = 1.7
+
+    /**
+     * The radius to draw a flower at, given its cell radius [r].
+     *
+     * One at [FLOWER_AT], where a dot turns into a flower, rising to
+     * [BLOOM_SCALE] by [ARTWORK_AT], where the drawing hands over to the
+     * artwork. Ramped rather than multiplied throughout because a flat 1.7
+     * would make the dot-to-flower handover a jump: the dot is drawn at `r`,
+     * and a flower appearing in its place at 1.7r reads as something popping.
+     */
+    fun bloomDrawn(r: Double): Double {
+        val t = ((r - FLOWER_AT) / (ARTWORK_AT - FLOWER_AT)).coerceIn(0.0, 1.0)
+        return r * (1.0 + (BLOOM_SCALE - 1.0) * t)
+    }
+
+    /**
      * How long a flower takes to open once it has been planted, in seconds.
      *
      * Until now the drawing said, in as many words, that nothing was animated
