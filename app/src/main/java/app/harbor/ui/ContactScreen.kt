@@ -79,23 +79,33 @@ import java.util.UUID
 @Composable
 fun ContactScreen(
     store: HarborRepository,
+    /** Who to edit. Null opens the screen on somebody new. */
+    contactId: UUID?,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val contacts by store.contacts.collectAsState()
-    val existing = contacts.firstOrNull()
+    val existing = contactId?.let { wanted -> contacts.firstOrNull { it.id == wanted } }
 
     // Fixed for the life of the screen so the photo copy lands under the name
     // the saved contact will carry.
-    val id = remember(existing?.id) { existing?.id ?: UUID.randomUUID() }
+    val id = remember(contactId) { contactId ?: UUID.randomUUID() }
 
     var label by remember(existing) { mutableStateOf(existing?.label ?: "") }
     var phone by remember(existing) { mutableStateOf(existing?.phoneE164 ?: "") }
     var soundRef by remember(existing) { mutableStateOf(existing?.cueSoundRef) }
     var photoRef by remember(existing) { mutableStateOf(existing?.photoRef) }
-    var tone by remember(existing) { mutableStateOf(existing?.tone ?: Tone.GREEN) }
+    // Somebody new gets a colour nobody else has yet, while there is one, so
+    // two patches in the field are not the same green.
+    var tone by remember(existing) {
+        mutableStateOf(
+            existing?.tone
+                ?: Tone.entries.firstOrNull { t -> contacts.none { it.tone == t } }
+                ?: Tone.GREEN,
+        )
+    }
     var error by remember { mutableStateOf<String?>(null) }
 
     val previewRinger = remember { Ringer(context) }
@@ -148,7 +158,7 @@ fun ContactScreen(
             // that gradient -- which is what made every screen read flat.
             .verticalScroll(rememberScrollState()),
     ) {
-        Box(Modifier.padding(horizontal = 28.dp)) {
+        Box(Modifier.padding(horizontal = 32.dp)) {
             PageIntro(
                 eyebrow = "The person, not the app",
                 title = "Who would you call?",
@@ -213,8 +223,7 @@ fun ContactScreen(
             Surface {
                 SectionHeading("Their sound")
                 SmallCopy(
-                    "Their real ringtone works best — it is the sound you already " +
-                        "associate with them. A song that reminds you of them works too.",
+                    "Their real ringtone works best. A song that reminds you of them works too.",
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Pill(
@@ -246,7 +255,7 @@ fun ContactScreen(
             Surface {
                 SectionHeading("Their colour")
                 SmallCopy("The ground their patch grows on.")
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Tone.entries.forEach { option ->
                         Box(
                             Modifier

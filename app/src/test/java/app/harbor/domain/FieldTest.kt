@@ -884,3 +884,45 @@ class BloomOpenTest {
         }
     }
 }
+
+/** How big a flower is drawn, as you come in towards it. */
+class BloomDrawnTest {
+
+    @org.junit.Test
+    fun `where a dot becomes a flower, the flower is the dot's size`() {
+        // Otherwise the handover is a pop: a dot drawn at r replaced by a
+        // flower at 1.7r the next frame.
+        org.junit.Assert.assertEquals(Field.FLOWER_AT, Field.bloomDrawn(Field.FLOWER_AT), 1e-9)
+    }
+
+    @org.junit.Test
+    fun `by the time the artwork takes over it is the full multiple`() {
+        org.junit.Assert.assertEquals(
+            Field.ARTWORK_AT * Field.BLOOM_SCALE,
+            Field.bloomDrawn(Field.ARTWORK_AT),
+            1e-9,
+        )
+    }
+
+    @org.junit.Test
+    fun `closer still it stays at the full multiple rather than running away`() {
+        org.junit.Assert.assertEquals(40.0 * Field.BLOOM_SCALE, Field.bloomDrawn(40.0), 1e-9)
+    }
+
+    @org.junit.Test
+    fun `it only ever grows as you come in`() {
+        var r = Field.FLOWER_AT
+        var last = Field.bloomDrawn(r)
+        while (r < Field.ARTWORK_AT + 5) {
+            r += 0.1
+            val now = Field.bloomDrawn(r)
+            org.junit.Assert.assertTrue("shrank at $r", now >= last)
+            last = now
+        }
+    }
+
+    @org.junit.Test
+    fun `a flower is always drawn bigger than a blade of grass once it is a flower`() {
+        org.junit.Assert.assertTrue(Field.bloomDrawn(Field.ARTWORK_AT) > Field.ARTWORK_AT * 1.5)
+    }
+}

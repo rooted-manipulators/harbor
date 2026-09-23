@@ -71,7 +71,7 @@ internal fun ColumnScope.ForwardYourChats(
                 RoundedCornerShape(10.dp),
             )
             .then(if (signedIn) Modifier else Modifier.clickable(onClick = onOpenAccount))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(
             "Forward your class chats",
@@ -94,7 +94,7 @@ internal fun ColumnScope.ForwardYourChats(
         )
 
         if (signedIn) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 code ?: "· · · · · ·",
                 textAlign = TextAlign.Center,

@@ -267,7 +267,7 @@ fun WeatherBar(
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .padding(horizontal = 22.dp)
+                    .padding(horizontal = 24.dp)
                     .fillMaxWidth()
                     .height(26.dp)
                     .clip(RoundedCornerShape(99.dp))
@@ -285,7 +285,7 @@ fun WeatherBar(
             Row(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .padding(horizontal = 22.dp)
+                    .padding(horizontal = 24.dp)
                     .fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -313,7 +313,7 @@ fun WeatherBar(
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 22.dp)
+                    .padding(start = 24.dp)
                     .fillMaxWidth(fraction.coerceAtLeast(0.001f))
                     .height(26.dp)
                     .clip(RoundedCornerShape(99.dp))
@@ -363,7 +363,7 @@ fun WeatherBar(
                 Canvas(
                     Modifier
                         .align(Alignment.CenterStart)
-                        .padding(horizontal = 22.dp)
+                        .padding(horizontal = 24.dp)
                         .fillMaxWidth()
                         .height(26.dp),
                 ) {
@@ -477,7 +477,7 @@ fun WeatherBar(
                 .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.background)
                 .clickable { if (answered == null) expanded = !expanded }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             when {
                 answered != null -> Column {

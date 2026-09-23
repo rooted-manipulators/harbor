@@ -113,8 +113,7 @@ fun StudyExportCard(store: HarborRepository) {
         saved?.let { SmallCopy("Saved as $it.", size = 13) }
         if (failed) {
             SmallCopy(
-                "That did not save. Try somewhere else — Downloads is a safe " +
-                    "choice — and nothing was sent either way.",
+                "That didn't save. Try Downloads. Nothing was sent.",
                 size = 13,
             )
         }

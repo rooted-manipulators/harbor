@@ -159,7 +159,7 @@ internal fun SignInScreen(
                         code = ""
                     }
                 }
-                Spacer(Modifier.size(6.dp))
+                Spacer(Modifier.size(8.dp))
                 PrimaryAction("Done", onClick = onDone)
                 return@Flow
             }

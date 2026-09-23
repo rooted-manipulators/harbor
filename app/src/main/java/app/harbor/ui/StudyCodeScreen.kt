@@ -117,7 +117,7 @@ fun StudyCodeScreen(
                 label = { Text("New code") },
                 modifier = Modifier.fillMaxSize(),
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             // Worded as what happens, not as what was wanted. "Save" on a
             // button that wipes a week is how somebody loses one.
             Pill(

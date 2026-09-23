@@ -240,9 +240,7 @@ fun CuesSetupScreen(
             SoftSurface {
                 SectionHeading("When a reminder can arrive")
                 SmallCopy(
-                    "After a walk of at least " +
-                        "${settings.thresholds.walkingMinutes} minutes. This one " +
-                        "is always on \u2014 it is what Harbor is for.",
+                    "After a walk of at least ${settings.thresholds.walkingMinutes} minutes. Always on.",
                     size = 13,
                 )
                 SmallCopy(
@@ -289,9 +287,7 @@ fun CuesSetupScreen(
                 // above it.
                 if (settings.scrollCues && canSeeApps && !canOpenOver) {
                     SmallCopy(
-                        "A reminder while you are scrolling will arrive as a " +
-                            "banner. Letting Harbor open over other apps gives it " +
-                            "the whole screen instead.",
+                        "Without this, a reminder while you scroll is only a banner.",
                         size = 13,
                     )
                     QuietAction("Let a reminder open over an app") {
@@ -330,8 +326,7 @@ fun CuesSetupScreen(
                         scope.launch { showManualCue(context, store, who) }
                     }
                     SmallCopy(
-                        "Hear their sound and see the moment, without waiting " +
-                            "for a walk. This does not use up today's allowance.",
+                        "Try it now. It doesn't count toward today.",
                         size = 13,
                     )
                 }
@@ -340,8 +335,7 @@ fun CuesSetupScreen(
             when {
                 Sensing.isActive(context, store) -> {
                     SmallCopy(
-                        "Reminders are on. Harbor will wait for a walk of at least " +
-                            "${settings.thresholds.walkingMinutes} minutes.",
+                        "Reminders are on. Harbor waits for a ${settings.thresholds.walkingMinutes}-minute walk.",
                         size = 15,
                     )
 
@@ -448,10 +442,7 @@ fun CuesSetupScreen(
                     // it is the measured default rather than an edge case.
                     if (!canStayAwake) {
                         SmallCopy(
-                            "Your phone can put Harbor to sleep to save battery. " +
-                                "Asleep, it never hears that your walk ended — the " +
-                                "reminder is not late, it never happens. This is the " +
-                                "one that matters most.",
+                            "Battery saving can put Harbor to sleep, and then no reminder comes. This one matters most.",
                             size = 14,
                         )
                         PrimaryAction("Let Harbor keep listening") {
@@ -460,9 +451,7 @@ fun CuesSetupScreen(
                     }
                     if (!canNotify) {
                         SmallCopy(
-                            "Notifications are off for Harbor. A reminder is posted " +
-                                "as one, so with these off it is thrown away " +
-                                "the moment it is made and nothing appears.",
+                            "Notifications are off, so no reminder can appear.",
                             size = 14,
                         )
                         PrimaryAction("Allow notifications") {
@@ -474,10 +463,7 @@ fun CuesSetupScreen(
                     }
                     if (!canTakeScreen) {
                         SmallCopy(
-                            "Android only lets an app take over the screen if " +
-                                "you allow it by hand. Without it a reminder arrives " +
-                                "as a banner that fades on its own, so if your " +
-                                "phone is in your pocket you will miss it.",
+                            "Without this, a reminder is a small banner that is easy to miss.",
                             size = 14,
                         )
                         CueNotifier.fullScreenSettings(context)?.let { intent ->
@@ -492,9 +478,7 @@ fun CuesSetupScreen(
             if (refused) {
                 Surface {
                     SmallCopy(
-                        "That is completely fine. Reminders stay off, and nothing " +
-                            "else changes. If you change your mind, Android may " +
-                            "not ask again — you can grant it from system settings.",
+                        "That's fine. Reminders stay off and nothing else changes. Android may not ask again, so use system settings.",
                     )
                     TextLink("Open system settings", onClick = { openAppSettings(context) })
                     // Rechecking on resume would need a lifecycle observer whose

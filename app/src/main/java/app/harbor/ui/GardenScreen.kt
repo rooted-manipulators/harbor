@@ -101,11 +101,19 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         // has a way to get more of it; the deck does not, and a card you
         // cannot see the bottom of is a card you do not know is swipeable.
         Box {
-            FieldCanvas(store, Modifier.fillMaxWidth().height(FIELD_BAND), standClose = true)
+            // The garden opens standing close, so the bee starts in view; it
+            // leaves as soon as somebody pulls back to the map.
+            var closeUp by remember { mutableStateOf(true) }
+            FieldCanvas(
+                store,
+                Modifier.fillMaxWidth().height(FIELD_BAND),
+                standClose = true,
+                onCloseUp = { closeUp = it },
+            )
             // The resident bee lives on this field too. It is the same
             // garden; a bee that existed only on home would be a home
             // decoration rather than something living in the place.
-            FieldBee(weather = settings.weather, fieldHeight = FIELD_BAND)
+            FieldBee(weather = settings.weather, fieldHeight = FIELD_BAND, near = closeUp)
         }
 
         Column(
@@ -113,7 +121,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // The pictures first, then the list.
@@ -129,7 +137,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
                 span = span,
                 onSpan = { span = it },
             )
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(32.dp))
 
             // One row per call, but the count is of flowers, which is what
             // the field above is showing.
@@ -140,8 +148,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
             )
             if (grown.isEmpty()) {
                 SmallCopy(
-                    "When you have a call and say how it felt, it grows something " +
-                        "here — and what it grew is written out underneath.",
+                    "Each call you reflect on grows something here.",
                 )
             }
             grown.forEachIndexed { index, entry ->
