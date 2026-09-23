@@ -614,6 +614,25 @@ during a study, before anybody has agreed the feature is worth having.
 
 So: sign in with Google, with Microsoft, or with a code to your inbox.
 
+**Amended 17 Sep 2026.** The code to your inbox is the *main* path, not one of
+three equals. It is the only one that needs no provider configured on our side
+and no assumption about whose account somebody has, so it is what the study
+should be designed around; Google and Microsoft are convenience on top of it.
+
+And phone is **deferred on cost, not rejected on merit.** The team wants it —
+the reading above about the number that finds her is right — and it is intended
+as a *second* route alongside email once there is a reason to pay for one. The
+bill is what makes it the wrong thing to build during development, when nobody
+has yet validated that the sharing feature earns its keep. Email verification
+stays the route that always works whatever is added beside it.
+
+Delivery is the part that can fail: an emailed code is at the mercy of spam
+filters and university mail rules, and somebody who never receives one is
+locked out of the account layer entirely. That is survivable only because
+everything the study measures works signed out, which makes "the offline core
+works signed out" a load-bearing property rather than a nice one. See
+`docs/08-before-the-study.md`.
+
 Google and Microsoft are Supabase's own providers. `azure` is the one that
 covers Outlook, Hotmail and Live, which are one account wearing three names —
 there is no `microsoft` provider and asking for one returns a 400 that reads
