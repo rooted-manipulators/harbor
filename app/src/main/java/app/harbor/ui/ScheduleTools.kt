@@ -218,12 +218,13 @@ internal fun QuietRow(
 
 @Composable
 private fun TimeChip(at: LocalTime, skin: WeekSkin, onClick: () -> Unit) {
+    // Built out here: the specs read reduced motion, which is composable,
+    // and transitionSpec is not.
+    val enter = fadeIn(Motion.normal()) + slideInVertically(Motion.normal()) { it / 2 }
+    val exit = fadeOut(Motion.fast()) + slideOutVertically(Motion.fast()) { -it / 2 }
     AnimatedContent(
         at,
-        transitionSpec = {
-            (fadeIn(Motion.normal()) + slideInVertically(Motion.normal()) { it / 2 }) togetherWith
-                (fadeOut(Motion.fast()) + slideOutVertically(Motion.fast()) { -it / 2 })
-        },
+        transitionSpec = { enter togetherWith exit },
         label = "time",
     ) { shown ->
         Box(
