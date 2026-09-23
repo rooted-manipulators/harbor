@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path as NativePath
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -63,6 +64,7 @@ import app.harbor.domain.Flowers
 import app.harbor.ui.theme.CardEdge
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
+import app.harbor.domain.Bee
 import app.harbor.domain.Terrain
 import app.harbor.domain.Tone
 import app.harbor.ui.theme.Gold
@@ -397,6 +399,44 @@ fun FieldCanvas(
     )
     val wind = if (settings.reducedMotion) 0f else blowing
 
+    // The bee's clock.
+    //
+    // Wraps at [Bee.PERIOD], which is the one instant where wrapping is free:
+    // the path is exactly back where it started, so the seam cannot be seen.
+    // A round number of seconds here instead and the bee teleports every time
+    // the animation restarts.
+    val alive by breeze.animateFloat(
+        initialValue = 0f,
+        targetValue = Bee.PERIOD.toFloat(),
+        animationSpec = infiniteRepeatable(
+            tween((Bee.PERIOD * 1000).toInt(), easing = LinearEasing),
+        ),
+        label = "bee",
+    )
+    val seconds = if (settings.reducedMotion) 0.0 else alive.toDouble()
+
+    // The newest flower opening.
+    //
+    // Until now the drawing said, in as many words, that nothing was animated
+    // and a bloom "simply got big" — so the one moment the garden exists to
+    // mark, a call you had just made arriving in it, happened between two
+    // frames. This runs a plain linear clock and reads the shape off
+    // [Field.bloomOpen], which keeps the gesture somewhere it can be argued
+    // about in a test rather than on a phone.
+    val opening = remember { Animatable(1f) }
+    LaunchedEffect(newest, settings.reducedMotion) {
+        if (newest == null || settings.reducedMotion) {
+            opening.snapTo(1f)
+            return@LaunchedEffect
+        }
+        opening.snapTo(0f)
+        opening.animateTo(
+            1f,
+            tween((Field.BLOOM_SECONDS * 1000).toInt(), easing = LinearEasing),
+        )
+    }
+    val bloom = Field.bloomOpen(opening.value * Field.BLOOM_SECONDS).toFloat()
+
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
 
@@ -460,7 +500,10 @@ fun FieldCanvas(
                 },
         ) {
             if (cells.isEmpty() || base <= 0) return@Canvas
-            drawField(cells, patches, palette, cam, base, kit, tagInk, newest, art, wind)
+            drawField(
+                cells, patches, palette, cam, base, kit, tagInk, newest, art,
+                wind, seconds, bloom,
+            )
         }
 
         if (controls) {
@@ -646,6 +689,12 @@ private class DrawKit(buckets: Int) {
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         textAlign = Paint.Align.CENTER
     }
+    /** The bee. Three paints, because a bee at ten pixels is stripes. */
+    val beeDark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2B2318.toInt() }
+    val beeGold = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE9B949.toInt() }
+    val beeWing = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEAF2F6.toInt() }
+    val beeShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF10180E.toInt() }
+
     val ring = NativePath()
     val stem = NativePath()
     val rect = RectF()
@@ -668,6 +717,10 @@ private fun DrawScope.drawField(
     art: Map<FlowerKind, Bitmap>,
     /** Where the wind has got to, in radians. Held at zero for reduced motion. */
     wind: Float,
+    /** Seconds since the field appeared, for anything alive in it. */
+    seconds: Double,
+    /** How far open the newest flower is. One for every other flower. */
+    bloom: Float,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -726,8 +779,14 @@ private fun DrawScope.drawField(
             }
 
             Field.Kind.FLOWER -> {
-                // Close enough in, a planted dot opens into the flower it
-                // was standing for. Nothing is animated; it simply got big.
+                // Close enough in, a planted dot opens into the flower it was
+                // standing for. That much is zoom, not time.
+                //
+                // What *is* time is the newest one: a call just made arrives
+                // by growing into its place, over about a second and a third,
+                // with one small overshoot. Identity again rather than
+                // equality -- see the mark below, same reason.
+                if (c === mark && bloom < 1f) r *= bloom
                 if (r > Field.FLOWER_AT) {
                     blooms += floatArrayOf(
                         p.x.toFloat(), p.y.toFloat(), r.toFloat(),
@@ -820,7 +879,90 @@ private fun DrawScope.drawField(
 
     marked?.let { drawMark(canvas, it[0], it[1], it[2], kit, unit) }
 
+    drawBee(canvas, cam, lens, w, h, kit, unit, seconds)
+
     drawTags(canvas, patches, cam, lens, w, h, kit, tagInk, unit)
+}
+
+/**
+ * The bee, if the view is close enough to have one.
+ *
+ * Drawn last of the things on the ground and first of the things above it: it
+ * passes over the flowers, which is the only way round that reads as flight.
+ * Its shadow goes on the ground underneath, which is what stops it looking
+ * like a sticker on the glass.
+ *
+ * The gate is [Bee.showing] against the grass, so the bee and the blades
+ * arrive together — see the note in [Bee]. Nothing is drawn at all until it
+ * is properly there, which saves the whole projection on the overview.
+ */
+private fun drawBee(
+    canvas: android.graphics.Canvas,
+    cam: Field.Camera,
+    lens: Field.Lens,
+    w: Double,
+    h: Double,
+    kit: DrawKit,
+    unit: Float,
+    seconds: Double,
+) {
+    val shown = Bee.showing(Field.grassStand(lens.tilt, h * 0.72, h))
+    if (shown < 0.02) return
+
+    val roam = Bee.at(seconds)
+    val wx = cam.x + roam.x
+    val wy = cam.y + roam.y
+    val ground = Terrain.heightAt(wx, wy) * Field.ELEVATION
+
+    // The shadow first, on the ground the bee is over rather than under the
+    // bee itself -- a shadow that tracked its height would be the same mark in
+    // the same place and would say nothing about flying.
+    Field.project(wx, wy, ground, cam, lens, w, h, kit.point)
+    val sx = kit.point.x
+    val sy = kit.point.y
+    val scale = kit.point.s
+    if (sx < -40 || sx > w + 40 || sy < -40 || sy > h + 40) return
+
+    val body = (2.6 * unit * scale).toFloat()
+    if (body < 0.7f) return
+
+    kit.beeShadow.alpha = (52 * shown).toInt()
+    canvas.drawOval(
+        (sx - body * 1.1).toFloat(), (sy - body * 0.42).toFloat(),
+        (sx + body * 1.1).toFloat(), (sy + body * 0.42).toFloat(),
+        kit.beeShadow,
+    )
+
+    Field.project(wx, wy, ground + roam.z, cam, lens, w, h, kit.point)
+    val bx = kit.point.x.toFloat()
+    val by = kit.point.y.toFloat()
+
+    val lean = Bee.heading(seconds).toFloat()
+    canvas.save()
+    canvas.translate(bx, by)
+    canvas.rotate(Math.toDegrees(lean.toDouble()).toFloat())
+
+    // Wings: two blurred ovals that flatten as they beat, so the flicker reads
+    // as speed rather than as two shapes swapping.
+    val beat = Bee.wing(seconds).toFloat()
+    kit.beeWing.alpha = (150 * shown).toInt()
+    val span = body * 1.5f
+    val lift = body * (0.30f + 0.42f * kotlin.math.abs(beat))
+    for (side in intArrayOf(-1, 1)) {
+        canvas.drawOval(
+            -span * 0.30f, side * -lift - body * 0.30f,
+            span * 0.72f, side * -lift + body * 0.30f,
+            kit.beeWing,
+        )
+    }
+
+    // Body: three bands, because a bee read at ten pixels is stripes.
+    kit.beeDark.alpha = (255 * shown).toInt()
+    kit.beeGold.alpha = (255 * shown).toInt()
+    canvas.drawOval(-body, -body * 0.56f, body, body * 0.56f, kit.beeDark)
+    canvas.drawRect(-body * 0.30f, -body * 0.56f, -body * 0.02f, body * 0.56f, kit.beeGold)
+    canvas.drawRect(body * 0.26f, -body * 0.50f, body * 0.54f, body * 0.50f, kit.beeGold)
+    canvas.restore()
 }
 
 private fun drawPatchOutlines(

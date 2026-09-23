@@ -53,7 +53,7 @@ object Field {
     private const val EYE = 300.0
     private const val SET_BACK = 2.4
     private const val HORIZON = 0.14
-    private const val ELEVATION = 170.0
+    internal const val ELEVATION = 170.0
 
     /** Drawn radius at which a planted dot becomes a flower. */
     // Lowered from 5.5. A planted cell under this draws as a plain circle,
@@ -135,6 +135,41 @@ object Field {
      * Above 0.71 the discs are guaranteed to meet on the diagonal, which is
      * what closes the last gaps.
      */
+    /**
+     * How long a flower takes to open once it has been planted, in seconds.
+     *
+     * Until now a bloom "simply got big": the drawing had a comment saying
+     * nothing was animated, and a call you had just made appeared in the
+     * garden between one frame and the next. The one moment the garden exists
+     * to mark was the one moment it did not mark.
+     */
+    const val BLOOM_SECONDS = 1.35
+
+    /**
+     * How far a flower opens past its full size before settling back.
+     *
+     * A bloom is the app's only congratulation, and it is allowed one small
+     * overshoot. More than this and it reads as a notification badge.
+     */
+    const val BLOOM_OVERSHOOT = 0.16
+
+    /**
+     * How open a flower planted [since] seconds ago is, from nought to one.
+     *
+     * Eased out and overshot: fast at first, past its size, then back. A
+     * linear open looks like a window being resized. Pure, so the shape of the
+     * gesture can be argued about in a test rather than on a phone.
+     */
+    fun bloomOpen(since: Double): Double {
+        if (since <= 0.0) return 0.0
+        if (since >= BLOOM_SECONDS) return 1.0
+        val t = since / BLOOM_SECONDS
+        // A back-eased curve: overshoots once, comes back, never leaves [0,1+k].
+        val eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
+        val swell = kotlin.math.sin(t * kotlin.math.PI) * BLOOM_OVERSHOOT
+        return eased + swell
+    }
+
     const val GROUND_WASH = 0.78
 
     /**
