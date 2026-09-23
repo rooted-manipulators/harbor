@@ -98,12 +98,11 @@ import kotlin.math.sin
  * The eight poses the tour draws on. A different set from [BeeMood]'s on
  * purpose -- those are how a call felt; these are a guide's gestures.
  *
- * ## Placeholder pending the real art
- *
- * All eight currently point at `bee_standing`, copied eight times under
- * these names. When the drawn poses arrive, cut them straight onto these
- * eight filenames (the way `tools/cut_moods.py` cut the mood sheet) and
- * nothing here has to change -- the seam is the asset, not the code.
+ * The art is cut from one sheet by `tools/cut_tour_bee.py`, straight onto
+ * these eight filenames; redrawing a pose is re-running that script, with
+ * nothing here to change. Every pose gestures to its right, which is why the
+ * overlay mirrors the bee when it stands in a right-hand corner -- so it is
+ * always pointing into the screen, at what it is talking about.
  */
 enum class TourBeeState { GREET, EXPLAIN, POINT, WONDER, IDEA, SURPRISE, CELEBRATE, APPROVE }
 
