@@ -111,7 +111,7 @@ fun Specimen(
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     alignment = Alignment.BottomCenter,
                     contentScale = ContentScale.Fit,
                 )
@@ -131,7 +131,7 @@ fun Specimen(
                 Column(
                     Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -161,7 +161,7 @@ fun Specimen(
                 .clip(PlinthShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, CardEdge, PlinthShape)
-                .padding(horizontal = 9.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -261,15 +261,15 @@ fun LittleWindow(
         Column(
             Modifier
                 .fillMaxWidth(0.74f)
-                .padding(start = 18.dp, top = 20.dp, end = 12.dp, bottom = 18.dp),
+                .padding(start = 16.dp, top = 20.dp, end = 12.dp, bottom = 16.dp),
         ) {
             Eyebrow("A little window")
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(8.dp))
             Text(
                 headline,
                 style = MaterialTheme.typography.headlineMedium.copy(fontSize = 27.sp),
             )
-            Spacer(Modifier.size(5.dp))
+            Spacer(Modifier.size(4.dp))
             SmallCopy(caption, size = 12)
 
             // The sheet ends this card with a pill reading "Make a little
@@ -278,13 +278,13 @@ fun LittleWindow(
             // hands you to the dialer must not describe itself as anything
             // gentler than that.
             if (action != null && onAction != null) {
-                Spacer(Modifier.size(14.dp))
+                Spacer(Modifier.size(16.dp))
                 Box(
                     Modifier
                         .clip(ActionPill)
                         .background(MaterialTheme.colorScheme.primary)
                         .clickable(onClick = onAction)
-                        .padding(horizontal = 15.dp, vertical = 9.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         action,

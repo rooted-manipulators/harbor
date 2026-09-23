@@ -121,7 +121,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // The pictures first, then the list.
@@ -137,7 +137,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
                 span = span,
                 onSpan = { span = it },
             )
-            Spacer(Modifier.height(30.dp))
+            Spacer(Modifier.height(32.dp))
 
             // One row per call, but the count is of flowers, which is what
             // the field above is showing.
@@ -148,8 +148,7 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
             )
             if (grown.isEmpty()) {
                 SmallCopy(
-                    "When you have a call and say how it felt, it grows something " +
-                        "here — and what it grew is written out underneath.",
+                    "Each call you reflect on grows something here.",
                 )
             }
             grown.forEachIndexed { index, entry ->

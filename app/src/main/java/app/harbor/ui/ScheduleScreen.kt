@@ -582,7 +582,7 @@ private fun WeekEditor(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Flow(Modifier.pageContent(), gap = 14) {
+            Flow(Modifier.pageContent()) {
                 header(blocks)
 
                 Row(
@@ -1214,7 +1214,7 @@ private fun DayBoard(
                         modifier = Modifier
                             .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
                             .width(GUTTER)
-                            .padding(start = 8.dp, end = 6.dp),
+                            .padding(start = 8.dp, end = 8.dp),
                         textAlign = TextAlign.End,
                         maxLines = 1,
                         softWrap = false,
@@ -1399,7 +1399,7 @@ private fun DayBoard(
                                 RoundedCornerShape(30.dp),
                             )
                             .clickable(onClick = onCopyYesterday)
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
                     ) {
                         Text(
                             "Copy schedule\nfrom yesterday",
@@ -1646,7 +1646,7 @@ private fun DayStrip(
                             .clip(RoundedCornerShape(18.dp))
                             .background(if (chosen) skin.tile else Color.Transparent)
                             .clickable { onPick(date) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         val ink = when {
@@ -1708,7 +1708,7 @@ private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Uni
         Modifier
             .clip(RoundedCornerShape(99.dp))
             .border(1.dp, skin.line.copy(alpha = 0.7f), RoundedCornerShape(99.dp))
-            .padding(3.dp),
+            .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         WeekView.entries.forEach { option ->
@@ -1718,7 +1718,7 @@ private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Uni
                     .clip(RoundedCornerShape(99.dp))
                     .background(if (here) Gold else Color.Transparent)
                     .clickable { onPick(option) }
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text(
                     if (option == WeekView.Day) "Day" else "Week",
@@ -1743,7 +1743,7 @@ private fun StripArrow(back: Boolean, skin: WeekSkin, onClick: () -> Unit) {
         Modifier
             .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(6.dp),
+            .padding(8.dp),
     ) {
         Canvas(Modifier.size(width = 9.dp, height = 12.dp)) {
             drawPath(
@@ -1780,11 +1780,11 @@ private fun MonthGrid(
     val length = month.lengthOfMonth()
     val rows = (lead + length + 6) / 7
 
-    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Text(
             month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
                 " " + month.year,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.labelSmall.copy(
                 fontSize = 11.sp,
@@ -1847,7 +1847,7 @@ private fun GreyPill(label: String, enabled: Boolean, onClick: () -> Unit) = Box
         .clip(RoundedCornerShape(29.dp))
         .background(if (enabled) Gold else Sand)
         .clickable(enabled = enabled, onClick = onClick)
-        .padding(horizontal = 26.dp, vertical = 8.dp),
+        .padding(horizontal = 24.dp, vertical = 8.dp),
 ) {
     Text(
         label,
@@ -1952,7 +1952,7 @@ private fun WeekGrid(
                 )
             }
         }
-        Spacer(Modifier.size(6.dp))
+        Spacer(Modifier.size(8.dp))
 
         BoxWithConstraints(
             Modifier
@@ -2132,7 +2132,7 @@ private fun WeekGrid(
                     modifier = Modifier
                         .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
                         .width(GUTTER)
-                        .padding(start = 2.dp, end = 6.dp),
+                        .padding(start = 2.dp, end = 8.dp),
                     textAlign = TextAlign.End,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 9.sp,
@@ -2297,7 +2297,7 @@ private fun WeekGrid(
                     if (overBin) skin.ink else skin.line.copy(alpha = 0.5f),
                     RoundedCornerShape(12.dp),
                 )
-                .padding(vertical = 10.dp),
+                .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {

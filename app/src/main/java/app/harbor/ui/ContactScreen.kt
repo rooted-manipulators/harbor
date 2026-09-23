@@ -158,7 +158,7 @@ fun ContactScreen(
             // that gradient -- which is what made every screen read flat.
             .verticalScroll(rememberScrollState()),
     ) {
-        Box(Modifier.padding(horizontal = 28.dp)) {
+        Box(Modifier.padding(horizontal = 32.dp)) {
             PageIntro(
                 eyebrow = "The person, not the app",
                 title = "Who would you call?",
@@ -223,8 +223,7 @@ fun ContactScreen(
             Surface {
                 SectionHeading("Their sound")
                 SmallCopy(
-                    "Their real ringtone works best — it is the sound you already " +
-                        "associate with them. A song that reminds you of them works too.",
+                    "Their real ringtone works best. A song that reminds you of them works too.",
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Pill(
@@ -256,7 +255,7 @@ fun ContactScreen(
             Surface {
                 SectionHeading("Their colour")
                 SmallCopy("The ground their patch grows on.")
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Tone.entries.forEach { option ->
                         Box(
                             Modifier

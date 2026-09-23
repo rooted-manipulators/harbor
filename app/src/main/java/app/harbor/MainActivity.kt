@@ -1,5 +1,9 @@
 package app.harbor
 
+import app.harbor.ui.theme.Space
+import app.harbor.ui.theme.Motion
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.slideInVertically
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -392,11 +396,23 @@ class MainActivity : ComponentActivity() {
                         //
                         // Keyed on the screen, so a redraw within one screen
                         // does not replay it.
+                        val rise = with(LocalDensity.current) { Space.two.roundToPx() }
                         AnimatedContent(
                             targetState = screen,
+                            // Material's fade-through: the old screen goes
+                            // quickly, then the new one fades in and rises
+                            // the last 16dp into place. Rising, not sliding
+                            // sideways, for the reason above -- vertical
+                            // says "arrived", not "next".
                             transitionSpec = {
-                                val d = if (reduceMotion) 0 else 200
-                                fadeIn(tween(d)) togetherWith fadeOut(tween(d))
+                                if (reduceMotion) {
+                                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                                } else {
+                                    (
+                                        fadeIn(tween(Motion.ENTER, delayMillis = OUT_MS, easing = Motion.Emphasised)) +
+                                            slideInVertically(tween(Motion.ENTER, delayMillis = OUT_MS, easing = Motion.Emphasised)) { rise }
+                                        ) togetherWith fadeOut(tween(OUT_MS, easing = Motion.Standard))
+                                }
                             },
                             label = "screen",
                             // Not `showing` -- that name is already taken in
@@ -612,3 +628,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** How long the old screen takes to go before the new one starts to arrive. */
+private const val OUT_MS = 120

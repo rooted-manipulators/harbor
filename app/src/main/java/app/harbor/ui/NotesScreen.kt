@@ -144,7 +144,7 @@ fun NotesScreen(
             // that gradient -- which is what made every screen read flat.
             .verticalScroll(rememberScrollState()),
     ) {
-        Box(Modifier.padding(horizontal = 28.dp)) {
+        Box(Modifier.padding(horizontal = 32.dp)) {
             PageIntro(
                 eyebrow = "Small enough that nobody owes a reply",
                 title = "Send a petal.",

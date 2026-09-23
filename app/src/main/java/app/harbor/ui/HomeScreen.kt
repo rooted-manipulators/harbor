@@ -2,6 +2,8 @@ package app.harbor.ui
 
 import androidx.compose.foundation.Canvas
 import app.harbor.ui.theme.Space
+import app.harbor.ui.theme.emberFill
+import app.harbor.ui.theme.entrance
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -370,7 +372,7 @@ fun HomeScreen(
                 Column(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 24.dp, end = 24.dp, bottom = 26.dp),
+                        .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                 ) {
                     Text(
                         if (settings.name.isBlank()) "Hey there." else "Hey, ${settings.name}.",
@@ -383,7 +385,7 @@ fun HomeScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.size(5.dp))
+                    Spacer(Modifier.size(4.dp))
                     // The line under the greeting is the field's caption.
                     //
                     // With nothing planted it says so, because an empty field
@@ -455,7 +457,7 @@ fun HomeScreen(
                         // "I already did" is taken at its word and writes no
                         // call -- Harbor did not see one, so Harbor does not
                         // claim one.
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             QuietAction("I already did") { close(Reminders.Closed.SAID_SO) }
                             QuietAction("Let it go") { close(Reminders.Closed.LET_GO) }
                         }
@@ -515,7 +517,8 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxHeight()
-                                        .heightIn(min = AddTileMin),
+                                        .heightIn(min = AddTileMin)
+                                        .entrance(contacts.size),
                                 )
                                 return@forEach
                             }
@@ -542,7 +545,8 @@ fun HomeScreen(
                                 onCall = contact.phoneE164?.let {
                                     { Dialer.handOff(context, store, scope, contact) }
                                 },
-                                modifier = Modifier.weight(1f),
+                                // One after another, left to right and down.
+                                modifier = Modifier.weight(1f).entrance(contacts.indexOf(contact)),
                             )
                         }
                         if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -635,16 +639,16 @@ private fun PersonTile(
                     // action in the design. It was an 8dp rectangle in flat
                     // primary, which is what the light specimen asked for.
                     .clip(RoundedCornerShape(99.dp))
-                    .background(Brush.verticalGradient(listOf(EmberLight, Ember)))
+                    .emberFill()
                     .clickable(onClick = onCall)
-                    .padding(vertical = 11.dp),
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Canvas(Modifier.size(13.dp)) {
                     drawHandset(this, onInk)
                 }
-                Spacer(Modifier.size(7.dp))
+                Spacer(Modifier.size(8.dp))
                 Text(
                     "Call " + contact.label,
                     maxLines = 1,
@@ -660,7 +664,7 @@ private fun PersonTile(
         }
 
         usual?.let {
-            Spacer(Modifier.size(7.dp))
+            Spacer(Modifier.size(8.dp))
             Eyebrow("usually ${CallStats.formatDuration(it)}")
         }
     }
@@ -677,7 +681,7 @@ internal fun TextLink(text: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             // 15 + a 13sp line clears 48dp. Quiet is about weight and colour,
             // not about being hard to press.
-            .padding(vertical = 15.dp),
+            .padding(vertical = 16.dp),
         style = MaterialTheme.typography.labelLarge.copy(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -705,9 +709,9 @@ private fun SendAPetal(onClick: () -> Unit) {
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, CardEdge, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
             Modifier

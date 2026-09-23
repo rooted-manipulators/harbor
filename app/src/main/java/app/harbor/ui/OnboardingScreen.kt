@@ -1,5 +1,11 @@
 package app.harbor.ui
 
+import app.harbor.ui.theme.Motion
+import androidx.compose.runtime.State
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -214,11 +220,22 @@ fun OnboardingScreen(
     // Onboarding is not inside HarborShell -- it runs before there is a shell
     // -- so it has to draw the ground itself or it opens on flat near-black
     // and then the first real screen lights up behind the person's back.
+    val drift: State<Float>? = if (LocalReducedMotion.current) null else {
+        rememberInfiniteTransition(label = "dusk").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                tween(DUSK_DRIFT_MS, easing = Motion.Standard),
+                RepeatMode.Reverse,
+            ),
+            label = "drift",
+        )
+    }
     Box(
         modifier
             .fillMaxSize()
             .background(FlowGround)
-            .drawBehind { drawDusk() },
+            .drawBehind { drawDusk(drift?.value ?: 0.5f) },
     ) {
         when {
             needsCode == null -> Unit
@@ -342,7 +359,7 @@ private fun FlowPage(
             .fillMaxSize()
             .then(if (ground != null) Modifier.background(ground) else Modifier)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp),
+            .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(56.dp))
@@ -351,7 +368,7 @@ private fun FlowPage(
             Spacer(Modifier.height(40.dp))
         } else if (bloom) {
             PetalProgress(step = 5, modifier = Modifier.size(230.dp))
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(40.dp))
         }
         content()
         Spacer(Modifier.height(48.dp))
@@ -388,7 +405,7 @@ private fun FlowField(
             .height(40.dp)
             .clip(RoundedCornerShape(29.dp))
             .background(FieldGlass)
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicTextField(
@@ -456,7 +473,7 @@ private fun FlowPill(
         .clip(RoundedCornerShape(29.dp))
         .background(if (enabled) ActionFill else PillIdle)
         .clickable(enabled = enabled, onClick = onClick)
-        .padding(horizontal = 26.dp, vertical = 11.dp),
+        .padding(horizontal = 24.dp, vertical = 12.dp),
 ) {
     Text(
         label,
@@ -472,7 +489,7 @@ private fun FlowPill(
 private fun ComingSoon(label: String, note: String, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         FlowPill(label, enabled = false) {}
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Text(note, style = MaterialTheme.typography.labelSmall.copy(color = PillInk))
     }
 }
@@ -564,13 +581,13 @@ private fun StudyCodeGate(
     FlowPage {
         Spacer(Modifier.height(40.dp))
         Question("Enter your code", size = 21)
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
         Question("The person setting this up has it", size = 15)
-        Spacer(Modifier.height(30.dp))
+        Spacer(Modifier.height(32.dp))
 
         FlowField(code, "code") { code = it.take(12) }
 
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(32.dp))
         FlowPill("Continue") {
             scope.launch {
                 store.claimCode(code)
@@ -592,9 +609,9 @@ private fun StudyCodeGate(
 @Composable
 private fun Welcome(onNext: () -> Unit) = FlowPage(bloom = true) {
     Question("Let’s build our first Flower together", size = 22)
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(16.dp))
     Question("Answer the questions\nto add petals", size = 18)
-    Spacer(Modifier.height(28.dp))
+    Spacer(Modifier.height(32.dp))
     FlowPill("Continue", onClick = onNext)
 }
 
@@ -702,9 +719,9 @@ private fun WhoToCall(
 
     FlowPage(petal = 1) {
         Question("Who would you like to call more often?")
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
         Question("You can add more people later", size = 17)
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(24.dp))
 
         FlowPill("search your contacts") {
             search.launch(
@@ -713,7 +730,7 @@ private fun WhoToCall(
         }
         Spacer(Modifier.height(8.dp))
         FlowNote("Harbor only ever sees the one person you tap.")
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(24.dp))
 
         // Name to number to done, so the keyboard is never in the way of
         // the thing you press next.
@@ -736,7 +753,7 @@ private fun WhoToCall(
             onAction = ::submit,
         ) { number = it.take(20) }
 
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(40.dp))
         FlowNext(
             enabled = name.isNotBlank() && number.isNotBlank(),
             onClick = ::submit,
@@ -785,7 +802,7 @@ private fun TheirSound(
 
     FlowPage(petal = 2) {
         Question("What sound do you associate\nwith this person?")
-        Spacer(Modifier.height(30.dp))
+        Spacer(Modifier.height(32.dp))
 
         // Spotify is not built and cannot be faked. It needs a registered
         // app, an OAuth round trip and a network call before it can return a
@@ -807,7 +824,7 @@ private fun TheirSound(
                 },
             )
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         FlowNote("Leave it, and Harbor rings with your phone's own ringtone instead.")
 
         Spacer(Modifier.height(40.dp))
@@ -867,14 +884,14 @@ private fun TheirPicture(
             } else {
                 Avatar(who.label, who.tone, size = AvatarSize.XL)
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             Question(who.label, size = 19)
         }
-        Spacer(Modifier.height(30.dp))
+        Spacer(Modifier.height(32.dp))
         FlowPill(if (who?.photoRef == null) "Add a picture" else "Change the picture") {
             pickPhoto.launch("image/*")
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         // One line, true either way.
         //
         // This used to promise that their contact photo came across by itself
@@ -925,11 +942,11 @@ private fun WhenFree(
 
     FlowPage(petal = 3) {
         Question("When should Harbor catch you?")
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         // Both, now that there are two. The old line said "pick the moment",
         // which was true when only one of them worked.
         Question("Either, or both", size = 16)
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(24.dp))
 
         Row(
             Modifier
@@ -937,7 +954,7 @@ private fun WhenFree(
                 .clip(RoundedCornerShape(20.dp))
                 .background(SelectedCard)
                 .border(1.dp, SelectedEdge, RoundedCornerShape(20.dp))
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -962,7 +979,7 @@ private fun WhenFree(
             ) { Question("✓", size = 15) }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(16.dp))
         Column(
             Modifier
                 .fillMaxWidth()
@@ -983,7 +1000,7 @@ private fun WhenFree(
                 Modifier
                     .fillMaxWidth()
                     .clickable { setScrolling(!scrolling) }
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -1035,7 +1052,7 @@ private fun WhenFree(
             // that they never agreed. The *detail* goes behind the link. The
             // sentence does not.
             if (scrolling) {
-                Column(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 4.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp)) {
                     Text(
                         "Harbor will see which app is in front and for how long. " +
                             "Not what is on the screen, and nothing leaves the phone.",
@@ -1261,9 +1278,9 @@ private fun AskPermission(
 
     FlowPage {
         Question("May Harbor notice when\nyou stop walking?")
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         Question("This is the part that makes a reminder arrive on its own.", size = 16)
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(24.dp))
 
         Surface {
             SectionHeading("What you keep control of")
@@ -1311,26 +1328,21 @@ private fun AskPermission(
                 onUp = { gap(store, scope, settings, +15) },
             )
             SmallCopy(
-                "Suggestions, not rules — move them now or later. You already " +
-                    "agreed nothing about this leaves your phone; this is just " +
-                    "how often it asks.",
+                "Suggestions, not rules. Change them any time.",
             )
         }
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(24.dp))
 
         when {
             Sensing.isActive(context, store) -> {
                 Notice("Reminders are on. Harbor will wait for a real walk.")
                 if (!wouldReach) {
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(16.dp))
                     Surface {
                         SectionHeading("A reminder would not reach you yet")
                         if (!canStayAwake) {
                             SmallCopy(
-                                "Your phone can put Harbor to sleep to save " +
-                                    "battery. Asleep, it never hears that your walk " +
-                                    "ended — the reminder is not late, it never " +
-                                    "happens. This is the one that matters most.",
+                                "Battery saving can put Harbor to sleep, and then no reminder comes. This one matters most.",
                                 size = 14,
                             )
                             FlowPill("Let Harbor keep listening") {
@@ -1339,9 +1351,7 @@ private fun AskPermission(
                         }
                         if (!canNotify) {
                             SmallCopy(
-                                "Notifications are off for Harbor. A reminder is " +
-                                    "posted as one, so with these off it is thrown " +
-                                    "away the moment it is made and nothing appears.",
+                                "Notifications are off, so no reminder can appear.",
                                 size = 14,
                             )
                             FlowPill("Allow notifications") {
@@ -1356,10 +1366,7 @@ private fun AskPermission(
                         }
                         if (settings.scrollCues && !canSeeApps) {
                             SmallCopy(
-                                "You asked to be caught after a long stretch in one app. Android keeps " +
-                                    "that behind a switch of its own, and until it is on " +
-                                    "Harbor cannot tell which app is in front \u2014 so that " +
-                                    "half of what you chose would quietly never happen.",
+                                "You asked for reminders after long scrolling. That needs this switch.",
                                 size = 14,
                             )
                             ScrollWatch.request(context)?.let { intent ->
@@ -1370,10 +1377,7 @@ private fun AskPermission(
                         }
                         if (settings.scrollCues && !canOpenOver) {
                             SmallCopy(
-                                "A reminder while you are scrolling arrives as a banner over the " +
-                                    "feed, which is the easiest thing in the world to flick " +
-                                    "away without reading. Let it open properly and it " +
-                                    "takes the screen instead.",
+                                "Without this, a scrolling reminder is a banner that's easy to flick away.",
                                 size = 14,
                             )
                             FlowPill("Let a reminder open over an app") {
@@ -1384,10 +1388,7 @@ private fun AskPermission(
                         }
                         if (!canTakeScreen) {
                             SmallCopy(
-                                "Android only lets an app take over the screen if " +
-                                    "you allow it by hand. Without it a reminder " +
-                                    "arrives as a banner that fades on its own, so " +
-                                    "in your pocket you would miss it.",
+                                "Without this, a reminder is a small banner that is easy to miss.",
                                 size = 14,
                             )
                             CueNotifier.fullScreenSettings(context)?.let { intent ->
@@ -1398,33 +1399,28 @@ private fun AskPermission(
                         }
                     }
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
                 FlowPill("Continue", onClick = onNext)
             }
 
             refused -> {
                 SmallCopy(
-                    "That is completely fine. Reminders stay off and nothing " +
-                        "else changes — you can still start a moment yourself, and " +
-                        "turn these on later under Account. Android may not ask " +
-                        "again, so from here it would have to be system settings.",
+                    "That's fine. Reminders stay off and nothing else changes. Turn them on later under Account.",
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 TextLink("I have granted it — check again", onClick = {
                     granted = ActivityTransitions.hasPermission(context)
                     if (granted) ask()
                 })
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 FlowPill("Continue without reminders", onClick = onNext)
             }
 
             failed -> {
                 SmallCopy(
-                    "Harbor could not start listening. Google Play services may " +
-                        "be unavailable on this phone. Reminders stay off rather than " +
-                        "pretending to work.",
+                    "Harbor couldn't start listening. Google Play services may be missing. Reminders stay off.",
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 FlowPill("Continue", onClick = onNext)
             }
 
@@ -1455,7 +1451,7 @@ private fun TermsPopup(
     onAgree: () -> Unit,
 ) = FlowPage(ground = TermsGround) {
     Question("A few things, once", size = 20)
-    Spacer(Modifier.height(22.dp))
+    Spacer(Modifier.height(24.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionHeading("What Harbor reads")
@@ -1495,7 +1491,7 @@ private fun TermsPopup(
         )
     }
 
-    Spacer(Modifier.height(30.dp))
+    Spacer(Modifier.height(32.dp))
     FlowPill("Agree", onClick = onAgree)
 }
 
@@ -1593,12 +1589,12 @@ private fun AlmostComplete(store: HarborRepository, onNext: () -> Unit) {
 
     FlowPage(petal = 4) {
         Question("Our flower is almost complete")
-        Spacer(Modifier.height(34.dp))
+        Spacer(Modifier.height(32.dp))
         if (who != null) {
             FlowPill("show me a reminder") {
                 scope.launch { showCue.launch(manualCueIntent(context, store, who, skipPulse = true)) }
             }
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(24.dp))
         }
         EmphasisLink("I have already seen a reminder", onNext)
     }
@@ -1644,9 +1640,11 @@ private fun GoodJob(onNext: () -> Unit) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             PetalProgress(step = 5, modifier = Modifier.size(230.dp))
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(40.dp))
             Question("Good job!", size = 22)
         }
     }
 }
 
+/** Half a breath of the onboarding sky: out over this long, and back. */
+private const val DUSK_DRIFT_MS = 24_000
