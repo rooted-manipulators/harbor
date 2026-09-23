@@ -131,29 +131,43 @@ object Field {
      * wide enough to fill the view -- the one framing that could otherwise put
      * tens of thousands of blades in a single frame.
      */
+    const val GRASS_BUDGET = 1400
+
     /**
-     * How far a ground cell's wash reaches, as a fraction of the cell step.
+     * How far a ground cell's surface reaches, as a fraction of the cell step.
      *
-     * **This is the fix for the void.** The ground is drawn as one dot per
-     * cell, and a dot is about two and a half pixels where the cells are
-     * fifteen apart — so the ground covered roughly a tenth of its own area
-     * and the other nine tenths were the page showing through. Zoomed out that
-     * did not read as a meadow made of dots. It read as black with specks on
-     * it, which is what it kept being called.
+     * The ground is one dot per cell, and a dot is a couple of pixels where the
+     * cells are fifteen apart -- so on its own the meadow covered about a tenth
+     * of its area and the page showed through the rest. Each land cell now also
+     * lays a disc a little wider than the gap to its neighbour. Above 0.71 the
+     * discs meet on the diagonal, which is what closes the last holes.
      *
-     * So each ground cell now also lays down a soft disc a little wider than
-     * the gap to its neighbour, all of them into one path, filled once
-     * underneath the dots. Overlapping circles in a single path fill evenly
-     * rather than stacking, so the result is a continuous surface in the
-     * cell's own colour with the crisp dot still on top of it as texture.
-     *
-     * Made of the cells rather than drawn as a rectangle on purpose: the
-     * island keeps its silhouette, the water keeps its edge, and ground the
-     * camera cannot see costs nothing.
-     *
-     * Above 0.71 the discs are guaranteed to meet on the diagonal, which is
-     * what closes the last gaps.
+     * Every land kind lays one, not only plain ground. The first version left
+     * flowers, tilled rows and rock out, which put holes in the ground exactly
+     * where the patches are -- the one part of the field anybody looks at.
      */
+    const val GROUND_WASH = 0.78
+
+    /**
+     * The colour of that surface on land: a step below the darkest grass.
+     *
+     * **This is what makes the dots readable.** The first version filled each
+     * disc in the same colour as the dot sitting on it, at nearly the same
+     * alpha, so every dot sat on itself and disappeared into a flat green
+     * sheet. That was the "ground overpowering the dots" -- the ground was not
+     * too bright, it was the *same* as the dots. One darker, quieter tone
+     * underneath turns every dot into a highlight on it, which is what reads
+     * as texture.
+     *
+     * Opaque on purpose. Overlapping discs of an opaque colour do not stack,
+     * so they can be drawn as plain circles instead of unioned into a path,
+     * and path union over tens of thousands of circles was the expensive part.
+     */
+    const val GROUND_LAND = 0xFF4B7439
+
+    /** The same for water: a step below the lighter of the two water tones. */
+    const val GROUND_WATER = 0xFF84B4C6
+
     /**
      * How long a flower takes to open once it has been planted, in seconds.
      *
@@ -188,18 +202,6 @@ object Field {
         return eased + swell
     }
 
-    const val GROUND_WASH = 0.78
-
-    /**
-     * How solid that surface is.
-     *
-     * Under the dots rather than instead of them: leave a little of the ground
-     * showing and the field keeps the depth the dots were giving it. Flat at
-     * 1.0 the meadow turns into a sheet of paper.
-     */
-    const val GROUND_WASH_ALPHA = 0.88f
-
-    const val GRASS_BUDGET = 1400
 
     /**
      * How far the view has to have tipped before ground grows blades.

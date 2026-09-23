@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
@@ -484,14 +485,28 @@ fun FieldCanvas(
     //
     // Held at nought for anybody who asked for less movement: a field that
     // will not keep still is exactly what that setting is for.
-    val breeze = rememberInfiniteTransition(label = "wind")
-    val blowing by breeze.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
-        label = "gust",
-    )
-    val wind = if (settings.reducedMotion) 0f else blowing
+    //
+    // Two things about *how* it runs matter more than what it looks like.
+    //
+    // It is not started at all for reduced motion. The first version started
+    // it and then ignored it, and an infinite transition that is running is
+    // still a frame being scheduled sixty times a second whether or not the
+    // number is used.
+    //
+    // And it is read in the draw pass, not in composition -- see [windNow]
+    // inside the Canvas. Read here, as it was, the whole of FieldCanvas
+    // recomposed every frame for ever, including on the overview where no
+    // blade of grass is drawn for it to move. Read in the draw pass, only the
+    // canvas redraws; and because the draw pass only reads it when grass is
+    // actually standing, a zoomed-out field stops asking for frames entirely.
+    val blowing: State<Float>? = if (reducedMotion) null else {
+        rememberInfiniteTransition(label = "wind").animateFloat(
+            initialValue = 0f,
+            targetValue = (2 * Math.PI).toFloat(),
+            animationSpec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
+            label = "gust",
+        )
+    }
 
     // The newest flower opening.
     //
@@ -499,19 +514,23 @@ fun FieldCanvas(
     // keeps the gesture somewhere it can be argued about in a test rather than
     // on a phone. Restarted whenever the newest flower changes, so arriving at
     // the garden with a call already in it does not replay an old one.
-    val opening = remember { Animatable(1f) }
-    LaunchedEffect(newest, reducedMotion) {
-        if (newest == null || reducedMotion) {
-            opening.snapTo(1f)
-            return@LaunchedEffect
-        }
-        opening.snapTo(0f)
+    //
+    // Only when a flower is *arriving* -- the caller's own word for "one was
+    // planted just now". Keyed on the newest cell alone, the first version
+    // replayed a week-old flower on every visit, because `newest` starts null
+    // while the cells build and then changes. And created at nought when it is
+    // going to animate, rather than snapped there from one inside an effect:
+    // an effect runs after the frame, so the flower used to draw full size for
+    // one frame, vanish, and then grow.
+    val opens = arriving && !reducedMotion && newest != null
+    val opening = remember(newest, opens) { Animatable(if (opens) 0f else 1f) }
+    LaunchedEffect(opening) {
+        if (opening.value >= 1f) return@LaunchedEffect
         opening.animateTo(
             1f,
             tween((Field.BLOOM_SECONDS * 1000).toInt(), easing = LinearEasing),
         )
     }
-    val bloom = Field.bloomOpen(opening.value * Field.BLOOM_SECONDS).toFloat()
 
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
@@ -614,10 +633,19 @@ fun FieldCanvas(
                 stirring.headingY += (stepY / step - stirring.headingY) * 0.25
             }
             val stir = if (reducedMotion) 0.0 else Field.stirAmount(stirring.speed)
+            // Wind only where it has grass to move. Not reading the state on
+            // the overview is what lets a still field stop drawing.
+            // Same tilt the lens will use, floor included -- asking tiltFor
+            // alone would call the field flat while the floor had tipped it
+            // up, and the grass would stand there without moving.
+            val floor = flatten.floorAt(cam.zoom)
+            val grassy = maxOf(Field.tiltFor(cam.zoom, base), floor) > Field.GRASS_TILT
+            val windNow = if (grassy) blowing?.value ?: 0f else 0f
+            val bloom = Field.bloomOpen(opening.value * Field.BLOOM_SECONDS).toFloat()
             drawField(
                 built, patches, palette, cam, base, kit, tagInk, newest, art,
-                stir, stirring.headingX, stirring.headingY, flatten.floorAt(cam.zoom),
-                wind, bloom,
+                stir, stirring.headingX, stirring.headingY, floor,
+                windNow, bloom,
             )
         }
 
@@ -783,12 +811,30 @@ private class DrawKit(buckets: Int) {
     val paths = Array(buckets) { NativePath() }
 
     /**
-     * The continuous surface the dots sit on, one path per colour bucket.
+     * The surface the dots sit on, as discs: x, y, radius, water flag.
      *
-     * See [Field.GROUND_WASH]. Filled before [paths] and in the same colours,
-     * which is what turned the field from specks on black into a meadow.
+     * A flat buffer rather than a path. The discs are opaque, and opaque
+     * circles that overlap do not stack, so they can go straight to the canvas
+     * one by one -- which is cheap -- instead of being unioned into one shape,
+     * which is not. See [Field.GROUND_LAND].
      */
-    val ground = Array(buckets) { NativePath() }
+    var wash = FloatArray(4 * 4096)
+    var washN = 0
+
+    fun addWash(x: Float, y: Float, r: Float, water: Boolean) {
+        if (washN + 4 > wash.size) wash = wash.copyOf(wash.size * 2)
+        wash[washN] = x
+        wash[washN + 1] = y
+        wash[washN + 2] = r
+        wash[washN + 3] = if (water) 1f else 0f
+        washN += 4
+    }
+
+    val landWash = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Field.GROUND_LAND.toInt() }
+    val waterWash = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Field.GROUND_WATER.toInt() }
+
+    /** Rock, collected so it can go down after the ground rather than under it. */
+    val rocks = NativePath()
     val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     // Rock and the patch outlines went up with the ground under them. Both
     // were pitched against a land that has since been lifted off the page,
@@ -965,7 +1011,8 @@ private fun DrawScope.drawField(
     val p = kit.point
 
     for (path in kit.paths) path.rewind()
-    for (path in kit.ground) path.rewind()
+    kit.washN = 0
+    kit.rocks.rewind()
     kit.stem.rewind()
 
     // Flowers and rock are drawn after the bulk, so they sit on top of it.
@@ -1020,6 +1067,16 @@ private fun DrawScope.drawField(
             }
         }
 
+        // The ground under this cell, whatever grows on it. Sized off the cell
+        // step rather than the dot, because what has to close is the gap to the
+        // next cell and the dot knows nothing about that.
+        val reach = (Terrain.CELL * p.s * Field.GROUND_WASH).toFloat()
+        if (reach > 0.6f) {
+            val water = c.kind == Field.Kind.DOT &&
+                c.paint >= Field.VEG.size && c.paint < Field.VEG.size + Field.WATER.size
+            kit.addWash(p.x.toFloat(), p.y.toFloat(), reach, water)
+        }
+
         when (c.kind) {
             Field.Kind.CROSS -> {
                 if (r > 0.5) {
@@ -1034,10 +1091,10 @@ private fun DrawScope.drawField(
 
             Field.Kind.SQUARE -> {
                 val s = (r * 1.6).toFloat()
-                canvas.drawRect(
+                kit.rocks.addRect(
                     (p.x - s / 2).toFloat(), (p.y - s / 2).toFloat(),
                     (p.x + s / 2).toFloat(), (p.y + s / 2).toFloat(),
-                    kit.rock,
+                    NativePath.Direction.CW,
                 )
             }
 
@@ -1052,7 +1109,9 @@ private fun DrawScope.drawField(
                 // grows into its place over about a second and a third, with
                 // one small overshoot. Identity and not equality, the same as
                 // the mark below and for the same reason.
-                if (c === mark && bloom < 1f) r *= bloom
+                // `!=` and not `<`: the curve overshoots past one on purpose,
+                // and `< 1f` threw the overshoot away and drew a flat stop.
+                if (c === mark && bloom != 1f) r *= bloom
                 if (r > Field.FLOWER_AT) {
                     blooms += floatArrayOf(
                         p.x.toFloat(), p.y.toFloat(), r.toFloat(),
@@ -1071,15 +1130,6 @@ private fun DrawScope.drawField(
 
             Field.Kind.DOT -> {
                 if (r < 0.75) r = 0.75
-                // The surface, before the speck. Sized off the cell step
-                // rather than off the dot, because what has to close is the
-                // gap to the next cell and the dot knows nothing about that.
-                val reach = (Terrain.CELL * p.s * Field.GROUND_WASH).toFloat()
-                if (reach > 0.6f) {
-                    kit.ground[c.paint].addCircle(
-                        p.x.toFloat(), p.y.toFloat(), reach, NativePath.Direction.CW,
-                    )
-                }
                 // Close enough in, and only on ground the view is actually
                 // looking at, a tuft grows the grass it stands for. The dot
                 // stays underneath as the root of the clump, shrinking as the
@@ -1097,6 +1147,7 @@ private fun DrawScope.drawField(
                     addTuft(
                         kit, c.paint, c.tone, p.x.toFloat(), p.y.toFloat(),
                         r.toFloat(), g, stand.toFloat(), wind,
+                        c.x.toFloat(), c.y.toFloat(),
                     )
                     r *= 1.0 - 0.35 * g * stand
                 }
@@ -1106,13 +1157,19 @@ private fun DrawScope.drawField(
     }
     }
 
-    for (bucket in kit.ground.indices) {
-        if (kit.ground[bucket].isEmpty) continue
-        kit.fill.color = palette[bucket].toInt()
-        kit.fill.alpha =
-            (Field.alphaFor(bucket) * Field.GROUND_WASH_ALPHA * 255).toInt()
-        canvas.drawPath(kit.ground[bucket], kit.fill)
+    // Ground first -- land, then water over it so the shore stays crisp --
+    // then rock on the ground, then the dots on everything.
+    for (pass in 0..1) {
+        val paint = if (pass == 0) kit.landWash else kit.waterWash
+        var i = 0
+        while (i < kit.washN) {
+            if ((kit.wash[i + 3] == 1f) == (pass == 1)) {
+                canvas.drawCircle(kit.wash[i], kit.wash[i + 1], kit.wash[i + 2], paint)
+            }
+            i += 4
+        }
     }
+    if (!kit.rocks.isEmpty) canvas.drawPath(kit.rocks, kit.rock)
 
     for (bucket in kit.paths.indices) {
         if (kit.paths[bucket].isEmpty) continue
@@ -1213,6 +1270,9 @@ private fun addTuft(
     stand: Float,
     /** The wind's phase, in radians. See the gust below. */
     wind: Float,
+    /** Where the clump stands on the field, in field units, for the gust's phase. */
+    fieldX: Float,
+    fieldY: Float,
 ) {
     val blades = 4 + (tone * 3).toInt()
     val reach = r * (1f + 2.2f * grown) * stand
@@ -1224,7 +1284,14 @@ private fun addTuft(
     // sheet rather than shivering in place. Fed through the blade height, so a
     // long blade bends further than a short one — which is the difference
     // between grass in wind and grass being translated sideways.
-    val gust = sin((wind + (x + y) * 0.0065f).toDouble()).toFloat()
+    //
+    // Field units, not screen pixels. Phased by where the clump is on the
+    // *screen*, as it first was, panning swept each clump through the wave
+    // about twelve times faster than the wind itself blew -- every tuft
+    // whipped while you dragged, and the gusts stayed stuck to the glass
+    // instead of the ground. A wavelength of about four hundred field units
+    // is a gust a few patches wide.
+    val gust = sin(wind + (fieldX + fieldY) * 0.015f)
     // One step up the vegetation ladder is the lighter green. A blade or two
     // in it catches the light and gives the clump some depth, and because it
     // is a bucket that is already being filled it is free.

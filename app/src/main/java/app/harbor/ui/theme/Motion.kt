@@ -6,6 +6,7 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -18,6 +19,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 
 /**
  * How Harbor moves.
@@ -39,20 +42,22 @@ object Motion {
 
     // --- durations ---------------------------------------------------------
     //
-    // Material's scale, trimmed to four. Anything under 100ms is not seen as
-    // motion, anything over 400 is seen as waiting.
+    // Material's scale, trimmed to four, and pitched at its slow end on
+    // purpose: the first pass sat at 120-420 and read as nothing happening,
+    // which is the one thing motion in this app is not allowed to be. Past
+    // about 600 a transition starts to feel like waiting, so SLOW stops short.
 
     /** A press answering: a chip filling, a tick lighting. */
-    const val FAST = 120
+    const val FAST = 180
 
     /** The default. A row opening, a label swapping, a colour moving. */
-    const val NORMAL = 220
+    const val NORMAL = 320
 
     /** Something arriving on screen for the first time. */
-    const val ENTER = 300
+    const val ENTER = 420
 
     /** A whole surface changing: a screen, the dial coming up. */
-    const val SLOW = 420
+    const val SLOW = 560
 
     // --- easings -----------------------------------------------------------
 
@@ -92,16 +97,27 @@ object Motion {
      * The one place Harbor is allowed to bounce. A bounce says "that was a
      * thing you did"; on anything that was not touched it says "look at me".
      */
-    fun <T> bouncy(): FiniteAnimationSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioMediumBouncy,
-        stiffness = Spring.StiffnessMedium,
-    )
+    @Composable
+    @ReadOnlyComposable
+    fun <T> bouncy(): FiniteAnimationSpec<T> =
+        if (LocalReducedMotion.current) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow,
+        )
 
     /** A settle with no overshoot, for something being dragged or resized. */
-    fun <T> settling(): FiniteAnimationSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessMediumLow,
-    )
+    @Composable
+    @ReadOnlyComposable
+    fun <T> settling(): FiniteAnimationSpec<T> =
+        if (LocalReducedMotion.current) snap() else spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        )
+
+    // The two springs used to be plain functions, and a spring cannot be
+    // shortened to zero -- so they went on bouncing for exactly the people who
+    // had asked for nothing to bounce, while the doc above promised otherwise.
+    // They snap now.
 
     /** Nought when somebody has asked the app to be still. */
     @Composable
@@ -113,8 +129,12 @@ object Motion {
 
 /** Fade, and rise a little. What a card does when it arrives. */
 @Composable
-fun risesIn(from: Int = 12): EnterTransition =
-    fadeIn(Motion.arriving()) + slideInVertically(Motion.arriving()) { from }
+fun risesIn(from: Dp = Space.two): EnterTransition {
+    // A distance in dp, not the raw pixels it used to take: twelve pixels is
+    // a visible rise on one phone and a flicker on a denser one.
+    val px = with(LocalDensity.current) { from.roundToPx() }
+    return fadeIn(Motion.arriving()) + slideInVertically(Motion.arriving()) { px }
+}
 
 /** Its opposite, quicker, because leaving should not be dwelt on. */
 @Composable
