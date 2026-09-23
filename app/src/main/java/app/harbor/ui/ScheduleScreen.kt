@@ -1,5 +1,6 @@
 package app.harbor.ui
 
+import app.harbor.domain.TourStop
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -500,6 +501,22 @@ private fun WeekEditor(
     // their schedule wants to see, and the day is one tap in.
     var view by remember { mutableStateOf(WeekView.Week) }
 
+    // The tour turns to whichever view holds what it is about to point at:
+    // quiet hours live on the day, everything else it shows is on the week.
+    // Outside a tour this reads null and does nothing.
+    val touringAt = LocalTourStop.current
+    LaunchedEffect(touringAt) {
+        when (touringAt) {
+            TourStop.SCHEDULE_QUIET -> view = WeekView.Day
+            TourStop.SCHEDULE_VIEWS,
+            TourStop.SCHEDULE_PALETTE,
+            TourStop.SCHEDULE_COPY,
+            TourStop.SCHEDULE_CALENDAR,
+            -> view = WeekView.Week
+            else -> Unit
+        }
+    }
+
     val blocks = draft ?: saved
 
     // The last one-tap change and what the week was before it, for the undo
@@ -587,7 +604,7 @@ private fun WeekEditor(
                 header(blocks)
 
                 Row(
-                    Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth().tourAnchor(TourStop.SCHEDULE_PALETTE),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PaletteChip(
@@ -634,10 +651,14 @@ private fun WeekEditor(
                 // job is the next day and the one before it. The dates on the
                 // strip say the same thing in the place you are already
                 // reading.
-                ViewSwitch(view, skin) { view = it }
+                ViewSwitch(view, skin, Modifier.tourAnchor(TourStop.SCHEDULE_VIEWS)) { view = it }
 
                 if (view == WeekView.Day) {
-                    QuietRow(Windows.quietPeriod(blocks), skin) { from, to ->
+                    QuietRow(
+                        Windows.quietPeriod(blocks),
+                        skin,
+                        Modifier.tourAnchor(TourStop.SCHEDULE_QUIET),
+                    ) { from, to ->
                         selected = null
                         commit(Windows.setQuiet(blocks, from, to), why = "quiet")
                     }
@@ -683,13 +704,13 @@ private fun WeekEditor(
                         ToolPill(
                             "${dayName(showing.dayOfWeek)} → ${dayName(showing.dayOfWeek.plus(1))}",
                             skin,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).tourAnchor(TourStop.SCHEDULE_COPY),
                             icon = { CopyMark(skin.ink) },
                         ) { copyOn(showing.dayOfWeek) }
                         ToolPill(
                             "From calendar",
                             skin,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).tourAnchor(TourStop.SCHEDULE_CALENDAR),
                             icon = { CalendarMark(skin.ink) },
                         ) { pullFromCalendar() }
                     }
@@ -1721,9 +1742,14 @@ private enum class WeekView { Day, Week }
  * a control rather than as another card on a screen that already has several.
  */
 @Composable
-private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Unit) {
+private fun ViewSwitch(
+    view: WeekView,
+    skin: WeekSkin,
+    modifier: Modifier = Modifier,
+    onPick: (WeekView) -> Unit,
+) {
     Row(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(99.dp))
             .border(1.dp, skin.line.copy(alpha = 0.7f), RoundedCornerShape(99.dp))
             .padding(4.dp),

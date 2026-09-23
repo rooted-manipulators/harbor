@@ -938,13 +938,30 @@ card that speaks never dims or blocks what it is standing in front of.
 
 ### Rejected
 
-- **A precise spotlight with a cutout round each control.** Would need a
-  cross-screen registry of every anchor's position in root coordinates,
-  recomputed on every layout change, for five screens that were not built
-  with that in mind. The floating card narrates what is already visible
-  instead of pointing at a pixel, which is enough for one sentence.
+- ~~**A precise spotlight with a cutout round each control.**~~ Built after
+  all, on 2026-09-23 -- see the amendment below.
 - **Skipping the person stops when nobody has been added.** Cannot happen in
   practice -- `WhoToCall` is not skippable in onboarding -- but
   `Walkthrough.stops` still guards on it rather than assuming, so a contact
   deleted before the tour runs drops those stops instead of opening a page
   with nothing on it.
+
+### Amended 2026-09-23: a spotlight, not a card
+
+The floating card was too easy to read past -- a strip at the foot of a
+screen that looked like one more thing on it. The tour is now a spotlight:
+the app under a dark veil, the one thing being talked about cut out of it
+and ringed, the bee large in a corner, and what it says in a speech bubble
+beside the lit thing. A tap anywhere finishes the sentence, a second moves
+on; `Skip` is still on every stop.
+
+That needed the registry this ADR had rejected, so it is built to cost
+nothing when no tour is running: `Modifier.tourAnchor` writes each tagged
+element's bounds into a plain map (not snapshot state) on placement, and only
+the overlay, while it is up, polls that map once a frame. Tagged elements
+scroll themselves into view when the tour reaches them. The schedule turns
+itself to the day view for quiet hours and back to the week for the rest,
+which is why those stops now run week-first.
+
+The veil takes every touch while the bee is talking. Nothing underneath is
+live mid-tour; back, `Skip` and the last stop all end it.

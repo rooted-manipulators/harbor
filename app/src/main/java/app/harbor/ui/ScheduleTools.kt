@@ -185,6 +185,7 @@ private fun MoonMark(tint: Color) = Canvas(Modifier.size(Space.two + Space.half)
 internal fun QuietRow(
     period: Pair<LocalTime, LocalTime>?,
     skin: WeekSkin,
+    modifier: Modifier = Modifier,
     onChange: (LocalTime?, LocalTime?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -198,7 +199,7 @@ internal fun QuietRow(
     }
 
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Space.two))
             .background(skin.card)

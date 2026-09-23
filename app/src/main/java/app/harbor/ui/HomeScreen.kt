@@ -1,5 +1,6 @@
 package app.harbor.ui
 
+import app.harbor.domain.TourStop
 import androidx.compose.foundation.Canvas
 import app.harbor.ui.theme.Space
 import app.harbor.ui.theme.emberFill
@@ -241,7 +242,8 @@ fun HomeScreen(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(fieldHeight),
+                    .height(fieldHeight)
+                    .tourAnchor(TourStop.WELCOME),
             ) {
                 FieldCanvas(
                     store,
@@ -518,7 +520,8 @@ fun HomeScreen(
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .heightIn(min = AddTileMin)
-                                        .entrance(contacts.size),
+                                        .entrance(contacts.size)
+                                        .tourAnchor(TourStop.HOME_ADD),
                                 )
                                 return@forEach
                             }
@@ -546,7 +549,18 @@ fun HomeScreen(
                                     { Dialer.handOff(context, store, scope, contact) }
                                 },
                                 // One after another, left to right and down.
-                                modifier = Modifier.weight(1f).entrance(contacts.indexOf(contact)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .entrance(contacts.indexOf(contact))
+                                    // The first person is the one the tour
+                                    // introduces; the rest are the same shape.
+                                    .then(
+                                        if (contact == contacts.firstOrNull()) {
+                                            Modifier.tourAnchor(TourStop.HOME_PEOPLE)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
                             )
                         }
                         if (row.size == 1) Spacer(Modifier.weight(1f))

@@ -1,5 +1,6 @@
 package app.harbor.ui
 
+import app.harbor.domain.TourStop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -246,7 +247,11 @@ fun SettingsScreen(
             // A row with a mark on the end is the least that says "this goes
             // somewhere".
             Destination("When you are busy", onEditSchedule)
-            Destination("Set up a daily reminder", onOpenCues)
+            Destination(
+                "Set up a daily reminder",
+                onOpenCues,
+                modifier = Modifier.tourAnchor(TourStop.ACCOUNT_REMINDERS),
+            )
             // The tour offers itself once, unasked, right after onboarding
             // (ADR-016) and is skippable at every stop -- this is the only
             // other way back into it, for whoever skipped it, or wants the
@@ -294,8 +299,13 @@ fun SettingsScreen(
  * enough to read as a list of doors.
  */
 @Composable
-private fun Destination(label: String, onClick: () -> Unit, note: String? = null) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun Destination(
+    label: String,
+    onClick: () -> Unit,
+    note: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,

@@ -38,9 +38,9 @@ enum class TourStop {
     PERSON_PLANT,
     SCHEDULE_VIEWS,
     SCHEDULE_PALETTE,
-    SCHEDULE_QUIET,
     SCHEDULE_COPY,
     SCHEDULE_CALENDAR,
+    SCHEDULE_QUIET,
     ACCOUNT_REMINDERS,
     ACCOUNT_DONE,
 }
@@ -71,11 +71,13 @@ object Walkthrough {
             add(TourStop.PERSON_DIAL)
             add(TourStop.PERSON_PLANT)
         }
+        // Everything on the week first, then the one thing that lives on the
+        // day -- so the schedule turns over once rather than back and forth.
         add(TourStop.SCHEDULE_VIEWS)
         add(TourStop.SCHEDULE_PALETTE)
-        add(TourStop.SCHEDULE_QUIET)
         add(TourStop.SCHEDULE_COPY)
         add(TourStop.SCHEDULE_CALENDAR)
+        add(TourStop.SCHEDULE_QUIET)
         add(TourStop.ACCOUNT_REMINDERS)
         add(TourStop.ACCOUNT_DONE)
     }
@@ -87,9 +89,9 @@ object Walkthrough {
         TourStop.PERSON_DIAL, TourStop.PERSON_PLANT -> TourScreen.PERSON
         TourStop.SCHEDULE_VIEWS,
         TourStop.SCHEDULE_PALETTE,
-        TourStop.SCHEDULE_QUIET,
         TourStop.SCHEDULE_COPY,
         TourStop.SCHEDULE_CALENDAR,
+        TourStop.SCHEDULE_QUIET,
         -> TourScreen.SCHEDULE
         TourStop.ACCOUNT_REMINDERS, TourStop.ACCOUNT_DONE -> TourScreen.ACCOUNT
     }

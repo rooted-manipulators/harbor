@@ -1,5 +1,6 @@
 package app.harbor.ui
 
+import app.harbor.domain.TourStop
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -349,6 +350,7 @@ private fun DayPanel(
             Panel.Day -> Box(
                 Modifier
                     .fillMaxWidth(0.72f)
+                    .tourAnchor(TourStop.PERSON_DIAL, TourStop.PERSON_PLANT, round = true)
                     .clip(CircleShape)
                     .clickable(onClick = onStage),
             ) {
