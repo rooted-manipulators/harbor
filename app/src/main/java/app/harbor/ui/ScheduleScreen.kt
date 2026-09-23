@@ -1,5 +1,17 @@
 package app.harbor.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import app.harbor.data.CalendarReader
+import app.harbor.domain.CalendarPull
+import app.harbor.ui.theme.Motion
+import app.harbor.ui.theme.Space
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -482,9 +494,22 @@ private fun WeekEditor(
     // Schedule tab that opened in whichever view you last used would be a
     // screen that greets different people differently for no reason they
     // could name.
-    var view by remember { mutableStateOf(WeekView.Day) }
+    //
+    // The week first: the whole shape at a glance is what somebody opening
+    // their schedule wants to see, and the day is one tap in.
+    var view by remember { mutableStateOf(WeekView.Week) }
 
     val blocks = draft ?: saved
+
+    // The last one-tap change and what the week was before it, for the undo
+    // bar. Cleared by itself after a few seconds, or by the next change.
+    var undo by remember { mutableStateOf<Pair<String, List<WeekBlock>?>?>(null) }
+    LaunchedEffect(undo) {
+        if (undo != null) {
+            delay(UNDO_MS)
+            undo = null
+        }
+    }
 
     fun commit(next: List<WeekBlock>, why: String? = null) {
         draft = null
@@ -497,6 +522,46 @@ private fun WeekEditor(
                 next.size,
             )
         }
+    }
+
+    fun dayName(d: DayOfWeek) = d.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+
+    fun copyOn(from: DayOfWeek) {
+        val to = from.plus(1)
+        val before = blocks
+        selected = null
+        commit(Windows.copyDay(blocks, from, to), why = "copied")
+        undo = "${dayName(from)} copied to ${dayName(to)}" to before
+    }
+
+    // Pulling from the calendar. The permission is asked for here, at the
+    // press, and nowhere else (ADR-015).
+    val context = LocalContext.current
+    fun pull() {
+        scope.launch {
+            val events = CalendarReader.nextWeek(context)
+            val pulled = events?.let { CalendarPull.blocks(it, LocalDate.now()) }.orEmpty()
+            if (pulled.isEmpty()) {
+                undo = (if (events == null) "Couldn't read your calendar" else "Nothing on your calendar this week") to null
+            } else {
+                // The stored week, not the one this closure saw: the read
+                // above suspended, and the screen may have moved on.
+                val before = store.weekBlocks.value
+                selected = null
+                commit(CalendarPull.merge(before, pulled), why = "calendar")
+                undo = "${pulled.size} added from your calendar" to before
+            }
+        }
+    }
+    val askCalendar = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) pull() else undo = "Calendar not allowed" to null
+    }
+    fun pullFromCalendar() {
+        val have = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        if (have) pull() else askCalendar.launch(Manifest.permission.READ_CALENDAR)
     }
 
     val density = LocalDensity.current
@@ -570,10 +635,29 @@ private fun WeekEditor(
                 // reading.
                 ViewSwitch(view, skin) { view = it }
 
-                if (view == WeekView.Day) DayStrip(showing, skin, slide) { showing = it }
+                if (view == WeekView.Day) {
+                    QuietRow(Windows.quietPeriod(blocks), skin) { from, to ->
+                        selected = null
+                        commit(Windows.setQuiet(blocks, from, to), why = "quiet")
+                    }
+                    DayStrip(showing, skin, slide) { showing = it }
+                    ToolPill(
+                        "Copy to ${dayName(showing.dayOfWeek.plus(1))}",
+                        skin,
+                        icon = { CopyMark(skin.ink) },
+                    ) { copyOn(showing.dayOfWeek) }
+                }
 
                 if (view == WeekView.Week) {
                     WeekGrid(
+                        chosen = showing.dayOfWeek,
+                        onChoose = { d ->
+                            // The same date the day view will open on, so
+                            // choosing Thursday here and switching to the day
+                            // lands on Thursday.
+                            val ahead = (d.value - today.dayOfWeek.value + 7) % 7
+                            showing = today.plusDays(ahead.toLong())
+                        },
                         blocks = blocks,
                         planting = planting ?: BlockKind.BUSY,
                         selected = selected,
@@ -589,6 +673,25 @@ private fun WeekEditor(
                             commit(next)
                         },
                     )
+                    // The week's tools, at its foot: carry the chosen day
+                    // on, or fill the week from the phone's calendar.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Space.one),
+                    ) {
+                        ToolPill(
+                            "${dayName(showing.dayOfWeek)} → ${dayName(showing.dayOfWeek.plus(1))}",
+                            skin,
+                            modifier = Modifier.weight(1f),
+                            icon = { CopyMark(skin.ink) },
+                        ) { copyOn(showing.dayOfWeek) }
+                        ToolPill(
+                            "From calendar",
+                            skin,
+                            modifier = Modifier.weight(1f),
+                            icon = { CalendarMark(skin.ink) },
+                        ) { pullFromCalendar() }
+                    }
                 } else {
                     DayBoard(
                         blocks = blocks,
@@ -632,14 +735,13 @@ private fun WeekEditor(
                     )
                 }
 
+                // One line each. The gestures teach themselves after the
+                // first go; this only has to get somebody to that first go.
                 SmallCopy(
                     if (planting == null) {
-                        "Pick thorns or flowers above, then press the day to " +
-                            "plant one — or drag one straight down onto it."
+                        "Pick thorns or flowers, then press the day."
                     } else {
-                        "Press the day to plant one, or drag one down from " +
-                            "above. Drag a block's bottom edge to make it " +
-                            "longer, or drag it out of the day to bin it."
+                        "Drag an edge to stretch. Drag off the day to bin."
                     },
                     size = 13,
                 )
@@ -647,6 +749,20 @@ private fun WeekEditor(
                 footer(blocks)
             }
         }
+
+        UndoBar(
+            message = undo?.first.takeIf { dragAt == null },
+            onUndo = undo?.second?.let { before ->
+                {
+                    selected = null
+                    commit(before, why = "undone")
+                    undo = null
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = Space.four + Space.four + Space.two),
+        )
 
         if (dragAt != null) {
             BinTarget(
@@ -735,6 +851,9 @@ private val DAY_SPRING = spring<Float>(
  * do anyway, because the band is only live while something is being carried.
  */
 private val BIN_BAND = 220.dp
+
+/** How long the undo bar stays up. Long enough to read and reach. */
+private const val UNDO_MS = 5000L
 
 /** How many days either side of the chosen one the strip shows. */
 private const val STRIP_REACH = 2
@@ -1774,6 +1893,9 @@ internal fun timeLabel(at: LocalTime): String {
  */
 @Composable
 private fun WeekGrid(
+    /** The day the tools under the grid act on. Lit in the header. */
+    chosen: DayOfWeek,
+    onChoose: (DayOfWeek) -> Unit,
     blocks: List<WeekBlock>,
     planting: BlockKind,
     selected: WeekBlock?,
@@ -1806,13 +1928,26 @@ private fun WeekGrid(
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.width(GUTTER))
             DAYS.forEach { d ->
+                val lit = d == chosen
+                val fill by animateColorAsState(
+                    if (lit) skin.tile else Color.Transparent,
+                    Motion.normal(),
+                    label = "day",
+                )
                 Text(
                     d.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 2.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(fill)
+                        .clickable { onChoose(d) }
+                        .padding(vertical = Space.half),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
-                        color = skin.muted,
+                        fontWeight = if (lit) FontWeight.Bold else FontWeight.Normal,
+                        color = if (lit) skin.ink else skin.muted,
                     ),
                 )
             }

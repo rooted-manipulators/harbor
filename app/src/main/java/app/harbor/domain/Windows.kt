@@ -72,9 +72,99 @@ object Windows {
      */
     fun quietNights(): List<WeekBlock> = DayOfWeek.entries.flatMap { day ->
         listOf(
-            WeekBlock(day, LocalTime.MIDNIGHT, DAY_START, BlockKind.BUSY, "Night"),
-            WeekBlock(day, DAY_END, LocalTime.MAX, BlockKind.BUSY, "Night"),
+            WeekBlock(day, LocalTime.MIDNIGHT, DAY_START, BlockKind.BUSY, QUIET),
+            WeekBlock(day, DAY_END, LocalTime.MAX, BlockKind.BUSY, QUIET),
         )
+    }
+
+    // --- do not disturb ----------------------------------------------------
+    //
+    // The nights above, given a name and a setting. One period a day, the same
+    // every day, stamped onto the week as ordinary busy blocks -- so it is
+    // still the thing you can see and drag, and a single day's can be moved
+    // without touching the rest. Changing the setting re-stamps every day,
+    // which is the point of having one.
+
+    /** The label every do-not-disturb block carries. */
+    const val QUIET = "Do not disturb"
+
+    /** What the seeded nights were called before they had a setting. */
+    private const val LEGACY_QUIET = "Night"
+
+    private fun isQuiet(block: WeekBlock): Boolean =
+        block.kind == BlockKind.BUSY && (block.label == QUIET || block.label == LEGACY_QUIET)
+
+    /**
+     * The do-not-disturb period the week currently carries, or null if none.
+     *
+     * Read back off the blocks rather than stored separately, so there is one
+     * truth and it is the one on screen. Monday's is taken as the setting --
+     * any day would do while nobody has moved one by hand, and after they have
+     * the setting is only ever a starting point anyway.
+     *
+     * A period over midnight is two blocks, one to the end of the day and one
+     * from its start, and reads back as one: 22:00 to 08:00.
+     */
+    fun quietPeriod(blocks: List<WeekBlock>): Pair<LocalTime, LocalTime>? {
+        val mine = blocks.filter { isQuiet(it) }
+        val day = mine.map { it.day }.let { days ->
+            if (DayOfWeek.MONDAY in days) DayOfWeek.MONDAY else days.minOrNull()
+        } ?: return null
+        val today = mine.filter { it.day == day }.sortedBy { it.start }
+        val late = today.firstOrNull { it.end == LocalTime.MAX && it.start != LocalTime.MIDNIGHT }
+        val early = today.firstOrNull { it.start == LocalTime.MIDNIGHT && it.end != LocalTime.MAX }
+        val (from, to) = when {
+            late != null && early != null -> late.start to early.end
+            else -> today.first().start to today.first().end
+        }
+        // The end of the day reads back as midnight, which is what setQuiet
+        // takes to mean it.
+        return from to if (to == LocalTime.MAX) LocalTime.MIDNIGHT else to
+    }
+
+    /**
+     * The week with do-not-disturb set to [from]–[to] on every day, or taken
+     * off altogether when [from] is null.
+     *
+     * [to] earlier than [from] means over midnight. Equal means nothing: a
+     * period of no length would be a switch that looks on and does nothing.
+     *
+     * Every quiet block is removed first, including one somebody moved by
+     * hand -- changing the setting is saying what the setting is, on every
+     * day. What sits under the new period is cut away by [place], exactly as
+     * if it had been drawn.
+     */
+    fun setQuiet(blocks: List<WeekBlock>, from: LocalTime?, to: LocalTime?): List<WeekBlock> {
+        var next = blocks.filterNot { isQuiet(it) }
+        if (from == null || to == null || from == to) return next
+        DayOfWeek.entries.forEach { day ->
+            val pieces = if (from < to) {
+                listOf(from to to)
+            } else {
+                buildList {
+                    if (to > LocalTime.MIDNIGHT) add(LocalTime.MIDNIGHT to to)
+                    add(from to LocalTime.MAX)
+                }
+            }
+            pieces.forEach { (a, b) -> next = place(next, WeekBlock(day, a, b, BlockKind.BUSY, QUIET)) }
+        }
+        return next
+    }
+
+    // --- copying a day -----------------------------------------------------
+
+    /**
+     * [from]'s blocks, laid on [to] in place of whatever [to] had.
+     *
+     * Replacing rather than merging: "copy Monday to Tuesday" should leave
+     * Tuesday looking like Monday, and a merge that kept half of Tuesday's
+     * afternoon would be a third schedule nobody drew. The screen offers an
+     * undo because of exactly that.
+     */
+    fun copyDay(blocks: List<WeekBlock>, from: DayOfWeek, to: DayOfWeek): List<WeekBlock> {
+        if (from == to) return blocks
+        return blocks.filterNot { it.day == to } +
+            blocks.filter { it.day == from }.map { it.copy(day = to) }
     }
 
     /** Shorter than this is a gap between classes, not room for a call. */
