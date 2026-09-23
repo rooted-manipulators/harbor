@@ -18,7 +18,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import app.harbor.domain.StudyArm
+import app.harbor.domain.TourScreen
+import app.harbor.domain.TourStop
+import app.harbor.domain.Walkthrough
 import app.harbor.ui.LocalStudyArm
+import app.harbor.ui.TourCard
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.tween
@@ -251,6 +255,23 @@ class MainActivity : ComponentActivity() {
                 var onboarded by remember { mutableStateOf<Boolean?>(null) }
                 LaunchedEffect(Unit) { onboarded = store.hasOnboarded() }
 
+                // The tour (ADR-016). An empty list means it is not running;
+                // TourCard, drawn last, speaks whatever `tourStop` is, and the
+                // LaunchedEffect beside `arm` below moves `screen` (and
+                // `showing`, for the two stops about a person) to match it.
+                var tourStops by remember { mutableStateOf<List<TourStop>>(emptyList()) }
+                var tourIndex by remember { mutableIntStateOf(0) }
+                val tourStop = tourStops.getOrNull(tourIndex)
+                val touring = tourStop != null
+
+                fun endTour() {
+                    tourStops = emptyList()
+                    tourIndex = 0
+                    // Finished or skipped both count as having seen it -- see
+                    // hasSeenTour's own doc.
+                    scope.launch { store.setTourSeen() }
+                }
+
                 // Shown once per call, so backing out of the reflection does
                 // not fling you straight back into it on the next resume.
                 var offered by remember { mutableStateOf<java.util.UUID?>(null) }
@@ -321,7 +342,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                BackHandler(enabled = onboarded == true && screen != Screen.Home) { home() }
+                // While the tour is running, back leaves it rather than
+                // jumping home out from under it -- the same "dismissible at
+                // no cost" this app asks of everything else it can interrupt
+                // you with.
+                BackHandler(enabled = onboarded == true && (touring || screen != Screen.Home)) {
+                    if (touring) endTour() else home()
+                }
 
                 // The arm, watched rather than read once.
                 //
@@ -336,6 +363,37 @@ class MainActivity : ComponentActivity() {
                 // turning up only after the next cold start. See
                 // HarborRepository.armFlow.
                 val arm by store.armFlow.collectAsState()
+
+                fun startTour() {
+                    tourStops = Walkthrough.stops(arm, hasPerson = store.contacts.value.isNotEmpty())
+                    tourIndex = 0
+                }
+
+                // Offered once, unasked, the moment the real Home is behind
+                // it -- not appended to onboarding's own queue. See ADR-016
+                // for why here rather than there, and why this also reaches
+                // an install that onboarded before the tour existed.
+                LaunchedEffect(onboarded) {
+                    if (onboarded == true && !store.hasSeenTour()) startTour()
+                }
+
+                // Where the tour wants to be standing, followed rather than
+                // driven by the index: a stop this install does not have (no
+                // person yet, or the garden arm's one bee-only stop) is
+                // simply never a screen the tour visits.
+                LaunchedEffect(tourStop) {
+                    val stop = tourStop ?: return@LaunchedEffect
+                    when (Walkthrough.screenFor(stop)) {
+                        TourScreen.HOME -> screen = Screen.Home
+                        TourScreen.GARDEN -> screen = Screen.Garden
+                        TourScreen.PERSON -> {
+                            showing = store.contacts.value.firstOrNull()?.id
+                            screen = Screen.Person
+                        }
+                        TourScreen.SCHEDULE -> screen = Screen.Schedule
+                        TourScreen.ACCOUNT -> screen = Screen.Settings
+                    }
+                }
 
                 CompositionLocalProvider(
                     LocalReducedMotion provides reduceMotion,
@@ -375,6 +433,12 @@ class MainActivity : ComponentActivity() {
                     HarborShell(
                         tab = screen.tab,
                         onSelect = { tab ->
+                            // Choosing a tab by hand while the tour is
+                            // speaking is its own way of saying "I've got
+                            // it" -- the same exit `Skip` and back both are,
+                            // rather than a stale card left describing
+                            // whatever screen it was on.
+                            if (touring) endTour()
                             screen = when (tab) {
                                 HarborTab.Home -> Screen.Home
                                 HarborTab.Schedule -> Screen.Schedule
@@ -499,6 +563,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenCues = { screen = Screen.Cues },
                                 onOpenAccount = { screen = Screen.SignIn },
                                 onOpenStudyCode = { screen = Screen.StudyCode },
+                                onReplayTour = { startTour() },
                                 onDone = home,
                                 modifier = inset,
                             )
@@ -621,6 +686,24 @@ class MainActivity : ComponentActivity() {
                             // arrival has nowhere to happen there.
                             screen = Screen.Home
                         }
+                    }
+
+                    // Same layer as the flower above, and drawn after it so
+                    // the card sits on top rather than under it -- the two
+                    // should not overlap in practice (the tour runs before
+                    // any call has been made), but this is the order that
+                    // stays right if they ever do.
+                    tourStop?.let { stop ->
+                        TourCard(
+                            stop = stop,
+                            index = tourIndex,
+                            count = tourStops.size,
+                            onNext = {
+                                if (tourIndex + 1 < tourStops.size) tourIndex++ else endTour()
+                            },
+                            onSkip = { endTour() },
+                            modifier = inset,
+                        )
                     }
                 }
                 }

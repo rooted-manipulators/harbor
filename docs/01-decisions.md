@@ -873,3 +873,78 @@ dismissible, and the block drags off.
 - **Keeping it in sync.** A calendar observer would keep the week current
   without a press, at the cost of Harbor reading the calendar indefinitely.
   The WhatsApp bot already covers "stays current" without a standing read.
+
+---
+
+## ADR-016 — A bee-narrated tour, once, in both arms
+
+**Status:** accepted (2026-09-23)
+
+### What
+
+Right after onboarding finishes, the app offers a short bee-narrated walk
+through Home, the field, a person's dial, Schedule and Account -- one short
+sentence per stop, `Next`/`Skip` always both there. Seen once by default;
+replayable from Account. `domain/Walkthrough.kt`, `ui/TourBee.kt`, wired in
+`MainActivity`.
+
+### Why the bee narrates the garden arm too
+
+[StudyArm] is otherwise strict: only rendering and words differ between the
+two arms, and the garden arm's whole identity is *no character* -- that is
+the control the bees arm is being compared against. A bee explaining the
+garden arm's own screens looks, at a glance, like exactly the leak that rule
+exists to prevent.
+
+It is allowed here, narrowly, because the tour is not the studied experience:
+
+- **It touches nothing `StudyExport` reads.** No `Moment`, no ledger row, no
+  column anywhere carries whether the tour ran, how far, or that it existed.
+  A participant who saw it and one who skipped it in the first second are the
+  same row in every table that matters.
+- **It never recurs inside the ongoing screens.** `GARDEN_BEE` -- the one
+  stop that would put a bee inside the field itself -- is excluded outside
+  the bees arm (`Walkthrough.stops`), so Home, the field, Schedule and
+  Account look exactly as separated once the tour ends as they did before it
+  ran.
+- **It is symmetric.** Both arms get the same stops in the same order saying
+  the same things about the same screens; only the narrator's presence is
+  shared, not anything either arm measures.
+
+If the tour ever grows to shape what a participant sees session to session,
+or to record anything, this reasoning stops holding and the exception needs
+revisiting -- see the note at the top of `domain/Walkthrough.kt`.
+
+### Why after onboarding rather than inside it
+
+`OnboardingScreen.kt` used to end with four explainer cards -- the weather
+metaphor, the two thresholds, what a reminder is, what the family saw --
+before ADR-013 removed the family and a later pass removed the cards
+themselves. The comment left behind says why: nine screens in, past a
+consent page, with the app still not visible, is the wrong moment for
+content like this, and it belongs in "a tutorial somebody chooses to open."
+
+This tour is offered rather than forced for the same reason, just one step
+earlier than "chooses to open" implies: it appears the instant the real
+Home is on screen, not appended to the queue that leads there, and `Skip` at
+the very first stop *is* declining to open it.
+
+### The tour drives real navigation, not mock screens
+
+Each stop sets `MainActivity`'s own `screen` (and, for the two person stops,
+`showing`) to the real destination and narrates the real thing underneath --
+no illustrated stand-ins, no second copy of any screen to keep in sync. The
+card that speaks never dims or blocks what it is standing in front of.
+
+### Rejected
+
+- **A precise spotlight with a cutout round each control.** Would need a
+  cross-screen registry of every anchor's position in root coordinates,
+  recomputed on every layout change, for five screens that were not built
+  with that in mind. The floating card narrates what is already visible
+  instead of pointing at a pixel, which is enough for one sentence.
+- **Skipping the person stops when nobody has been added.** Cannot happen in
+  practice -- `WhoToCall` is not skippable in onboarding -- but
+  `Walkthrough.stops` still guards on it rather than assuming, so a contact
+  deleted before the tour runs drops those stops instead of opening a page
+  with nothing on it.

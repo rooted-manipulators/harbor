@@ -133,6 +133,19 @@ interface HarborRepository {
     suspend fun setOnboarded()
 
     /**
+     * Whether the tour has run once.
+     *
+     * Same shape as [hasOnboarded] and the same reasoning: a fact about this
+     * install, never synced, never exported. Read to decide whether to offer
+     * the tour unasked the first time Home appears; write it the moment the
+     * tour ends, however it ends -- finished or skipped, both count, because
+     * both are somebody having seen the offer and decided.
+     */
+    suspend fun hasSeenTour(): Boolean
+
+    suspend fun setTourSeen()
+
+    /**
      * Which arm of the study this install is in.
      *
      * Decided once and then fixed for the life of the install. Like
