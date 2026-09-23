@@ -189,6 +189,55 @@ fun SettingsScreen(
                 SmallCopy("Suggested values, always editable.")
             }
 
+            Surface {
+                SectionHeader("Quiet hours", "every day")
+                // One line, not a paragraph. The switch and the two times say
+                // the rest of it, and a card explaining what "quiet hours"
+                // means is a card nobody reads.
+                Stepper(
+                    label = if (settings.quietHours.enabled) "On" else "Off",
+                    value = if (settings.quietHours.enabled) {
+                        timeLabel(settings.quietHours.start) + " – " +
+                            timeLabel(settings.quietHours.end)
+                    } else {
+                        "—"
+                    },
+                    onDown = {
+                        save(
+                            settings.copy(
+                                quietHours = settings.quietHours.copy(
+                                    enabled = !settings.quietHours.enabled,
+                                ),
+                            ),
+                        )
+                    },
+                    onUp = {
+                        save(
+                            settings.copy(
+                                quietHours = settings.quietHours.copy(
+                                    enabled = !settings.quietHours.enabled,
+                                ),
+                            ),
+                        )
+                    },
+                )
+                if (settings.quietHours.enabled) {
+                    Stepper(
+                        label = "From",
+                        value = timeLabel(settings.quietHours.start),
+                        onDown = { save(settings.shiftQuiet(start = -30)) },
+                        onUp = { save(settings.shiftQuiet(start = 30)) },
+                    )
+                    Stepper(
+                        label = "Until",
+                        value = timeLabel(settings.quietHours.end),
+                        onDown = { save(settings.shiftQuiet(end = -30)) },
+                        onUp = { save(settings.shiftQuiet(end = 30)) },
+                    )
+                    SmallCopy("No reminder arrives in here. Nothing else changes.")
+                }
+            }
+
             // Handing over the week is no longer something the participant
             // has to do. Harbor records what the study needs as it happens
             // (domain/Telemetry) and the file is assembled from that, so the
@@ -205,6 +254,22 @@ fun SettingsScreen(
         }
     }
 }
+
+
+/**
+ * Move one end of the quiet stretch by [start] or [end] minutes.
+ *
+ * Wraps round the clock rather than clamping, because the ends of this are
+ * near midnight by definition and a stepper that stopped dead at 00:00 would
+ * refuse to let somebody set half past eleven until seven.
+ */
+private fun UserSettings.shiftQuiet(start: Int = 0, end: Int = 0): UserSettings =
+    copy(
+        quietHours = quietHours.copy(
+            start = quietHours.start.plusMinutes(start.toLong()),
+            end = quietHours.end.plusMinutes(end.toLong()),
+        ),
+    )
 
 /**
  * The quiet gap in words: minutes while they are still countable, hours once

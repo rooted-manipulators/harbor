@@ -5,6 +5,7 @@ import app.harbor.domain.BlockKind
 import app.harbor.domain.Contact
 import app.harbor.domain.ContactKind
 import app.harbor.domain.Cue
+import app.harbor.domain.QuietHours
 import app.harbor.domain.CueSound
 import app.harbor.domain.FeedbackPulse
 import app.harbor.domain.Feeling
@@ -61,6 +62,14 @@ internal object LedgerJson {
         .put("weather", s.weather.wire)
         .put("name", s.name)
         .put("reduced_motion", s.reducedMotion)
+        // Flat rather than nested, like every other setting here. Times go as
+        // "HH:mm" because that is what LocalTime parses back without a
+        // formatter, and a missing one reads as the default rather than
+        // throwing -- a phone that upgrades into this build has none of these
+        // keys and must not lose its settings over it.
+        .put("quiet_from", s.quietHours.start.toString())
+        .put("quiet_to", s.quietHours.end.toString())
+        .put("quiet_on", s.quietHours.enabled)
 
     fun settings(o: JSONObject): UserSettings = UserSettings(
         thresholds = thresholds(o),
@@ -71,7 +80,18 @@ internal object LedgerJson {
             ?.let { Weather.entries.fromWire(it) } ?: Weather.CLEAR,
         name = o.optStringOrNull("name").orEmpty(),
         reducedMotion = o.optBoolean("reduced_motion", false),
+        quietHours = QuietHours(
+            start = o.optStringOrNull("quiet_from")?.let(::parseTime)
+                ?: QuietHours().start,
+            end = o.optStringOrNull("quiet_to")?.let(::parseTime)
+                ?: QuietHours().end,
+            enabled = o.optBoolean("quiet_on", false),
+        ),
     )
+
+    /** "22:30" back to a time, or null if somebody has hand-edited the file. */
+    private fun parseTime(raw: String): java.time.LocalTime? =
+        runCatching { java.time.LocalTime.parse(raw) }.getOrNull()
 
     // --- contact ----------------------------------------------------------
 

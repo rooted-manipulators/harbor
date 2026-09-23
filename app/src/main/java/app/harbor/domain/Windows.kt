@@ -68,8 +68,18 @@ object Windows {
      * [BlockKind.BUSY] block suppresses anything. A flower is an invitation,
      * and an invitation that silenced the app would be a trap.
      */
-    fun busyAt(blocks: List<WeekBlock>, at: ZonedDateTime): Boolean =
-        blocks.any { it.kind == BlockKind.BUSY && it.covers(at) }
+    fun busyAt(
+        blocks: List<WeekBlock>,
+        at: ZonedDateTime,
+        /**
+         * The daily quiet stretch, if the user set one. Defaulted off rather
+         * than added as a required argument so that every existing caller and
+         * every existing test still describes the same question it always did.
+         */
+        quiet: QuietHours = QuietHours(),
+    ): Boolean =
+        quiet.covers(at.toLocalTime()) ||
+            blocks.any { it.kind == BlockKind.BUSY && it.covers(at) }
 
     /**
      * Every stretch of [day] long enough to matter that is not marked busy.

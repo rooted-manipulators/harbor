@@ -225,7 +225,15 @@ class HarborStore(context: Context) : HarborRepository {
                 // closing is a fact about the person and is written down. See
                 // domain/Reminders.
                 hasPendingReminder = Reminders.holding(ledger, Instant.now()) != null,
-                busyNow = Windows.busyAt(_weekBlocks.value, ZonedDateTime.now()),
+                // The quiet stretch suppresses a cue exactly as a lecture
+                // does, and it is the same call rather than a second check
+                // beside it -- two places deciding "is now a bad time" is how
+                // they come to disagree.
+                busyNow = Windows.busyAt(
+                    _weekBlocks.value,
+                    ZonedDateTime.now(),
+                    _settings.value.quietHours,
+                ),
             )
         }
 

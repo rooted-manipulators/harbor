@@ -300,6 +300,12 @@ data class UserSettings(
     val weather: Weather = Weather.CLEAR,
 
     val reducedMotion: Boolean = false,
+
+    /**
+     * The stretch of every day that is not up for interruption. See
+     * [QuietHours], which explains why it is a setting and not seven blocks.
+     */
+    val quietHours: QuietHours = QuietHours(),
 )
 
 /**
@@ -359,6 +365,59 @@ data class WeekBlock(
      */
     fun covers(at: ZonedDateTime): Boolean =
         at.dayOfWeek == day && at.toLocalTime() >= start && at.toLocalTime() < end
+}
+
+/**
+ * A stretch of every day the user has said is not theirs.
+ *
+ * Sleep, mostly. The week grid can already mark a Tuesday night busy, but
+ * nobody is going to draw the same block seven times and then redraw all seven
+ * when their bedtime moves — so this is one statement that applies to every
+ * day, kept as a setting rather than as blocks.
+ *
+ * **Deliberately not expanded into seven [WeekBlock]s.** That was the obvious
+ * implementation and it is wrong: the moment it is blocks, the grid lets you
+ * delete Wednesday's, and "every day" quietly stops being true with nothing
+ * anywhere saying so. One fact, in one place, read by everything that needs
+ * it — see [Windows.busyAt] and `DayArcs`.
+ *
+ * It is busy time and nothing more. It suppresses a cue exactly the way a
+ * lecture does, and it is off until somebody turns it on, because an app that
+ * decided on its own when its user sleeps would be guessing about the one
+ * thing this whole feature exists to stop guessing about.
+ */
+data class QuietHours(
+    val start: LocalTime = LocalTime.of(22, 30),
+    val end: LocalTime = LocalTime.of(7, 30),
+    val enabled: Boolean = false,
+) {
+    /**
+     * Whether [at] falls inside the quiet stretch.
+     *
+     * Wrapping is the whole of the difficulty here. A quiet period almost
+     * always crosses midnight — half past ten until half past seven is the
+     * suggested one — so the ordinary `start <= at && at < end` is wrong for
+     * the common case and right only for the rare one. Both are handled, and
+     * which is which is decided by whether [end] is after [start].
+     *
+     * Start inclusive, end exclusive, same as [WeekBlock.covers], so a block
+     * that ends at seven thirty and a day that starts at seven thirty do not
+     * both claim the minute.
+     */
+    fun covers(at: LocalTime): Boolean {
+        if (!enabled) return false
+        if (start == end) return false
+        return if (start < end) at >= start && at < end
+        else at >= start || at < end
+    }
+
+    /** How long it runs, in minutes, crossing midnight if it has to. */
+    val minutes: Int
+        get() {
+            val from = start.toSecondOfDay() / 60
+            val to = end.toSecondOfDay() / 60
+            return if (to > from) to - from else 24 * 60 - from + to
+        }
 }
 
 /**
