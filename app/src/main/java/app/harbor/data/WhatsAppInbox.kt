@@ -1,5 +1,6 @@
 package app.harbor.data
 
+import app.harbor.domain.BlockOrigin
 import app.harbor.domain.Moment
 import app.harbor.domain.Sharing
 import app.harbor.domain.WeekBlock
@@ -19,8 +20,10 @@ import app.harbor.domain.Windows
  * `week_blocks` would be overwritten by the next upload, and worse, would be
  * a second author of a thing that has exactly one. So the bot fills a queue
  * and the phone drains it, placing each block through the same
- * [Windows.place] a finger goes through — which is what makes a block that
- * arrived by WhatsApp indistinguishable, afterwards, from one that was drawn.
+ * [Windows.place] a finger goes through, which does not know or care who is
+ * calling it. [app.harbor.domain.BlockOrigin] is what lets the schedule
+ * screen still tell the two apart afterwards, for the one thing that turned
+ * out to matter: which colour to draw the block in.
  *
  * ## It is allowed to do nothing
  *
@@ -44,6 +47,7 @@ internal object WhatsAppInbox {
         if (arrived.isEmpty()) return 0
 
         val placed: List<WeekBlock> = Sharing.fromWire(arrived.map { it.block })
+            .map { it.copy(origin = BlockOrigin.WHATSAPP) }
         var week = store.weekBlocks.value
         placed.forEach { week = Windows.place(week, it) }
         store.setWeekBlocks(week)

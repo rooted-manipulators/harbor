@@ -2,6 +2,7 @@ package app.harbor.data
 
 import app.harbor.domain.Beat
 import app.harbor.domain.BlockKind
+import app.harbor.domain.BlockOrigin
 import app.harbor.domain.Contact
 import app.harbor.domain.ContactKind
 import app.harbor.domain.Cue
@@ -117,6 +118,7 @@ internal object LedgerJson {
         .put("end", w.end.toString())
         .put("kind", w.kind.name.lowercase())
         .put("label", w.label)
+        .put("origin", w.origin.name.lowercase())
 
     /**
      * Missing `kind` means busy.
@@ -133,6 +135,11 @@ internal object LedgerJson {
         kind = o.optStringOrNull("kind")
             ?.let { BlockKind.entries.fromWire(it) } ?: BlockKind.BUSY,
         label = o.optStringOrNull("label"),
+        // Missing `origin` means a person placed it -- every row written
+        // before this field existed was exactly that.
+        origin = o.optStringOrNull("origin")
+            ?.let { raw -> BlockOrigin.entries.firstOrNull { it.name.lowercase() == raw } }
+            ?: BlockOrigin.PERSON,
     )
 
     fun blocks(array: JSONArray): List<WeekBlock> =

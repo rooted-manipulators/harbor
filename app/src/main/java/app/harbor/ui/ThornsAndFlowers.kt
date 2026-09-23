@@ -64,6 +64,18 @@ internal val ThornLit = Color(0xFF4C6C34)
 internal val SpikeTop = Color(0xFF4E6A50)
 internal val SpikeFoot = Color(0xFF33502F)
 
+// The same five, in blue -- a thorn the WhatsApp bot filed rather than one a
+// finger drew (BlockOrigin.WHATSAPP). Same shape, same construction, only the
+// hue moved: this is a source, not a different kind of time, and `Windows`
+// treats the two identically. Not the app's one accent (Gold/Ember) and not
+// borrowed from anywhere else already in the palette, so it reads as its own
+// thing rather than as an error in the usual green.
+internal val ThornEdgeWhatsApp = Color(0xFF3E5A78)
+internal val ThornDeepWhatsApp = Color(0xFF1F3652)
+internal val ThornLitWhatsApp = Color(0xFF3E6088)
+internal val SpikeTopWhatsApp = Color(0xFF3F5D7A)
+internal val SpikeFootWhatsApp = Color(0xFF27445E)
+
 internal val PetalLight = Color(0xFFFFCA8E)
 internal val PetalDeep = Color(0xFFFFB987)
 internal val ThroatTop = Color(0xFFFF5151)
@@ -76,8 +88,13 @@ internal val StemFoot = Color(0xFFFF6E68)
  *
  * [body] is the block's own time span, so the top of the drawn body is exactly
  * the hour it starts. The spikes are extra.
+ *
+ * [whatsapp] swaps the whole thing blue -- pass `block.origin == BlockOrigin.WHATSAPP`.
+ * Default false rather than a required argument, because most callers are a
+ * palette icon or a ghost being dragged into place, neither of which is ever
+ * a block the bot filed.
  */
-internal fun DrawScope.drawThorn(body: Rect) {
+internal fun DrawScope.drawThorn(body: Rect, whatsapp: Boolean = false) {
     // A spike is a size, not a fraction.
     //
     // This was `width * 0.17f` capped at nine *pixels*, which on a block one
@@ -94,12 +111,16 @@ internal fun DrawScope.drawThorn(body: Rect) {
     // bottom left: a sweep across the diagonal rather than down the face,
     // which is what stops a tall thorn reading as a flat bar.
     val skin = Brush.linearGradient(
-        colors = listOf(ThornEdge, ThornDeep, ThornLit),
+        colors = if (whatsapp) {
+            listOf(ThornEdgeWhatsApp, ThornDeepWhatsApp, ThornLitWhatsApp)
+        } else {
+            listOf(ThornEdge, ThornDeep, ThornLit)
+        },
         start = Offset(right, body.top),
         end = Offset(left, body.bottom),
     )
     val bristle = Brush.verticalGradient(
-        colors = listOf(SpikeTop, SpikeFoot),
+        colors = if (whatsapp) listOf(SpikeTopWhatsApp, SpikeFootWhatsApp) else listOf(SpikeTop, SpikeFoot),
         startY = body.top,
         endY = body.bottom,
     )
