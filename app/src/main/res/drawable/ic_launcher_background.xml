@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
      The flat grey the icon art sat on before the background layer was cut
-     back out of it, sampled from the source rather than guessed --
-     tools/cut_icon.py prints it on every run. Full bleed: the mask is the
-     system's job, not this layer's.
+     back out of it, sampled from the source rather than guessed: see
+     tools/cut_icon.py, which prints it on every run. Full bleed, because
+     the mask is the system's job, not this layer's.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
