@@ -9,6 +9,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import app.harbor.ui.theme.LocalReducedMotion
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -72,19 +74,31 @@ import app.harbor.ui.theme.Paper
  */
 @Composable
 fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
-    val clock = rememberInfiniteTransition(label = "sky")
-    val slow by clock.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(60_000, easing = LinearEasing)),
-        label = "drift",
-    )
-    val fast by clock.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(760, easing = LinearEasing)),
-        label = "rain",
-    )
+    // The sky's two clocks: a minute for clouds, stars and the sun's breath,
+    // and under a second for rain.
+    //
+    // Read in the draw pass, not here. Read here -- with `by`, as they were --
+    // every screen with a sky on it recomposed sixty times a second for as
+    // long as it was open, and the rain clock ran even on a day with no rain.
+    // Now only the canvas redraws, and only for the clocks it actually reads.
+    // Neither is started for anybody who asked for less movement.
+    val still = LocalReducedMotion.current
+    val slowClock: State<Float>? = if (still) null else {
+        rememberInfiniteTransition(label = "sky").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(60_000, easing = LinearEasing)),
+            label = "drift",
+        )
+    }
+    val fastClock: State<Float>? = if (still) null else {
+        rememberInfiniteTransition(label = "rain").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(760, easing = LinearEasing)),
+            label = "rain",
+        )
+    }
 
     // One tile and one pair of paints for the life of the screen. Rebuilding
     // either per frame would allocate a bitmap sixty times a second behind a
@@ -109,6 +123,11 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
 
     Canvas(modifier.fillMaxSize()) {
         val sky = fieldTintOf(says)
+        // Only read what this sky uses, so a clear still night asks for
+        // frames only while its stars are twinkling.
+        val moving = sky.cloud > 0f || sky.stars > 0f || sky.sun > 0f
+        val slow = if (moving) slowClock?.value ?: 0f else 0f
+        val fast = if (sky.rain > 0f) fastClock?.value ?: 0f else 0f
 
         // Where the light is, and how far it carries. Every layer below reads
         // these two rather than its own copy: the wash, the warm pool and the
@@ -220,15 +239,25 @@ fun FieldSky(weather: Weather, modifier: Modifier = Modifier) {
             size = size,
         )
 
-        if (sky.sun > 0f) drawFieldSun(sky.sun, sky.sunColour)
+        if (sky.stars > 0f) drawStars(sky.stars, slow, barTop)
+        if (sky.moon > 0f) drawMoon(sky.moon, barTop)
 
-        // Three clouds at different widths and speeds, so the loop never
-        // reads as a loop.
+        // The sun breathes: about eight per cent either way over the minute.
+        // Slow enough that nobody sees it move, fast enough that the sky is
+        // never quite a still photograph.
+        if (sky.sun > 0f) {
+            val breath = 1f + 0.08f * kotlin.math.sin(slow * 2f * Math.PI.toFloat())
+            drawFieldSun((sky.sun * breath).coerceAtMost(1f), sky.sunColour)
+        }
+
+        // Three clouds at different widths, heights and speeds, so the loop
+        // never reads as a loop -- and the far ones smaller and slower, which
+        // is the whole of what makes a sky have depth.
         if (sky.cloud > 0f) {
-            drawFieldCloud(88.dp.toPx(), barTop + 16.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
+            drawFieldCloud(92.dp.toPx(), barTop + 20.dp.toPx(), loopPhase(slow, 60_000f, 36_000f, 0f), sky)
             if (sky.extraClouds) {
-                drawFieldCloud(66.dp.toPx(), barTop + 44.dp.toPx(), loopPhase(slow, 60_000f, 48_000f, 0.19f), sky)
-                drawFieldCloud(112.dp.toPx(), barTop + 28.dp.toPx(), loopPhase(slow, 60_000f, 60_000f, 0.40f), sky)
+                drawFieldCloud(58.dp.toPx(), barTop + 52.dp.toPx(), loopPhase(slow, 60_000f, 72_000f, 0.19f), sky, far = true)
+                drawFieldCloud(120.dp.toPx(), barTop + 34.dp.toPx(), loopPhase(slow, 60_000f, 52_000f, 0.52f), sky)
             }
         }
 
@@ -273,20 +302,100 @@ private fun DrawScope.drawFieldSun(alpha: Float, colour: Color) {
     )
 }
 
-private fun DrawScope.drawFieldCloud(width: Float, top: Float, phase: Float, sky: SkyTint) {
-    val travel = size.width + 260.dp.toPx()
-    val x = -130.dp.toPx() + travel * phase
-    val h = 22.dp.toPx()
-    val colour = sky.cloudColour.copy(alpha = sky.cloud)
+/**
+ * A cumulus: a flat base and a row of puffs, lit from above.
+ *
+ * It used to be a lozenge with two dots on it, which read as a pill rather
+ * than a cloud. The puffs are uneven on purpose -- the tallest a little off
+ * centre -- and the underside is a shade darker than the top, which is the one
+ * detail that turns a white shape into something with weight floating in air.
+ *
+ * [far] ones are fainter as well as smaller. Distance takes contrast before it
+ * takes size, and a small cloud at full strength reads as a near one that is
+ * simply small.
+ */
+private fun DrawScope.drawFieldCloud(
+    width: Float,
+    top: Float,
+    phase: Float,
+    sky: SkyTint,
+    far: Boolean = false,
+) {
+    val travel = size.width + width * 2.4f
+    val x = -width * 1.2f + travel * phase
+    val h = width * 0.26f
+    val strength = sky.cloud * if (far) 0.62f else 1f
+    val lit = sky.cloudColour.copy(alpha = strength)
+    val under = lerp(sky.cloudColour, sky.deep, 0.22f).copy(alpha = strength * 0.9f)
 
+    // The underside first: a long flat body.
     drawRoundRect(
-        color = colour,
-        topLeft = Offset(x, top),
-        size = Size(width, h),
-        cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2, h / 2),
+        color = under,
+        topLeft = Offset(x, top + h * 0.35f),
+        size = Size(width, h * 0.8f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(h * 0.4f, h * 0.4f),
     )
-    drawCircle(colour, radius = 14.dp.toPx(), center = Offset(x + width * 0.16f + 14.dp.toPx(), top + h - 12.dp.toPx()))
-    drawCircle(colour, radius = 10.dp.toPx(), center = Offset(x + width * 0.78f, top + h - 8.dp.toPx()))
+    // Then the puffs, lit.
+    val puffs = floatArrayOf(0.18f, 0.40f, 0.62f, 0.82f)
+    val sizes = floatArrayOf(0.62f, 0.95f, 0.78f, 0.52f)
+    for (k in puffs.indices) {
+        val r = h * sizes[k]
+        drawCircle(lit, radius = r, center = Offset(x + width * puffs[k], top + h * 0.72f - r * 0.35f))
+    }
+    // A cap of light on the tallest, so the top reads as the sunlit side.
+    drawCircle(
+        Color.White.copy(alpha = strength * 0.28f),
+        radius = h * 0.55f,
+        center = Offset(x + width * 0.37f, top + h * 0.22f),
+    )
+}
+
+/**
+ * Stars: a fixed scatter over the upper sky, each twinkling on its own beat.
+ *
+ * Deterministic -- the same stars in the same places every night and every
+ * frame -- because a sky whose stars moved when you opened the app would be a
+ * screensaver. They thin out towards the land, where real air washes them out.
+ */
+private fun DrawScope.drawStars(strength: Float, clock: Float, barTop: Float) {
+    val band = size.height * 0.46f
+    for (i in 0 until 54) {
+        val fx = ((i * 0.6180339f) % 1f)
+        val fy = ((i * 0.3819660f + (i % 7) * 0.043f) % 1f)
+        val y = barTop + fy * fy * (band - barTop)
+        val x = fx * size.width
+        val beat = kotlin.math.sin((clock * 6f + i * 0.37f) * 2f * Math.PI.toFloat())
+        val twinkle = 0.55f + 0.45f * beat
+        val fade = (1f - fy * 0.7f) * strength * twinkle
+        val r = (0.7f + (i % 3) * 0.45f).dp.toPx()
+        drawCircle(Color(0xFFFFF6DE).copy(alpha = fade.coerceIn(0f, 1f)), radius = r, center = Offset(x, y))
+    }
+}
+
+/** A full moon with a soft halo, high on the side opposite the light. */
+private fun DrawScope.drawMoon(strength: Float, barTop: Float) {
+    val c = Offset(size.width * 0.24f, barTop + 64.dp.toPx())
+    val r = 17.dp.toPx()
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(Color(0x33FFF3D6), Color(0x00FFF3D6)),
+            center = c,
+            radius = r * 4f,
+        ),
+        radius = r * 4f,
+        center = c,
+    )
+    // Lit from the upper left, so it is a sphere rather than a coin.
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(Color(0xFFFFF8E6), Color(0xFFE4DCC6)),
+            center = Offset(c.x - r * 0.35f, c.y - r * 0.35f),
+            radius = r * 1.5f,
+        ),
+        radius = r,
+        center = c,
+        alpha = strength,
+    )
 }
 
 private fun DrawScope.drawFieldRain(phase: Float, alpha: Float) {
@@ -412,6 +521,10 @@ private class SkyTint(
     val cloudColour: Color,
     val rain: Float,
     val dim: Float,
+    /** Stars, nought to one. The clock's arm only: a mood has no night. */
+    val stars: Float = 0f,
+    /** The moon, nought or one. Same arm, same reason. */
+    val moon: Float = 0f,
 )
 
 /**
@@ -658,5 +771,18 @@ private fun fieldTintOf(says: SkySays): SkyTint {
         // Nothing dims any more. See the note above: the heavy weathers are
         // pale now, and a wash over a pale sky only makes it muddy.
         dim = 0f,
+        // Stars come out at dusk and the moon rises at night -- in the clock's
+        // arm only. The garden arm's sky is the mood slider's answer, and that
+        // is the one variable the study compares; a night sky there would put
+        // the clock back into the control.
+        stars = when (says) {
+            is SkySays.Mood -> 0f
+            is SkySays.Hour -> when (says.at) {
+                SkyHour.DAY -> 0f
+                SkyHour.DUSK -> 0.35f
+                SkyHour.NIGHT -> 1f
+            }
+        },
+        moon = if (says is SkySays.Hour && says.at == SkyHour.NIGHT) 1f else 0f,
     )
 }

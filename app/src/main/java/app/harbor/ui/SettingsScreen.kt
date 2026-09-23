@@ -82,7 +82,7 @@ fun SettingsScreen(
             // that gradient -- which is what made every screen read flat.
             .verticalScroll(rememberScrollState()),
     ) {
-        Box(Modifier.padding(horizontal = 28.dp)) {
+        Box(Modifier.padding(horizontal = 32.dp)) {
             PageIntro(
                 eyebrow = "Always on your terms",
                 title = "Your pace.",
@@ -106,19 +106,12 @@ fun SettingsScreen(
                 SmallCopy("Only used to say hello.")
             }
 
-            Surface {
+            Surface(order = 1) {
                 SectionHeader("When a reminder can come", "suggestions, not rules")
                 SmallCopy(
-                    "A reminder is Harbor offering you one person, on its own, at a " +
-                        "moment it thinks you have room - just after a walk " +
-                        if (settings.scrollCues) {
-                            "ends, or partway through a long stretch in one app. "
-                        } else {
-                            "ends. "
-                        } +
-                        "It shows their face and plays their sound, " +
-                        "and the only thing it ever does is offer. Ignoring one " +
-                        "costs nothing and there is no streak to break.",
+                    "One person, offered after a walk" +
+                        (if (settings.scrollCues) " or a long scroll" else "") +
+                        ". Ignoring it costs nothing.",
                 )
                 Stepper(
                     label = "Walk before a reminder",
@@ -280,7 +273,7 @@ fun SettingsScreen(
             // question the other three do not: back to where? It is the way
             // out, it is not a place, and on a tab you reached from the bar it
             // is barely needed at all. Kept, quiet, and clearly separate.
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             TextLink("Back", onDone)
         }
     }
@@ -298,7 +291,7 @@ fun SettingsScreen(
 private fun Destination(label: String, onClick: () -> Unit, note: String? = null) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 15.dp),
+            Modifier.fillMaxWidth().padding(vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -391,7 +384,7 @@ internal fun Stepper(label: String, value: String, onDown: () -> Unit, onUp: () 
                 // less than a 16sp line once the system font scale is turned
                 // up -- so the one number on this screen that somebody with
                 // large text has come here to read was the one clipped by it.
-                modifier = Modifier.padding(horizontal = 10.dp).width(76.dp),
+                modifier = Modifier.padding(horizontal = 8.dp).width(76.dp),
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp),
             )
             StepButton("+", onUp)
@@ -462,7 +455,7 @@ internal fun Pill(
         )
         .clickable(enabled = enabled, onClick = onClick)
         .alpha(if (enabled) 1f else 0.45f)
-        .padding(horizontal = 14.dp, vertical = 10.dp),
+        .padding(horizontal = 16.dp, vertical = 8.dp),
     contentAlignment = Alignment.Center,
 ) {
     Text(

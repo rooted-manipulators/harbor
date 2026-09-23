@@ -1,5 +1,17 @@
 package app.harbor.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
+import app.harbor.data.CalendarReader
+import app.harbor.domain.CalendarPull
+import app.harbor.ui.theme.Motion
+import app.harbor.ui.theme.Space
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -482,9 +494,22 @@ private fun WeekEditor(
     // Schedule tab that opened in whichever view you last used would be a
     // screen that greets different people differently for no reason they
     // could name.
-    var view by remember { mutableStateOf(WeekView.Day) }
+    //
+    // The week first: the whole shape at a glance is what somebody opening
+    // their schedule wants to see, and the day is one tap in.
+    var view by remember { mutableStateOf(WeekView.Week) }
 
     val blocks = draft ?: saved
+
+    // The last one-tap change and what the week was before it, for the undo
+    // bar. Cleared by itself after a few seconds, or by the next change.
+    var undo by remember { mutableStateOf<Pair<String, List<WeekBlock>?>?>(null) }
+    LaunchedEffect(undo) {
+        if (undo != null) {
+            delay(UNDO_MS)
+            undo = null
+        }
+    }
 
     fun commit(next: List<WeekBlock>, why: String? = null) {
         draft = null
@@ -497,6 +522,46 @@ private fun WeekEditor(
                 next.size,
             )
         }
+    }
+
+    fun dayName(d: DayOfWeek) = d.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+
+    fun copyOn(from: DayOfWeek) {
+        val to = from.plus(1)
+        val before = blocks
+        selected = null
+        commit(Windows.copyDay(blocks, from, to), why = "copied")
+        undo = "${dayName(from)} copied to ${dayName(to)}" to before
+    }
+
+    // Pulling from the calendar. The permission is asked for here, at the
+    // press, and nowhere else (ADR-015).
+    val context = LocalContext.current
+    fun pull() {
+        scope.launch {
+            val events = CalendarReader.nextWeek(context)
+            val pulled = events?.let { CalendarPull.blocks(it, LocalDate.now()) }.orEmpty()
+            if (pulled.isEmpty()) {
+                undo = (if (events == null) "Couldn't read your calendar" else "Nothing on your calendar this week") to null
+            } else {
+                // The stored week, not the one this closure saw: the read
+                // above suspended, and the screen may have moved on.
+                val before = store.weekBlocks.value
+                selected = null
+                commit(CalendarPull.merge(before, pulled), why = "calendar")
+                undo = "${pulled.size} added from your calendar" to before
+            }
+        }
+    }
+    val askCalendar = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) pull() else undo = "Calendar not allowed" to null
+    }
+    fun pullFromCalendar() {
+        val have = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        if (have) pull() else askCalendar.launch(Manifest.permission.READ_CALENDAR)
     }
 
     val density = LocalDensity.current
@@ -517,7 +582,7 @@ private fun WeekEditor(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            Flow(Modifier.pageContent(), gap = 14) {
+            Flow(Modifier.pageContent()) {
                 header(blocks)
 
                 Row(
@@ -570,10 +635,29 @@ private fun WeekEditor(
                 // reading.
                 ViewSwitch(view, skin) { view = it }
 
-                if (view == WeekView.Day) DayStrip(showing, skin, slide) { showing = it }
+                if (view == WeekView.Day) {
+                    QuietRow(Windows.quietPeriod(blocks), skin) { from, to ->
+                        selected = null
+                        commit(Windows.setQuiet(blocks, from, to), why = "quiet")
+                    }
+                    DayStrip(showing, skin, slide) { showing = it }
+                    ToolPill(
+                        "Copy to ${dayName(showing.dayOfWeek.plus(1))}",
+                        skin,
+                        icon = { CopyMark(skin.ink) },
+                    ) { copyOn(showing.dayOfWeek) }
+                }
 
                 if (view == WeekView.Week) {
                     WeekGrid(
+                        chosen = showing.dayOfWeek,
+                        onChoose = { d ->
+                            // The same date the day view will open on, so
+                            // choosing Thursday here and switching to the day
+                            // lands on Thursday.
+                            val ahead = (d.value - today.dayOfWeek.value + 7) % 7
+                            showing = today.plusDays(ahead.toLong())
+                        },
                         blocks = blocks,
                         planting = planting ?: BlockKind.BUSY,
                         selected = selected,
@@ -589,6 +673,25 @@ private fun WeekEditor(
                             commit(next)
                         },
                     )
+                    // The week's tools, at its foot: carry the chosen day
+                    // on, or fill the week from the phone's calendar.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Space.one),
+                    ) {
+                        ToolPill(
+                            "${dayName(showing.dayOfWeek)} → ${dayName(showing.dayOfWeek.plus(1))}",
+                            skin,
+                            modifier = Modifier.weight(1f),
+                            icon = { CopyMark(skin.ink) },
+                        ) { copyOn(showing.dayOfWeek) }
+                        ToolPill(
+                            "From calendar",
+                            skin,
+                            modifier = Modifier.weight(1f),
+                            icon = { CalendarMark(skin.ink) },
+                        ) { pullFromCalendar() }
+                    }
                 } else {
                     DayBoard(
                         blocks = blocks,
@@ -632,14 +735,13 @@ private fun WeekEditor(
                     )
                 }
 
+                // One line each. The gestures teach themselves after the
+                // first go; this only has to get somebody to that first go.
                 SmallCopy(
                     if (planting == null) {
-                        "Pick thorns or flowers above, then press the day to " +
-                            "plant one — or drag one straight down onto it."
+                        "Pick thorns or flowers, then press the day."
                     } else {
-                        "Press the day to plant one, or drag one down from " +
-                            "above. Drag a block's bottom edge to make it " +
-                            "longer, or drag it out of the day to bin it."
+                        "Drag an edge to stretch. Drag off the day to bin."
                     },
                     size = 13,
                 )
@@ -647,6 +749,20 @@ private fun WeekEditor(
                 footer(blocks)
             }
         }
+
+        UndoBar(
+            message = undo?.first.takeIf { dragAt == null },
+            onUndo = undo?.second?.let { before ->
+                {
+                    selected = null
+                    commit(before, why = "undone")
+                    undo = null
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = Space.four + Space.four + Space.two),
+        )
 
         if (dragAt != null) {
             BinTarget(
@@ -735,6 +851,9 @@ private val DAY_SPRING = spring<Float>(
  * do anyway, because the band is only live while something is being carried.
  */
 private val BIN_BAND = 220.dp
+
+/** How long the undo bar stays up. Long enough to read and reach. */
+private const val UNDO_MS = 5000L
 
 /** How many days either side of the chosen one the strip shows. */
 private const val STRIP_REACH = 2
@@ -1095,7 +1214,7 @@ private fun DayBoard(
                         modifier = Modifier
                             .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
                             .width(GUTTER)
-                            .padding(start = 8.dp, end = 6.dp),
+                            .padding(start = 8.dp, end = 8.dp),
                         textAlign = TextAlign.End,
                         maxLines = 1,
                         softWrap = false,
@@ -1280,7 +1399,7 @@ private fun DayBoard(
                                 RoundedCornerShape(30.dp),
                             )
                             .clickable(onClick = onCopyYesterday)
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
                     ) {
                         Text(
                             "Copy schedule\nfrom yesterday",
@@ -1527,7 +1646,7 @@ private fun DayStrip(
                             .clip(RoundedCornerShape(18.dp))
                             .background(if (chosen) skin.tile else Color.Transparent)
                             .clickable { onPick(date) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         val ink = when {
@@ -1589,7 +1708,7 @@ private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Uni
         Modifier
             .clip(RoundedCornerShape(99.dp))
             .border(1.dp, skin.line.copy(alpha = 0.7f), RoundedCornerShape(99.dp))
-            .padding(3.dp),
+            .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         WeekView.entries.forEach { option ->
@@ -1599,7 +1718,7 @@ private fun ViewSwitch(view: WeekView, skin: WeekSkin, onPick: (WeekView) -> Uni
                     .clip(RoundedCornerShape(99.dp))
                     .background(if (here) Gold else Color.Transparent)
                     .clickable { onPick(option) }
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Text(
                     if (option == WeekView.Day) "Day" else "Week",
@@ -1624,7 +1743,7 @@ private fun StripArrow(back: Boolean, skin: WeekSkin, onClick: () -> Unit) {
         Modifier
             .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(6.dp),
+            .padding(8.dp),
     ) {
         Canvas(Modifier.size(width = 9.dp, height = 12.dp)) {
             drawPath(
@@ -1661,11 +1780,11 @@ private fun MonthGrid(
     val length = month.lengthOfMonth()
     val rows = (lead + length + 6) / 7
 
-    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Text(
             month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
                 " " + month.year,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.labelSmall.copy(
                 fontSize = 11.sp,
@@ -1728,7 +1847,7 @@ private fun GreyPill(label: String, enabled: Boolean, onClick: () -> Unit) = Box
         .clip(RoundedCornerShape(29.dp))
         .background(if (enabled) Gold else Sand)
         .clickable(enabled = enabled, onClick = onClick)
-        .padding(horizontal = 26.dp, vertical = 8.dp),
+        .padding(horizontal = 24.dp, vertical = 8.dp),
 ) {
     Text(
         label,
@@ -1774,6 +1893,9 @@ internal fun timeLabel(at: LocalTime): String {
  */
 @Composable
 private fun WeekGrid(
+    /** The day the tools under the grid act on. Lit in the header. */
+    chosen: DayOfWeek,
+    onChoose: (DayOfWeek) -> Unit,
     blocks: List<WeekBlock>,
     planting: BlockKind,
     selected: WeekBlock?,
@@ -1806,18 +1928,31 @@ private fun WeekGrid(
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.width(GUTTER))
             DAYS.forEach { d ->
+                val lit = d == chosen
+                val fill by animateColorAsState(
+                    if (lit) skin.tile else Color.Transparent,
+                    Motion.normal(),
+                    label = "day",
+                )
                 Text(
                     d.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 2.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(fill)
+                        .clickable { onChoose(d) }
+                        .padding(vertical = Space.half),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
-                        color = skin.muted,
+                        fontWeight = if (lit) FontWeight.Bold else FontWeight.Normal,
+                        color = if (lit) skin.ink else skin.muted,
                     ),
                 )
             }
         }
-        Spacer(Modifier.size(6.dp))
+        Spacer(Modifier.size(8.dp))
 
         BoxWithConstraints(
             Modifier
@@ -1997,7 +2132,7 @@ private fun WeekGrid(
                     modifier = Modifier
                         .offset(y = HOUR_HEIGHT * (h - FIRST_HOUR) - 7.dp)
                         .width(GUTTER)
-                        .padding(start = 2.dp, end = 6.dp),
+                        .padding(start = 2.dp, end = 8.dp),
                     textAlign = TextAlign.End,
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 9.sp,
@@ -2162,7 +2297,7 @@ private fun WeekGrid(
                     if (overBin) skin.ink else skin.line.copy(alpha = 0.5f),
                     RoundedCornerShape(12.dp),
                 )
-                .padding(vertical = 10.dp),
+                .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {

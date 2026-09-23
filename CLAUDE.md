@@ -231,6 +231,12 @@ Done:
   **Not yet run against a real WhatsApp number** — the parser and the ingest
   chain are tested, the webhook has never been called by Meta.
 
+- `ui/ScheduleScreen` tools — opens on the week. Copy a day to the next (both
+  views, with undo), do not disturb as one daily period stamped onto every day
+  as busy blocks (`Windows.setQuiet`, read back by `quietPeriod`; the seeded
+  nights are its default), and "From calendar" at the foot of the week, which
+  asks for `READ_CALENDAR` only at the press (ADR-015).
+
 Not built yet: threshold calibration, the Garden/Jar, the other prototype
 screens, and Supabase sync.
 

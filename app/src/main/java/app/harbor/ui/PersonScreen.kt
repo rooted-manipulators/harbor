@@ -214,7 +214,7 @@ fun PersonScreen(
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.headlineLarge.copy(fontSize = 26.sp),
             )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
@@ -235,7 +235,7 @@ fun PersonScreen(
                 GlyphAction("Share", Glyph.Plane) { pickPicture.launch("image/*") }
             }
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(24.dp))
             DayPanel(
                 person = person,
                 week = week,
@@ -256,12 +256,12 @@ fun PersonScreen(
                 onStage = { staged = true },
             )
 
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(24.dp))
             Text(
                 "Recent Activity",
                 style = MaterialTheme.typography.titleLarge.copy(fontSize = 16.sp, color = Chalk),
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
 
             if (theirs.isEmpty()) {
                 SmallCopy("Nothing yet. A call or a line will show up here.")
@@ -277,7 +277,7 @@ fun PersonScreen(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
             TextLink("Leave a line", onLeaveLine)
             TextLink("Edit " + person.label, onEdit)
             Spacer(Modifier.height(24.dp))
@@ -342,7 +342,7 @@ private fun DayPanel(
         },
         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Muted),
     )
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(16.dp))
 
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         when (showing) {
@@ -359,16 +359,15 @@ private fun DayPanel(
         }
     }
 
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(16.dp))
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         PanelToggle(showing) { showing = it }
     }
 
     if (showing == Panel.Day && arcs.isEmpty()) {
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         SmallCopy(
-            "Nothing marked for today, so the dial is bare. Draw your week on " +
-                "the schedule and the hours you are busy and free show up here.",
+            "Nothing marked today. Mark your week on Schedule.",
         )
     }
 }
@@ -422,7 +421,7 @@ private fun DayStage(
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 28.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             val held = reminder
@@ -439,7 +438,7 @@ private fun DayStage(
                     DayArcs.label(held),
                     style = MaterialTheme.typography.headlineLarge.copy(fontSize = 34.sp),
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             } else if (picked != null) {
                 // Sets it, rather than arming a second button that does.
                 //
@@ -457,7 +456,7 @@ private fun DayStage(
                     val arc = picked ?: return@Chip
                     onSet(DayArcs.rest(arc, arc.middle))
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             } else {
                 Text(
                     "Press a flowering stretch to set yourself a reminder",
@@ -467,7 +466,7 @@ private fun DayStage(
                         color = Muted,
                     ),
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
             DayClock(
@@ -589,7 +588,7 @@ private fun PanelToggle(showing: Panel, onPick: (Panel) -> Unit) {
                     .clip(RoundedCornerShape(99.dp))
                     .background(if (lit) Gold.copy(alpha = 0.16f) else Color.Transparent)
                     .clickable { onPick(panel) }
-                    .padding(horizontal = 18.dp, vertical = 9.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.size(17.dp)) {
@@ -675,7 +674,7 @@ private fun GlyphAction(label: String, glyph: Glyph, onClick: () -> Unit) {
             .clip(RoundedCornerShape(99.dp))
             .border(1.dp, Hairline, RoundedCornerShape(99.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -740,7 +739,7 @@ private fun Chip(label: String, filled: Boolean = false, onClick: () -> Unit) = 
         .background(if (filled) Gold else Color(0x1FFFFFFF))
         .border(1.dp, if (filled) Color.Transparent else Hairline, RoundedCornerShape(99.dp))
         .clickable(onClick = onClick)
-        .padding(horizontal = 20.dp, vertical = 10.dp),
+        .padding(horizontal = 20.dp, vertical = 8.dp),
 ) {
     Text(
         label,
@@ -777,7 +776,7 @@ private fun ActivityCard(entry: LedgerEntry, open: Boolean, onToggle: () -> Unit
             .background(Color(0x0DFFFFFF))
             .border(1.dp, CardEdge, RoundedCornerShape(18.dp))
             .clickable(enabled = more, onClick = onToggle)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -850,7 +849,7 @@ private fun ActivityCard(entry: LedgerEntry, open: Boolean, onToggle: () -> Unit
             enter = if (still) fadeIn(tween(120)) else expandVertically(tween(180)) + fadeIn(tween(180)),
             exit = if (still) fadeOut(tween(100)) else shrinkVertically(tween(140)) + fadeOut(tween(140)),
         ) {
-            Column(Modifier.padding(top = 10.dp)) {
+            Column(Modifier.padding(top = 8.dp)) {
                 entry.note?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         "“" + it + "”",
@@ -859,7 +858,7 @@ private fun ActivityCard(entry: LedgerEntry, open: Boolean, onToggle: () -> Unit
                             color = Chalk,
                         ),
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                 }
                 entry.topic?.let { SmallCopy("About " + it, size = 12) }
                 entry.proposedTime?.let {

@@ -94,13 +94,24 @@ fun Specimen(
                 .padding(horizontal = 4.dp)
                 .border(1.dp, Hairline, ArchShape),
         ) {
-            if (flower != null) {
+            val bees = LocalStudyArm.current == StudyArm.BEES
+            if (flower != null && bees) {
+                // The bee holding the flower, in the mood the flower names.
+                // One picture for both, so it replaces the plant rather than
+                // standing beside it -- see MoodBee.
+                MoodBee(
+                    flower,
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            } else if (flower != null) {
                 Image(
                     painter = painterResource(plantOf(flower)),
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     alignment = Alignment.BottomCenter,
                     contentScale = ContentScale.Fit,
                 )
@@ -114,24 +125,13 @@ fun Specimen(
                 // So the frame holds the invitation instead. Not an error and
                 // not a placeholder: the true sentence about what happens next,
                 // in the shape the flower will eventually fill.
-                // Stacked, not layered, and only here.
                 //
-                // The bee below is placed for an arch with a flower in it,
-                // where bottom left is the one corner free of both the bloom
-                // and the caption. An empty arch has no flower and three
-                // centred lines instead, and at this size they run straight
-                // through a 44dp figure -- which is the arch every
-                // participant sees on their first run, before any call has
-                // happened, and so the bees arm's first sight of its own
-                // mascot. Nudging the text up only made them touch: there is
-                // not room for both in the middle of a frame this small.
-                //
-                // So in this one case the two share a column and neither has
-                // to dodge. The corner stays right for the case that lasts.
+                // In the bees arm the standing bee waits under the sentence:
+                // there is no flower yet, so no mood to show.
                 Column(
                     Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -143,8 +143,8 @@ fun Specimen(
                         ),
                         textAlign = TextAlign.Center,
                     )
-                    if (LocalStudyArm.current == StudyArm.BEES) {
-                        Spacer(Modifier.height(6.dp))
+                    if (bees) {
+                        Spacer(Modifier.height(8.dp))
                         Image(
                             painter = painterResource(R.drawable.bee_standing),
                             contentDescription = null,
@@ -152,28 +152,6 @@ fun Specimen(
                         )
                     }
                 }
-            }
-
-            // The bee keeping them company, in the bees arm only.
-            //
-            // Added beside whatever the arch already holds rather than
-            // replacing it. The twenty flowers are the reward this app is
-            // built around, and one mascot standing in for all of them would
-            // be a smaller product rather than a different metaphor -- so the
-            // flower still grows, and the bee is what is new.
-            //
-            // Bottom left, because the flower is drawn bottom *centre* and the
-            // caption sits under the whole arch: the one corner where a 44dp
-            // figure lands on neither.
-            if (LocalStudyArm.current == StudyArm.BEES && flower != null) {
-                Image(
-                    painter = painterResource(R.drawable.bee_standing),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 6.dp, bottom = 4.dp)
-                        .size(44.dp),
-                )
             }
         }
 
@@ -183,7 +161,7 @@ fun Specimen(
                 .clip(PlinthShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, CardEdge, PlinthShape)
-                .padding(horizontal = 9.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -283,15 +261,15 @@ fun LittleWindow(
         Column(
             Modifier
                 .fillMaxWidth(0.74f)
-                .padding(start = 18.dp, top = 20.dp, end = 12.dp, bottom = 18.dp),
+                .padding(start = 16.dp, top = 20.dp, end = 12.dp, bottom = 16.dp),
         ) {
             Eyebrow("A little window")
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(8.dp))
             Text(
                 headline,
                 style = MaterialTheme.typography.headlineMedium.copy(fontSize = 27.sp),
             )
-            Spacer(Modifier.size(5.dp))
+            Spacer(Modifier.size(4.dp))
             SmallCopy(caption, size = 12)
 
             // The sheet ends this card with a pill reading "Make a little
@@ -300,13 +278,13 @@ fun LittleWindow(
             // hands you to the dialer must not describe itself as anything
             // gentler than that.
             if (action != null && onAction != null) {
-                Spacer(Modifier.size(14.dp))
+                Spacer(Modifier.size(16.dp))
                 Box(
                     Modifier
                         .clip(ActionPill)
                         .background(MaterialTheme.colorScheme.primary)
                         .clickable(onClick = onAction)
-                        .padding(horizontal = 15.dp, vertical = 9.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         action,

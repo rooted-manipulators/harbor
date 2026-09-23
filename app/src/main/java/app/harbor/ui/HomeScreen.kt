@@ -1,6 +1,12 @@
 package app.harbor.ui
 
 import androidx.compose.foundation.Canvas
+import app.harbor.ui.theme.Space
+import app.harbor.ui.theme.emberFill
+import app.harbor.ui.theme.entrance
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -100,9 +106,10 @@ import java.time.ZoneId
 fun HomeScreen(
     store: HarborRepository,
     onOpenGarden: () -> Unit,
-    onOpenCues: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenPerson: (java.util.UUID) -> Unit,
+    /** Opens the contact screen on nobody, to add a new person. */
+    onAddContact: () -> Unit,
     onReflect: (LedgerEntry) -> Unit,
     modifier: Modifier = Modifier,
     /** The flower just planted, which home opens where the camera lands. */
@@ -129,6 +136,8 @@ fun HomeScreen(
     // than one vanishing and another appearing.
     var beeFrom by remember { mutableStateOf<Offset?>(null) }
     var beeLanded by remember { mutableStateOf<Offset?>(null) }
+    // Whether the field is zoomed in enough to have a bee in it at all.
+    var closeUp by remember { mutableStateOf(true) }
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         // How tall the field can be, given how tall the phone actually is.
@@ -282,6 +291,7 @@ fun HomeScreen(
                     // which is what the close opening shot costs otherwise.
                     interactive = true,
                     standClose = true,
+                    onCloseUp = { closeUp = it },
                     // Measured against whichever is shorter: a field's height,
                     // or everything the page actually has to scroll.
                     //
@@ -362,7 +372,7 @@ fun HomeScreen(
                 Column(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 24.dp, end = 24.dp, bottom = 26.dp),
+                        .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                 ) {
                     Text(
                         if (settings.name.isBlank()) "Hey there." else "Hey, ${settings.name}.",
@@ -375,7 +385,7 @@ fun HomeScreen(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.size(5.dp))
+                    Spacer(Modifier.size(4.dp))
                     // The line under the greeting is the field's caption.
                     //
                     // With nothing planted it says so, because an empty field
@@ -447,7 +457,7 @@ fun HomeScreen(
                         // "I already did" is taken at its word and writes no
                         // call -- Harbor did not see one, so Harbor does not
                         // claim one.
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             QuietAction("I already did") { close(Reminders.Closed.SAID_SO) }
                             QuietAction("Let it go") { close(Reminders.Closed.LET_GO) }
                         }
@@ -487,16 +497,31 @@ fun HomeScreen(
                 // under each one does not need to be told what it is, and the
                 // header was costing a line directly above the one thing this
                 // whole app exists to make easy.
-                if (contacts.isEmpty()) {
-                    SmallCopy("Nobody yet. Add someone, and their patch appears above.")
-                    TextLink("Choose someone", onOpenCues)
-                }
-                contacts.chunked(2).forEach { row ->
+                //
+                // The last place in the grid is always the way to add
+                // somebody. With nobody yet it is the only thing here, which
+                // is the empty state: a button, not a sentence about one.
+                (contacts.map<Contact, Contact?> { it } + null).chunked(2).forEach { row ->
                     Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            // So the dashed tile stands as tall as the person
+                            // beside it, whatever that person's tile holds.
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(Space.oneHalf),
                     ) {
                         row.forEach { contact ->
+                            if (contact == null) {
+                                AddContactTile(
+                                    onClick = onAddContact,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .heightIn(min = AddTileMin)
+                                        .entrance(contacts.size),
+                                )
+                                return@forEach
+                            }
                             PersonTile(
                                 contact = contact,
                                 // Flowers, not calls: one a minute, the same
@@ -520,7 +545,8 @@ fun HomeScreen(
                                 onCall = contact.phoneE164?.let {
                                     { Dialer.handOff(context, store, scope, contact) }
                                 },
-                                modifier = Modifier.weight(1f),
+                                // One after another, left to right and down.
+                                modifier = Modifier.weight(1f).entrance(contacts.indexOf(contact)),
                             )
                         }
                         if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -551,6 +577,7 @@ fun HomeScreen(
             fieldHeight = fieldHeight + FieldDrop,
             startAt = beeLanded,
             visible = beeFrom == null,
+            near = closeUp,
         )
 
         BeeFlight(
@@ -563,6 +590,12 @@ fun HomeScreen(
         )
     }
 }
+
+/**
+ * The shortest the add tile may be: a person's arch and plinth. Only matters
+ * when it has a row to itself and nobody beside it to match.
+ */
+private val AddTileMin = 176.dp
 
 /** A person as a specimen: their patch under glass, and a way to call them. */
 @Composable
@@ -606,16 +639,16 @@ private fun PersonTile(
                     // action in the design. It was an 8dp rectangle in flat
                     // primary, which is what the light specimen asked for.
                     .clip(RoundedCornerShape(99.dp))
-                    .background(Brush.verticalGradient(listOf(EmberLight, Ember)))
+                    .emberFill()
                     .clickable(onClick = onCall)
-                    .padding(vertical = 11.dp),
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Canvas(Modifier.size(13.dp)) {
                     drawHandset(this, onInk)
                 }
-                Spacer(Modifier.size(7.dp))
+                Spacer(Modifier.size(8.dp))
                 Text(
                     "Call " + contact.label,
                     maxLines = 1,
@@ -631,7 +664,7 @@ private fun PersonTile(
         }
 
         usual?.let {
-            Spacer(Modifier.size(7.dp))
+            Spacer(Modifier.size(8.dp))
             Eyebrow("usually ${CallStats.formatDuration(it)}")
         }
     }
@@ -648,7 +681,7 @@ internal fun TextLink(text: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             // 15 + a 13sp line clears 48dp. Quiet is about weight and colour,
             // not about being hard to press.
-            .padding(vertical = 15.dp),
+            .padding(vertical = 16.dp),
         style = MaterialTheme.typography.labelLarge.copy(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -676,9 +709,9 @@ private fun SendAPetal(onClick: () -> Unit) {
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, CardEdge, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
             Modifier

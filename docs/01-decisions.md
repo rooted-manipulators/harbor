@@ -824,3 +824,52 @@ grid.
 - Nothing tells the participant in-app that blocks arrived; they simply appear
   on the grid. Whether that wants a mark of its own is a question for the
   study, not for now.
+
+---
+
+## ADR-015 — A week can be pulled from the phone's calendar
+
+**Status:** accepted (2026-09-23)
+
+ADR-011 listed `READ_CALENDAR` second among the places a timetable could come
+from. Participants asked for it: a lot of them already keep lectures in Google
+Calendar, and drawing the same week a second time is the tedium the schedule
+screen exists to remove.
+
+### What it does
+
+A "From calendar" button at the foot of the week view. Pressing it asks for
+`READ_CALENDAR` if Harbor does not have it, reads the seven days from the start
+of today (instances, so recurring events arrive expanded), and places each
+timed event on its weekday as a busy block, labelled with its title. It is
+placed like a drawn block, so it cuts whatever it lands on. An undo follows.
+
+All-day events and events the calendar marks *free* are skipped: a birthday
+is not a busy day, and an event its owner said does not block time should not
+block a cue.
+
+### Why the permission is acceptable here
+
+- **Asked at the press, never at onboarding.** Activity recognition is the
+  funnel's biggest risk (CLAUDE.md, ADR-002). A calendar prompt beside it
+  would spend trust in the worst place; a prompt that appears because the
+  person just asked for their calendar spends almost none.
+- **Read once per press.** No sync adapter, no observer, no background read.
+  The calendar is not touched again until the button is pressed again.
+- **Nothing leaves the device.** Titles become `WeekBlock.label`, which never
+  syncs. The pull adds nothing to what the explainer screen promises about.
+- **Refusing costs nothing.** Denied, the button says so and the week is
+  unchanged; drawing and the WhatsApp bot (ADR-014) still work.
+
+### Dated events on a weekly week
+
+The calendar is dated and the week is weekly (ADR-011), so next Tuesday's
+lecture becomes every Tuesday's. That is the right reading for a timetable,
+and a one-off that lands for a week is cheap: the cue is capped and
+dismissible, and the block drags off.
+
+### Rejected
+
+- **Keeping it in sync.** A calendar observer would keep the week current
+  without a press, at the cost of Harbor reading the calendar indefinitely.
+  The WhatsApp bot already covers "stays current" without a standing read.

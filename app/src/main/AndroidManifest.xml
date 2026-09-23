@@ -46,6 +46,15 @@
     -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!--
+      Pulling a timetable out of the phone's calendar, from a button at the
+      foot of the week view. Asked for only when that button is pressed, never
+      at onboarding, and read once per press: the events become busy blocks
+      on the device and the calendar is not touched again. Nothing read here
+      syncs. ADR-015.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- The cue itself. POST_NOTIFICATIONS is a runtime prompt on API 33+. -->

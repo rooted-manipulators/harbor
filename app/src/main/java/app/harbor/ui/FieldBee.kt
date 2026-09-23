@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import app.harbor.ui.theme.Motion
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,8 +38,15 @@ import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** How big the bee is out in the field. */
-private val BEE = 46.dp
+/**
+ * How big the bee is out in the field.
+ *
+ * Thirty-two, down from forty-six. At forty-six it was the largest thing on
+ * home after the headline -- larger than the flower it was supposed to be
+ * visiting -- and a mascot that out-sizes the garden turns the garden into
+ * its backdrop.
+ */
+private val BEE = 32.dp
 
 /**
  * The bee that lives in the field. Bees arm only.
@@ -83,9 +92,25 @@ fun FieldBee(
     startAt: Offset? = null,
     /** False while a flight is in the air, so there is only ever one bee. */
     visible: Boolean = true,
+    /**
+     * Whether the field is close enough in for a bee to be seen at all.
+     *
+     * Zoomed out the field is a map, a flower is a couple of pixels, and a
+     * bee at its own size would be a fly on the lens. It fades out as the view
+     * pulls back and in again as it closes -- the field reports which through
+     * `FieldCanvas(onCloseUp = ...)`.
+     */
+    near: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (LocalStudyArm.current != StudyArm.BEES || !visible) return
+
+    val presence by animateFloatAsState(
+        targetValue = if (near) 1f else 0f,
+        animationSpec = Motion.slow(),
+        label = "bee-near",
+    )
+    if (presence == 0f && !near) return
 
     val still = LocalReducedMotion.current
     val density = LocalDensity.current
@@ -163,6 +188,7 @@ fun FieldBee(
                     // Facing the way it is going. The art faces right, so
                     // going left is a mirror of it.
                     scaleX = if (facingLeft) -1f else 1f
+                    alpha = presence
                 },
         )
     }

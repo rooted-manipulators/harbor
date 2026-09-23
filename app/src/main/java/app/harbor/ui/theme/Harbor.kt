@@ -1,5 +1,13 @@
 package app.harbor.ui.theme
 
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.runtime.State
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -103,12 +111,14 @@ private val RowShape = RoundedCornerShape(20.dp)
 @Composable
 fun Flow(
     modifier: Modifier = Modifier,
-    gap: Int = 14,
+    // 16, on the 8dp grid every spacing in the app now keeps to. It was 14,
+    // which sat between two steps and made every page's rhythm its own.
+    gap: Int = 16,
     content: @Composable ColumnScope.() -> Unit,
 ) = Column(modifier, verticalArrangement = Arrangement.spacedBy(gap.dp), content = content)
 
 /** The page's own margin. */
-fun Modifier.pageContent(): Modifier = padding(horizontal = 24.dp, vertical = 20.dp)
+fun Modifier.pageContent(): Modifier = padding(horizontal = Space.three, vertical = Space.three)
 
 /**
  * A card: frosted glass laid on the page.
@@ -123,15 +133,17 @@ fun Modifier.pageContent(): Modifier = padding(horizontal = 24.dp, vertical = 20
 @Composable
 fun Surface(
     modifier: Modifier = Modifier,
+    /** Its place down the page, so the cards arrive one after another. */
+    order: Int = 0,
     content: @Composable ColumnScope.() -> Unit,
 ) = Flow(
     modifier
-        .entrance()
+        .entrance(order)
         .fillMaxWidth()
         .clip(CardShape)
         .background(MaterialTheme.colorScheme.surface)
         .border(1.dp, CardEdge, CardShape)
-        .padding(18.dp),
+        .padding(Space.two),
     content = content,
 )
 
@@ -153,7 +165,7 @@ fun SoftSurface(
         .clip(CardShape)
         .background(MaterialTheme.colorScheme.surfaceVariant)
         .border(1.dp, CardEdge, CardShape)
-        .padding(18.dp),
+        .padding(Space.two),
     content = content,
 )
 
@@ -168,17 +180,17 @@ fun GoldSurface(
         .clip(CardShape)
         .background(SurfaceGold)
         .border(1.dp, CardEdge, CardShape)
-        .padding(18.dp),
+        .padding(Space.two),
     content = content,
 )
 
 /** The serif title of a page, over its letterspaced label. */
 @Composable
 fun PageIntro(title: String, subtitle: String? = null, eyebrow: String? = null) {
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 18.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = Space.two, bottom = Space.two)) {
         eyebrow?.let {
             Eyebrow(it)
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(Space.one))
         }
         Text(
             title,
@@ -266,11 +278,11 @@ fun SmallCopy(text: String, modifier: Modifier = Modifier, size: Int = 13) = Tex
 @Composable
 fun Notice(text: String, modifier: Modifier = Modifier) = Row(
     modifier.fillMaxWidth(),
-    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
 ) {
     Box(
         Modifier
-            .padding(top = 6.dp)
+            .padding(top = 8.dp)
             .size(5.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.onSurfaceVariant),
@@ -366,10 +378,10 @@ fun PrimaryAction(
             .pressScale(press)
             .fillMaxWidth()
             .clip(ActionShape)
-        .background(
-            if (enabled) Brush.verticalGradient(listOf(EmberLight, Ember))
-            else SolidColor(MaterialTheme.colorScheme.surfaceVariant),
-        )
+            .then(
+                if (enabled) Modifier.emberFill()
+                else Modifier.background(SolidColor(MaterialTheme.colorScheme.surfaceVariant)),
+            )
             .clickable(
                 enabled = enabled,
                 interactionSource = press,
@@ -410,7 +422,7 @@ fun Modifier.pressScale(
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) down else 1f,
-        animationSpec = spring(
+        animationSpec = if (LocalReducedMotion.current) snap() else spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium,
         ),
@@ -448,7 +460,7 @@ fun QuietAction(
             // Fourteen, not ten. Fourteen plus a 14sp line is the 48dp
             // minimum touch target; ten made this chip 39dp, which is small
             // enough to miss and is the size guidance exists to prevent.
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -504,7 +516,7 @@ fun QuietRow(text: String, meta: String, modifier: Modifier = Modifier) = Row(
         .clip(RowShape)
         .background(MaterialTheme.colorScheme.surface)
         .border(1.dp, CardEdge, RowShape)
-        .padding(horizontal = 16.dp, vertical = 13.dp),
+        .padding(horizontal = 16.dp, vertical = 12.dp),
     horizontalArrangement = Arrangement.spacedBy(12.dp),
     verticalAlignment = Alignment.CenterVertically,
 ) {
@@ -539,18 +551,76 @@ fun QuietRow(text: String, meta: String, modifier: Modifier = Modifier) = Row(
  * genuinely unpleasant, so it has to reach the small things too.
  */
 @Composable
-fun Modifier.entrance(): Modifier {
+fun Modifier.entrance(order: Int = 0): Modifier {
     if (LocalReducedMotion.current) return this
     val arrived = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        arrived.animateTo(1f, tween(durationMillis = 260, easing = FastOutSlowInEasing))
+        // A card further down the page waits a beat for the one above it, so
+        // a screen fills from the top rather than all at once.
+        arrived.animateTo(
+            1f,
+            tween(Motion.ENTER, delayMillis = order.coerceIn(0, 6) * STAGGER_MS, easing = Motion.Emphasised),
+        )
     }
-    val t = arrived.value
+    // Read in the layer, not here: reading it here recomposed every card on
+    // the page on every frame of its arrival.
     return graphicsLayer {
+        val t = arrived.value
         alpha = t
-        translationY = (1f - t) * 12.dp.toPx()
+        translationY = (1f - t) * Space.two.toPx()
     }
 }
+
+/** How long each card waits for the one above it. */
+private const val STAGGER_MS = 60
+
+/**
+ * The amber of a primary action, with light moving across it.
+ *
+ * The top-lit gradient every primary button already had, and over it a soft
+ * band of light that crosses once every few seconds and then rests. Slow
+ * enough to be noticed rather than seen, and only ever on the one thing on a
+ * screen you are being invited to press. Read in the draw pass, so the button
+ * is not recomposed while it shines; absent under reduced motion.
+ */
+@Composable
+fun Modifier.emberFill(): Modifier {
+    val sweep: State<Float>? = if (LocalReducedMotion.current) null else {
+        rememberInfiniteTransition(label = "ember").animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                keyframes {
+                    durationMillis = SHEEN_CYCLE_MS
+                    0f at 0
+                    // Crosses in the first 1.6s, then rests for the rest.
+                    1f at SHEEN_CROSS_MS using Motion.Standard
+                    1f at SHEEN_CYCLE_MS
+                },
+            ),
+            label = "sheen",
+        )
+    }
+    return drawBehind {
+        drawRect(Brush.verticalGradient(listOf(EmberLight, Ember)))
+        val t = sweep?.value ?: return@drawBehind
+        if (t >= 1f) return@drawBehind
+        val band = size.width * 0.45f
+        val x = -band + (size.width + 2 * band) * t
+        drawRect(
+            Brush.linearGradient(
+                0f to Color.Transparent,
+                0.5f to Color.White.copy(alpha = 0.28f),
+                1f to Color.Transparent,
+                start = Offset(x - band, 0f),
+                end = Offset(x + band, size.height),
+            ),
+        )
+    }
+}
+
+private const val SHEEN_CYCLE_MS = 5200
+private const val SHEEN_CROSS_MS = 1600
 
 /**
  * Whether this app should be still.
