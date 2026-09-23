@@ -1,6 +1,10 @@
 package app.harbor.ui
 
 import androidx.compose.foundation.Canvas
+import app.harbor.ui.theme.Space
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -100,9 +104,10 @@ import java.time.ZoneId
 fun HomeScreen(
     store: HarborRepository,
     onOpenGarden: () -> Unit,
-    onOpenCues: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenPerson: (java.util.UUID) -> Unit,
+    /** Opens the contact screen on nobody, to add a new person. */
+    onAddContact: () -> Unit,
     onReflect: (LedgerEntry) -> Unit,
     modifier: Modifier = Modifier,
     /** The flower just planted, which home opens where the camera lands. */
@@ -490,16 +495,30 @@ fun HomeScreen(
                 // under each one does not need to be told what it is, and the
                 // header was costing a line directly above the one thing this
                 // whole app exists to make easy.
-                if (contacts.isEmpty()) {
-                    SmallCopy("Nobody yet. Add someone, and their patch appears above.")
-                    TextLink("Choose someone", onOpenCues)
-                }
-                contacts.chunked(2).forEach { row ->
+                //
+                // The last place in the grid is always the way to add
+                // somebody. With nobody yet it is the only thing here, which
+                // is the empty state: a button, not a sentence about one.
+                (contacts.map<Contact, Contact?> { it } + null).chunked(2).forEach { row ->
                     Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            // So the dashed tile stands as tall as the person
+                            // beside it, whatever that person's tile holds.
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(Space.oneHalf),
                     ) {
                         row.forEach { contact ->
+                            if (contact == null) {
+                                AddContactTile(
+                                    onClick = onAddContact,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .heightIn(min = AddTileMin),
+                                )
+                                return@forEach
+                            }
                             PersonTile(
                                 contact = contact,
                                 // Flowers, not calls: one a minute, the same
@@ -567,6 +586,12 @@ fun HomeScreen(
         )
     }
 }
+
+/**
+ * The shortest the add tile may be: a person's arch and plinth. Only matters
+ * when it has a row to itself and nobody beside it to match.
+ */
+private val AddTileMin = 176.dp
 
 /** A person as a specimen: their patch under glass, and a way to call them. */
 @Composable

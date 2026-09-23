@@ -94,7 +94,18 @@ fun Specimen(
                 .padding(horizontal = 4.dp)
                 .border(1.dp, Hairline, ArchShape),
         ) {
-            if (flower != null) {
+            val bees = LocalStudyArm.current == StudyArm.BEES
+            if (flower != null && bees) {
+                // The bee holding the flower, in the mood the flower names.
+                // One picture for both, so it replaces the plant rather than
+                // standing beside it -- see MoodBee.
+                MoodBee(
+                    flower,
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            } else if (flower != null) {
                 Image(
                     painter = painterResource(plantOf(flower)),
                     contentDescription = null,
@@ -114,20 +125,9 @@ fun Specimen(
                 // So the frame holds the invitation instead. Not an error and
                 // not a placeholder: the true sentence about what happens next,
                 // in the shape the flower will eventually fill.
-                // Stacked, not layered, and only here.
                 //
-                // The bee below is placed for an arch with a flower in it,
-                // where bottom left is the one corner free of both the bloom
-                // and the caption. An empty arch has no flower and three
-                // centred lines instead, and at this size they run straight
-                // through a 44dp figure -- which is the arch every
-                // participant sees on their first run, before any call has
-                // happened, and so the bees arm's first sight of its own
-                // mascot. Nudging the text up only made them touch: there is
-                // not room for both in the middle of a frame this small.
-                //
-                // So in this one case the two share a column and neither has
-                // to dodge. The corner stays right for the case that lasts.
+                // In the bees arm the standing bee waits under the sentence:
+                // there is no flower yet, so no mood to show.
                 Column(
                     Modifier
                         .align(Alignment.Center)
@@ -143,8 +143,8 @@ fun Specimen(
                         ),
                         textAlign = TextAlign.Center,
                     )
-                    if (LocalStudyArm.current == StudyArm.BEES) {
-                        Spacer(Modifier.height(6.dp))
+                    if (bees) {
+                        Spacer(Modifier.height(8.dp))
                         Image(
                             painter = painterResource(R.drawable.bee_standing),
                             contentDescription = null,
@@ -152,28 +152,6 @@ fun Specimen(
                         )
                     }
                 }
-            }
-
-            // The bee keeping them company, in the bees arm only.
-            //
-            // Added beside whatever the arch already holds rather than
-            // replacing it. The twenty flowers are the reward this app is
-            // built around, and one mascot standing in for all of them would
-            // be a smaller product rather than a different metaphor -- so the
-            // flower still grows, and the bee is what is new.
-            //
-            // Bottom left, because the flower is drawn bottom *centre* and the
-            // caption sits under the whole arch: the one corner where a 44dp
-            // figure lands on neither.
-            if (LocalStudyArm.current == StudyArm.BEES && flower != null) {
-                Image(
-                    painter = painterResource(R.drawable.bee_standing),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 6.dp, bottom = 4.dp)
-                        .size(44.dp),
-                )
             }
         }
 

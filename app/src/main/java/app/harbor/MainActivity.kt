@@ -232,6 +232,12 @@ class MainActivity : ComponentActivity() {
                 var growing by remember { mutableStateOf<FlowerKind?>(null) }
                 var landed by remember { mutableStateOf<java.util.UUID?>(null) }
                 var showing by remember { mutableStateOf<java.util.UUID?>(null) }
+                // Who the contact screen opens on (null is somebody new), and
+                // where it goes back to. It used to always edit the first
+                // contact and return to Cues, which was right while there
+                // could only be one.
+                var editing by remember { mutableStateOf<java.util.UUID?>(null) }
+                var contactBack by remember { mutableStateOf(Screen.Cues) }
                 val scope = rememberCoroutineScope()
                 val home = { screen = Screen.Home }
 
@@ -402,8 +408,12 @@ class MainActivity : ComponentActivity() {
                             Screen.Home -> HomeScreen(
                                 store = store,
                                 onOpenGarden = { screen = Screen.Garden },
-                                onOpenCues = { screen = Screen.Cues },
                                 onOpenNotes = { screen = Screen.Notes },
+                                onAddContact = {
+                                    editing = null
+                                    contactBack = Screen.Home
+                                    screen = Screen.Contact
+                                },
                                 onOpenPerson = { id ->
                                     showing = id
                                     screen = Screen.Person
@@ -419,14 +429,19 @@ class MainActivity : ComponentActivity() {
 
                             Screen.Cues -> CuesSetupScreen(
                                 store = store,
-                                onEditContact = { screen = Screen.Contact },
+                                onEditContact = {
+                                    editing = store.contacts.value.firstOrNull()?.id
+                                    contactBack = Screen.Cues
+                                    screen = Screen.Contact
+                                },
                                 onOpenGarden = { screen = Screen.Garden },
                                 modifier = inset,
                             )
 
                             Screen.Contact -> ContactScreen(
                                 store = store,
-                                onDone = { screen = Screen.Cues },
+                                contactId = editing,
+                                onDone = { screen = contactBack },
                                 modifier = inset,
                             )
 
@@ -436,7 +451,11 @@ class MainActivity : ComponentActivity() {
                                 store = store,
                                 contactId = showing,
                                 onLeaveLine = { screen = Screen.Notes },
-                                onEdit = { screen = Screen.Contact },
+                                onEdit = {
+                                    editing = showing
+                                    contactBack = Screen.Person
+                                    screen = Screen.Contact
+                                },
                                 modifier = inset,
                             )
 

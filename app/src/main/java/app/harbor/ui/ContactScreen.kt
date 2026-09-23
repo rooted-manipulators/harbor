@@ -79,23 +79,33 @@ import java.util.UUID
 @Composable
 fun ContactScreen(
     store: HarborRepository,
+    /** Who to edit. Null opens the screen on somebody new. */
+    contactId: UUID?,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val contacts by store.contacts.collectAsState()
-    val existing = contacts.firstOrNull()
+    val existing = contactId?.let { wanted -> contacts.firstOrNull { it.id == wanted } }
 
     // Fixed for the life of the screen so the photo copy lands under the name
     // the saved contact will carry.
-    val id = remember(existing?.id) { existing?.id ?: UUID.randomUUID() }
+    val id = remember(contactId) { contactId ?: UUID.randomUUID() }
 
     var label by remember(existing) { mutableStateOf(existing?.label ?: "") }
     var phone by remember(existing) { mutableStateOf(existing?.phoneE164 ?: "") }
     var soundRef by remember(existing) { mutableStateOf(existing?.cueSoundRef) }
     var photoRef by remember(existing) { mutableStateOf(existing?.photoRef) }
-    var tone by remember(existing) { mutableStateOf(existing?.tone ?: Tone.GREEN) }
+    // Somebody new gets a colour nobody else has yet, while there is one, so
+    // two patches in the field are not the same green.
+    var tone by remember(existing) {
+        mutableStateOf(
+            existing?.tone
+                ?: Tone.entries.firstOrNull { t -> contacts.none { it.tone == t } }
+                ?: Tone.GREEN,
+        )
+    }
     var error by remember { mutableStateOf<String?>(null) }
 
     val previewRinger = remember { Ringer(context) }
