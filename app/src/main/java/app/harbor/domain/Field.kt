@@ -131,6 +131,40 @@ object Field {
      * wide enough to fill the view -- the one framing that could otherwise put
      * tens of thousands of blades in a single frame.
      */
+    /**
+     * How far a ground cell's wash reaches, as a fraction of the cell step.
+     *
+     * **This is the fix for the void.** The ground is drawn as one dot per
+     * cell, and a dot is about two and a half pixels where the cells are
+     * fifteen apart — so the ground covered roughly a tenth of its own area
+     * and the other nine tenths were the page showing through. Zoomed out that
+     * did not read as a meadow made of dots. It read as black with specks on
+     * it, which is what it kept being called.
+     *
+     * So each ground cell now also lays down a soft disc a little wider than
+     * the gap to its neighbour, all of them into one path, filled once
+     * underneath the dots. Overlapping circles in a single path fill evenly
+     * rather than stacking, so the result is a continuous surface in the
+     * cell's own colour with the crisp dot still on top of it as texture.
+     *
+     * Made of the cells rather than drawn as a rectangle on purpose: the
+     * island keeps its silhouette, the water keeps its edge, and ground the
+     * camera cannot see costs nothing.
+     *
+     * Above 0.71 the discs are guaranteed to meet on the diagonal, which is
+     * what closes the last gaps.
+     */
+    const val GROUND_WASH = 0.78
+
+    /**
+     * How solid that surface is.
+     *
+     * Under the dots rather than instead of them: leave a little of the ground
+     * showing and the field keeps the depth the dots were giving it. Flat at
+     * 1.0 the meadow turns into a sheet of paper.
+     */
+    const val GROUND_WASH_ALPHA = 0.88f
+
     const val GRASS_BUDGET = 1400
 
     /**
