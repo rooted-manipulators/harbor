@@ -34,9 +34,30 @@ object Terrain {
 
     const val SEED = 20260911
 
-    const val CELL = 15.0
-    const val COLS = 156
-    const val ROWS = 116
+    /**
+     * How closely the ground is sampled, and over how many steps.
+     *
+     * These three move together and the world does not move with them:
+     * [FIELD_W] and [FIELD_H] are the product, so halving [CELL] while
+     * doubling [COLS] and [ROWS] leaves the island exactly where it was. The
+     * landform is sampled from continuous functions of world position
+     * ([landAt], [heightAt], [moistureAt]) and does not know the grid exists,
+     * so a denser grid is the same island described in more cells rather than
+     * a different island.
+     *
+     * What does change is everything drawn from `hash2(col, row, ...)` — the
+     * per-cell jitter, tone and chance — because those are keyed on the grid
+     * indices. Scatter is redealt; shape is not.
+     *
+     * Raised from 15.0 / 156 / 116 by half again, which is 2.25 times the
+     * cells. Affordable because a frame no longer touches cells it cannot see:
+     * the cost of the field is what is on screen, not how much of it exists.
+     * See [Field.BLOCK]. Turn these if the ground wants to be denser still --
+     * it is one ratio, and the three have to keep their product.
+     */
+    const val CELL = 10.0
+    const val COLS = 234
+    const val ROWS = 174
 
     const val FIELD_W = COLS * CELL
     const val FIELD_H = ROWS * CELL

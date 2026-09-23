@@ -263,6 +263,11 @@ class CueActivity : ComponentActivity() {
             thresholdSnapshot = store.settings.value.thresholds,
             resolution = resolution,
             proposedTime = this.proposedTime.takeIf { resolution == Resolution.PROPOSED_LATER },
+            // Carried rather than defaulted. This rebuilds the whole row
+            // against a stable id and append replaces by id, so letting it
+            // fall back to false would quietly re-open a plan already closed.
+            reminderDone = prior?.reminderDone == true &&
+                resolution == Resolution.PROPOSED_LATER,
             feedbackPulse = pulse ?: prior?.feedbackPulse,
             callMinutes = callMinutes ?: prior?.callMinutes,
             feeling = feeling ?: prior?.feeling,

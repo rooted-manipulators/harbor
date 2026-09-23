@@ -14,6 +14,27 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
 
+    <!--
+      The scrolling trigger: how long you have been in one app.
+
+      Not a runtime permission and not one an app may be granted the ordinary
+      way — it is signature-level, and the only way in is the user finding
+      Harbor in Settings > Usage access and turning it on. tools:ignore is
+      therefore not a shortcut round a check; the check is a person, in
+      Settings, doing it deliberately. sensing/ScrollWatch.hasPermission asks
+      AppOps whether they did.
+
+      Declared for everybody and used by almost nobody: it does nothing at all
+      unless UserSettings.scrollCues is on, which is off until somebody takes
+      the option on the onboarding screen. The disclosure they are shown there
+      is written against ScrollWatch, and says what this reads: which app is
+      in front, and for how long. There is no API here for anything on the
+      screen, and Harbor asks for none of the ones that come close.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- Re-register transition updates after a reboot; they do not survive it. -->
     <!--
       Placing the call itself, rather than handing the number to the dialer
@@ -24,6 +45,15 @@
       call, it times how long you were away.
     -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <!--
+      Pulling a timetable out of the phone's calendar, from a button at the
+      foot of the week view. Asked for only when that button is pressed, never
+      at onboarding, and read once per press: the events become busy blocks
+      on the device and the calendar is not touched again. Nothing read here
+      syncs. ADR-015.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
@@ -40,6 +70,124 @@
     -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <!--
+      Harbor has no foreground service (ADR-008): it waits as a cached process
+      for Play services to wake it with a transition. OEM power management
+      freezes exactly that kind of process, and a frozen app is never handed
+      the transition — the walk is sensed and nothing runs. Measured on a
+      Galaxy S24+ (One UI, Android 16) on 2026-09-17: frozen roughly two
+      minutes after being backgrounded, three real walks lost, no error
+      anywhere for the app to report.
+
+      Declared so onboarding can offer the system's own one-tap dialog instead
+      of sending somebody hunting through Settings. It is asked for, never
+      assumed, and a refusal leaves Harbor working exactly as it does today.
+
+      The cost: Play policy restricts this permission to apps whose core
+      function genuinely requires it, so a store listing would have to justify
+      it. Harbor is built for a one-week study and is not listed. Revisit if
+      that ever changes.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
+      The reversal of ADR-008, recorded there and reasoned about in
+      sensing/SensingService. Short version: a cached process is frozen by
+      every OEM skin this study will meet, and a frozen process is never
+      handed the transition, so the cue could not fire at all. A foreground
+      service is the only thing that reliably stops a process being cached.
+
+      HEALTH is the type that covers activity recognition, and the runtime
+      permission it requires is ACTIVITY_RECOGNITION, which Harbor already
+      holds and already explains. It grants nothing new.
+    -->
+    <!--
+      Putting the cue in front of the app somebody is using.
+
+      A full-screen intent covers the locked or dark phone and does nothing
+      on one that is unlocked and in use: there the system shows a heads-up
+      banner and leaves you where you were. That is right for almost
+      everything and wrong for the scrolling trigger, whose entire job is to
+      interrupt the feed in front of you. A banner over a feed is a thing
+      people flick away without reading.
+
+      This is the only grant that lets an activity start from the background
+      on a phone in somebody's hand. It is heavy, it has a frightening name,
+      and it is the permission every overlay scam needs, so Harbor asks late
+      and only of people who turned the scrolling trigger on. Without it the
+      cue degrades to the banner, which is what every other path already
+      does; it is never a condition of the app working. See
+      cue/CueNotifier.canOpenOverApps.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+
+    <!--
+      The network. Added 17 Sep 2026 by ADR-013, and worth pausing over.
+
+      Its absence used to be the strongest privacy guarantee in this app: not a
+      policy but a fact, checkable by reading this file, that nothing it
+      recorded could reach anybody. That guarantee is spent now, because two
+      accounts cannot share a schedule through a preferences file and the other
+      person has the app too.
+
+      What it buys is exactly one thing so far: asking somebody if you may see
+      when they are free, and being told. What it must never buy is the cue
+      path. Sensing, the policy, the ledger and the reminder surface all still
+      have to work with the radio off, on a train, with no signal. That was
+      ADR-003's real argument and it survives the reversal as a constraint.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Which other apps Harbor is allowed to see the existence of.
+
+      From Android 11 an app sees only itself and a short list of system
+      packages unless it says otherwise here, and `targetSdk` is 37, so the
+      filtering is fully on. Without this block the scrolling trigger
+      compiles, installs, senses correctly and then never fires: usage access
+      lets Harbor read that `com.instagram.android` was in front, but
+      `getLaunchIntentForPackage` on that name returns null, and
+      ScrollWatch.counts reads a null launch intent as "not an app anybody
+      chose to be in". Every real app would be excluded and the trigger would
+      be silent for the whole study, with nothing anywhere saying why.
+      Confirmed empty on the test phone before this was added.
+
+      The LAUNCHER filter rather than QUERY_ALL_PACKAGES, and the difference
+      is the point: this reveals exactly the apps that appear in the app
+      drawer, which is exactly the set the trigger cares about. Anything
+      without a launcher entry - system UI, the keyguard, the overlays that
+      can be reported as foreground - stays invisible, and stays invisible is
+      the same answer as excluded. QUERY_ALL_PACKAGES would grant more, is
+      restricted on Play, and would be a larger claim than the onboarding
+      screen makes.
+
+      HOME is separate because a launcher's home activity is not always also
+      a drawer entry, and ScrollWatch has to recognise the launcher in order
+      to not count sitting on a home screen as a sitting.
+
+      USAGE_ACCESS_SETTINGS is resolved before the "Open usage access" button
+      is offered. Unresolvable means no button, which on a phone where the
+      screen does exist would leave the permission ungrantable from inside
+      the app - the one permission with no dialog of its own.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.USAGE_ACCESS_SETTINGS" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -54,11 +202,36 @@
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Harbor"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              Where a provider sign-in comes home to.
+
+              Google and Microsoft take the browser, not the app: a password
+              field on a screen the app drew is the exact shape of a phishing
+              page, and both providers refuse to be loaded in a WebView for
+              that reason. So the browser does it and hands back here, with the
+              tokens in the URL fragment.
+
+              singleTask above is what makes that land in the running app
+              through onNewIntent rather than starting a second copy of Harbor
+              on top of the first. The scheme has to match
+              SupabaseClient.REDIRECT exactly; change one and the sign-in ends
+              on a page that says it cannot be found.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="harbor" android:host="auth" />
             </intent-filter>
         </activity>
 
@@ -87,12 +260,62 @@
             android:name=".sensing.TransitionReceiver"
             android:exported="false" />
 
+        <!--
+          Does no work: it exists so the process is not cached, and therefore
+          not frozen, so the receiver above can actually be woken. See
+          sensing/SensingService.
+        -->
+        <service
+            android:name=".sensing.SensingService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
+        <!--
+          The settle timer. A walk that has just ended cannot fire yet — the
+          policy wants ninety seconds of stillness first — and Play services
+          has no further transition to send while somebody stays still, so
+          this is what comes back to ask again. See sensing/SettleAlarm.
+
+          No permission: the alarm is inexact (setAndAllowWhileIdle), which is
+          deliberate — SCHEDULE_EXACT_ALARM is not worth spending on a
+          ninety-second timer.
+        -->
+        <receiver
+            android:name=".sensing.SettleReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".sensing.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
+            <!--
+              A new build breaks sensing exactly as a reboot does, and more
+              quietly. Participants are handed builds mid-week; without this
+              their phone stops noticing walks until somebody opens Harbor by
+              hand. Delivered to the app being replaced, so no data scheme is
+              needed.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          "How is life right now", as a home-screen widget. exported="true":
+          the widget host (the launcher) is a different app and has to be able
+          to bind to this. See widget/WeatherWidget.
+        -->
+        <receiver
+            android:name=".widget.WeatherWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/weather_widget_info" />
         </receiver>
     </application>
 

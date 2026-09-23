@@ -26,6 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.snap
+import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Spring
@@ -108,7 +110,9 @@ fun HarborShell(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .clickable(onClick = onBack)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            // 12 top and bottom: with the label that is a
+                            // 44dp target, which is what a thumb needs.
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
                         style = MaterialTheme.typography.labelLarge.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         ),
@@ -155,7 +159,7 @@ fun HarborShell(
                     .clip(NavShape)
                     .background(NavGlass)
                     .border(1.dp, Hairline, NavShape)
-                    .padding(5.dp),
+                    .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 HarborTab.entries.forEach { candidate ->
@@ -185,7 +189,15 @@ fun HarborShell(
  * paints its own ground -- the field, the garden -- covers it rather than
  * fighting it.
  */
-internal fun DrawScope.drawDusk() {
+internal fun DrawScope.drawDusk(
+    /**
+     * Where the light is in its slow drift, 0 to 1 and back. The sun wanders a
+     * few percent of the width and swells a little, over most of a minute --
+     * never enough to notice moving, always enough that the page is alive.
+     */
+    drift: Float = 0.5f,
+) {
+    val sway = (drift - 0.5f) * 2f
     // The wash: blue overhead, falling through ember to the ground.
     //
     // Reaching further down the page than the design file's own stops do.
@@ -220,8 +232,8 @@ internal fun DrawScope.drawDusk() {
             // the card is meant to be glass over the *end* of the light, not a
             // pane in the middle of it. At 0.78 the sunset finishes inside the
             // field's own height and the page below it is night.
-            center = Offset(size.width / 2f, -size.height * 0.10f),
-            radius = size.height * 0.78f,
+            center = Offset(size.width * (0.5f - 0.03f * sway), -size.height * 0.10f),
+            radius = size.height * (0.78f + 0.02f * sway),
         ),
         size = size,
     )
@@ -234,8 +246,8 @@ internal fun DrawScope.drawDusk() {
                 0.40f to Color(0x40F0A35F),
                 1.00f to Color(0x00F0783C),
             ),
-            center = Offset(size.width / 2f, size.height * 0.04f),
-            radius = size.width * 0.74f,
+            center = Offset(size.width * (0.5f + 0.06f * sway), size.height * 0.04f),
+            radius = size.width * (0.74f + 0.05f * sway),
         ),
         size = size,
     )
@@ -281,12 +293,24 @@ private fun NavItem(tab: HarborTab, current: Boolean, onClick: () -> Unit) {
         animationSpec = tween(220),
         label = "tab label",
     )
+    // The one part of this that is movement rather than colour.
+    //
+    // The three cross-fades above stay whatever the setting says: a colour
+    // arriving over two hundred milliseconds is not motion, and snapping
+    // them would be a harsher screen rather than a calmer one. A bouncing
+    // scale is motion, and somebody who asked for less of it gets the tab
+    // at its size straight away.
+    val still = LocalReducedMotion.current
     val lift by animateFloatAsState(
         targetValue = if (current) 1f else 0.92f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
+        animationSpec = if (still) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            )
+        },
         label = "tab lift",
     )
 
@@ -296,9 +320,9 @@ private fun NavItem(tab: HarborTab, current: Boolean, onClick: () -> Unit) {
             .pressScale(press)
             .clip(NavShape)
             .clickable(interactionSource = press, indication = null, onClick = onClick)
-            .padding(top = 6.dp, bottom = 4.dp),
+            .padding(top = 8.dp, bottom = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
             Modifier

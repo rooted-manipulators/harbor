@@ -5,6 +5,8 @@ import app.harbor.domain.CuePolicy.Decision
 import app.harbor.domain.CuePolicy.Reason
 import app.harbor.domain.CuePolicy.Signal
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Duration
 import java.time.Instant
@@ -20,6 +22,15 @@ class CuePolicyTest {
     /** Cues on, suggested calibration. The state a consenting user is in. */
     private val settings = UserSettings(cuesEnabled = true)
     private val thresholds = settings.thresholds
+
+    /**
+     * Someone who has asked for a quiet gap.
+     *
+     * The suggestion no longer carries one, so the gap has to be set on
+     * purpose to test it. That is the point of the tests below: the mechanism
+     * still works for anybody who wants it, it is simply no longer imposed.
+     */
+    private val spaced = settings.copy(thresholds = thresholds.copy(cooldownMinutes = 120))
 
     /** A walk that just ended, long enough and settled enough to fire. */
     private fun walkSignal(
@@ -62,10 +73,12 @@ class CuePolicyTest {
         lastCueAt: Instant? = entriesToday.maxOfOrNull { it.occurredAt },
         hasPendingReminder: Boolean = false,
         busyNow: Boolean = false,
+        cuesTodayBySource: Map<TriggerSource, Int> = emptyMap(),
+        source: TriggerSource? = null,
     ) = CuePolicy.decide(
-        signal,
+        source?.let { signal.copy(source = it) } ?: signal,
         settings,
-        DayState(entriesToday, cuesToday, lastCueAt, hasPendingReminder, busyNow),
+        DayState(entriesToday, cuesToday, lastCueAt, hasPendingReminder, busyNow, cuesTodayBySource),
         now,
     )
 
@@ -172,14 +185,14 @@ class CuePolicyTest {
 
     @Test
     fun the_cap_counts_cues_that_fired_not_entries_that_were_written() {
-        // Two cues fired, only one was answered. The unanswered one still
-        // spent part of the user's budget — this is the whole reason cues are
-        // tracked separately from moments.
+        // The day's worth of cues fired, only one was answered. The
+        // unanswered ones still spent the user's budget — this is the whole
+        // reason cues are tracked separately from moments.
         assertEquals(
             Decision.Hold(Reason.DAILY_CAP_REACHED),
             decide(
                 entriesToday = listOf(entry()),
-                cuesToday = 2,
+                cuesToday = thresholds.dailyCap,
                 lastCueAt = now.minus(Duration.ofHours(9)),
             ),
         )
@@ -193,7 +206,9 @@ class CuePolicyTest {
         assertEquals(
             Decision.Hold(Reason.DAILY_CAP_REACHED),
             decide(
-                settings = settings.copy(thresholds = thresholds.copy(dailyCap = 1)),
+                settings = settings.copy(
+                    thresholds = thresholds.copy(dailyCap = 1, sourceCap = 1),
+                ),
                 cuesToday = 1,
                 lastCueAt = now.minus(Duration.ofHours(9)),
             ),
@@ -201,27 +216,183 @@ class CuePolicyTest {
     }
 
     @Test
+    fun `a scrolling stretch is not made to wait for a stillness that never comes`() {
+        // The two triggers are opposite in shape, and this is where that
+        // shows. A walk is worth interrupting once it has ended, so the
+        // policy waits out SETTLE first. A long stretch in one app is worth
+        // interrupting while it is still going on -- and it is going on, so
+        // there is no stillness to wait for. Held on the same rule, it could
+        // never fire at all: the poll would offer the stretch, the policy
+        // would say "not settled", and by the time anything was settled the
+        // phone would be face down on a table.
+        val scrolling = Signal(
+            source = TriggerSource.SESSION_END,
+            activeMinutes = 25,
+            stillSince = now,
+        )
+        assertEquals(
+            Decision.Fire,
+            decide(signal = scrolling, settings = settings.copy(scrollCues = true)),
+        )
+        // The walk still waits, which is the half of this that must not move.
+        assertEquals(
+            Decision.Hold(Reason.TRANSITION_UNSETTLED),
+            decide(signal = walkSignal(stillFor = Duration.ofSeconds(5))),
+        )
+    }
+
+    @Test
+    fun `a trigger nobody asked for never fires`() {
+        // Scrolling is opt-in, and the opt-in is the consent: Harbor reads
+        // which app is in front only for people who said yes on the
+        // onboarding screen. A SESSION_END arriving for anybody else is a
+        // reading that should not have happened, so the policy refuses it
+        // before the caps -- a refused trigger must not spend a slot the
+        // walking one could have used.
+        assertEquals(
+            Decision.Hold(Reason.SOURCE_OFF),
+            decide(source = TriggerSource.SESSION_END, lastCueAt = null),
+        )
+        assertEquals(
+            Decision.Fire,
+            decide(
+                settings = settings.copy(scrollCues = true),
+                source = TriggerSource.SESSION_END,
+                lastCueAt = null,
+            ),
+        )
+        // And it is the scrolling trigger alone that the switch governs.
+        assertEquals(
+            Decision.Fire,
+            decide(source = TriggerSource.WALKING_STOP, lastCueAt = null),
+        )
+    }
+
+    @Test
+    fun `one trigger cannot eat the whole day's allowance`() {
+        // The reason this exists: a walking stop happens once or twice a day,
+        // a phone-in-hand session ends dozens of times. Against a shared
+        // ceiling the frequent one takes every slot and the rare one is never
+        // seen -- so a week of running both would end with a hundred of one
+        // and four of the other.
+        val split = settings.copy(
+            // Switched on, because this test is about the ceiling rather than
+            // the switch -- scrollCues defaults to off and would otherwise
+            // hold every SESSION_END below for the wrong reason.
+            scrollCues = true,
+            thresholds = thresholds.copy(dailyCap = 4, sourceCap = 2),
+        )
+        // Two from this source already, and the day is only half spent.
+        assertEquals(
+            Decision.Hold(Reason.SOURCE_CAP_REACHED),
+            decide(
+                settings = split,
+                cuesToday = 2,
+                cuesTodayBySource = mapOf(TriggerSource.WALKING_STOP to 2),
+                lastCueAt = now.minus(Duration.ofHours(9)),
+            ),
+        )
+        // The other source still has its own share. This is the whole point:
+        // the day is not full, only one trigger's part of it is.
+        assertEquals(
+            Decision.Fire,
+            decide(
+                settings = split,
+                cuesToday = 2,
+                cuesTodayBySource = mapOf(TriggerSource.WALKING_STOP to 2),
+                source = TriggerSource.SESSION_END,
+                lastCueAt = now.minus(Duration.ofHours(9)),
+            ),
+        )
+    }
+
+    @Test
+    fun `a source cap left unset is just the daily cap`() {
+        // The suggestion sets one now that there are two sensed triggers,
+        // so unset has to be built rather than borrowed.
+        val unset = thresholds.copy(dailyCap = 2, sourceCap = null)
+        // One sensed trigger cannot out-compete itself, so nothing should
+        // change for an install that never sets this.
+        assertEquals(2, unset.perSourceCap)
+        // And it must survive copy(): a default that read dailyCap directly
+        // would leave a stale source cap behind and fail the requirement.
+        assertEquals(1, unset.copy(dailyCap = 1).perSourceCap)
+    }
+
+    @Test
     fun a_cap_below_one_is_rejected_rather_than_silently_accepted() {
-        val error = runCatching { thresholds.copy(dailyCap = 0) }.exceptionOrNull()
+        val error = runCatching {
+            thresholds.copy(dailyCap = 0, sourceCap = null)
+        }.exceptionOrNull()
         assertEquals(IllegalArgumentException::class.java, error?.javaClass)
     }
 
     @Test
     fun the_suggested_calibration_matches_the_prototype() {
         // These are the numbers the study measures drift against, and they
-        // are duplicated in 0001_init.sql as column defaults. If you retune
-        // one, retune both.
-        assertEquals(10, Thresholds.SUGGESTED.walkingMinutes)
+        // are duplicated in the schema as column defaults. If you retune one,
+        // retune both -- 0014 carries this one.
+        //
+        // Three, not the prototype's ten. Ten is a deliberate walk and the
+        // right number for the study; it is also a threshold nobody crosses
+        // while somebody is watching them use the app, so no test session ever
+        // saw a reminder fire on its own. Watching a stranger meet the real
+        // trigger is worth more right now than matching the prototype, and the
+        // stepper on the sensing screen moves it either way.
+        assertEquals(3, Thresholds.SUGGESTED.walkingMinutes)
         assertEquals(20, Thresholds.SUGGESTED.sessionMinutes)
-        assertEquals(2, Thresholds.SUGGESTED.dailyCap)
-        assertEquals(120, Thresholds.SUGGESTED.cooldownMinutes)
+        // Four, split two and two, from the day the scrolling trigger
+        // shipped. Not a loosening: each trigger's share is the two the cap
+        // used to be, and somebody running only the walk is unchanged in
+        // practice. It is the split that matters -- see sourceCap, and the
+        // test below it. 0015 carries the column defaults.
+        assertEquals(4, Thresholds.SUGGESTED.dailyCap)
+        assertEquals(2, Thresholds.SUGGESTED.perSourceCap)
+        // The one that no longer matches the prototype, which suggested two
+        // hours. Deliberate, and recorded in docs/02: a gap nobody could see
+        // or change was a rule wearing a suggestion's clothes, and it made the
+        // trigger impossible to watch work. 0012 moves the column default to
+        // match. The cap is the limit that remains.
+        assertEquals(0, Thresholds.SUGGESTED.cooldownMinutes)
+    }
+
+    @Test
+    fun a_zero_gap_lets_a_second_cue_follow_immediately() {
+        assertEquals(
+            Decision.Fire,
+            decide(lastCueAt = now.minus(Duration.ofSeconds(1))),
+        )
+    }
+
+    @Test
+    fun a_zero_gap_does_not_hold_a_cue_when_the_clock_has_gone_backwards() {
+        // lastCueAt in the future, which an NTP correction can produce. With
+        // the gate off there is nothing to compare against and nothing to
+        // hold; the arithmetic alone would have refused for ever.
+        assertEquals(
+            Decision.Fire,
+            decide(lastCueAt = now.plus(Duration.ofMinutes(5))),
+        )
+    }
+
+    @Test
+    fun a_gap_that_was_asked_for_is_still_enforced() {
+        assertEquals(
+            Decision.Hold(Reason.IN_COOLDOWN),
+            decide(settings = spaced, lastCueAt = now.minus(Duration.ofMinutes(119))),
+        )
     }
 
     @Test
     fun holds_inside_the_cooldown_window() {
         assertEquals(
             Decision.Hold(Reason.IN_COOLDOWN),
-            decide(lastCueAt = now.minus(Duration.ofMinutes(thresholds.cooldownMinutes - 1L))),
+            decide(
+                settings = spaced,
+                lastCueAt = now.minus(
+                    Duration.ofMinutes(spaced.thresholds.cooldownMinutes - 1L),
+                ),
+            ),
         )
     }
 
@@ -229,7 +400,12 @@ class CuePolicyTest {
     fun fires_once_the_cooldown_has_cleared() {
         assertEquals(
             Decision.Fire,
-            decide(lastCueAt = now.minus(Duration.ofMinutes(thresholds.cooldownMinutes + 1L))),
+            decide(
+                settings = spaced,
+                lastCueAt = now.minus(
+                    Duration.ofMinutes(spaced.thresholds.cooldownMinutes + 1L),
+                ),
+            ),
         )
     }
 
@@ -240,7 +416,11 @@ class CuePolicyTest {
         // today had just rolled over.
         assertEquals(
             Decision.Hold(Reason.IN_COOLDOWN),
-            decide(entriesToday = emptyList(), lastCueAt = now.minus(Duration.ofMinutes(10))),
+            decide(
+                settings = spaced,
+                entriesToday = emptyList(),
+                lastCueAt = now.minus(Duration.ofMinutes(10)),
+            ),
         )
     }
 
@@ -308,6 +488,37 @@ class CuePolicyTest {
     @Test
     fun fires_the_moment_the_settle_window_is_met() {
         assertEquals(Decision.Fire, decide(walkSignal(stillFor = CuePolicy.SETTLE)))
+    }
+
+    // --- stage 4, deferred: the re-ask once it has settled ------------------
+    //
+    // Every test above hands `decide` a signal that is already settled, which
+    // is what the production path could never do: the transition arrives the
+    // instant stillness is detected, so the first ask is always inside SETTLE
+    // and always refused. Nothing came back afterwards, so no sensed walk ever
+    // became a reminder, and none of these tests could see it — they were
+    // describing a caller that did not exist. `sensing/SettleAlarm` is now
+    // that caller, and these cover the part of its contract that is pure.
+
+    @Test
+    fun a_walk_waiting_to_settle_has_not_expired() {
+        assertFalse(CuePolicy.settleExpired(now, now.plus(CuePolicy.SETTLE)))
+    }
+
+    @Test
+    fun a_late_alarm_still_fires_inside_the_window() {
+        // Doze holds an inexact alarm until a maintenance window, so landing
+        // minutes late is normal rather than exceptional.
+        val late = now.plus(CuePolicy.SETTLE).plus(Duration.ofMinutes(5))
+        assertFalse(CuePolicy.settleExpired(now, late))
+    }
+
+    @Test
+    fun a_stop_that_finished_long_ago_is_dropped_rather_than_fired() {
+        // The worst thing this file can do is fire at the wrong moment, and a
+        // reminder for a walk that ended an hour ago is exactly that.
+        val muchLater = now.plus(Duration.ofHours(1))
+        assertTrue(CuePolicy.settleExpired(now, muchLater))
     }
 
     @Test

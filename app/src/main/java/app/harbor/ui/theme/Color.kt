@@ -1,6 +1,7 @@
 package app.harbor.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 
 /**
  * Harbor's palette, taken from "Harbor Reskin" — the dark glass language.
@@ -99,6 +100,17 @@ val Muted = Color(0xFF9C978F)
  */
 val CardEdge = Color(0x17FFFFFF)
 
+/**
+ * The lit segment of a segmented control, on a Glass track.
+ *
+ * Lighter than the track rather than tinted gold. Gold is the app's "press
+ * this" colour and a chosen segment is not an action -- it is a statement
+ * about which of three things you are already looking at, and colouring it
+ * like a button would make two of the three read as disabled.
+ */
+val SpanPicked = Color(0x22FFFFFF)
+
+
 /** The drawn line: outline chips, dividers, anything that must read as a rule. */
 val Hairline = Color(0x2EFFFFFF)
 
@@ -127,6 +139,56 @@ val Ember = Color(0xFFE08A3C)
 
 /** The top of the primary action's gradient, which runs [EmberLight] to [Ember]. */
 val EmberLight = Color(0xFFF5B85C)
+/**
+ * A hole you type into: white at eight per cent, composited onto [Paper].
+ *
+ * Composited rather than left as alpha, unlike a card, and for a reason the
+ * note above does not cover: a field is a hole, not a window. It wants to read
+ * as the same depth wherever it sits on the page, including on top of another
+ * translucent thing, and an alpha that stacked with whatever was under it
+ * would make the same field a different colour on two screens.
+ *
+ * Derived rather than written out. The onboarding flow and the week editor had
+ * arrived at `0xFF202124` independently, under two different names, and a
+ * literal that two files have separately worked out by hand is a literal that
+ * will drift the first time [Paper] moves.
+ */
+val Glass = Color.White.copy(alpha = 0.08f).compositeOver(Paper)
+
+/**
+ * A whole card marked live: [Gold] at eight per cent, composited onto [Paper].
+ *
+ * A card filled solid amber would shout down the question above it, so the
+ * accent arrives as a tint and a rim instead. Same reasoning as [Glass] for
+ * compositing, and same reason for deriving it.
+ */
+val ChosenFill = Gold.copy(alpha = 0.08f).compositeOver(Paper)
+
+/**
+ * The rim on a chosen card: [Gold] at twenty per cent.
+ *
+ * Alpha, not composited, because a rim is drawn over whatever it crosses and
+ * is meant to pick that up.
+ */
+val ChosenEdge = Gold.copy(alpha = 0.20f)
+
+// --- the day dial -------------------------------------------------------
+//
+// Illustration, like the garden's flowers and the field's terrain, and exempt
+// from the one-accent rule for the same reason those are: this is a drawn
+// object on the page rather than a piece of chrome, and the rule exists to
+// stop the *interface* shouting. A dial in card grey with an amber hand would
+// obey the letter of it and look like a settings row.
+//
+// Measured off the reference frames. Warm violet lit from the middle, so the
+// hands and the tick marks read white against it and the peach of a free arc
+// sits beside it as a different temperature rather than a different shade.
+
+/** The middle of the face. */
+val DialLit = Color(0xFFA862B4)
+
+/** Its rim. */
+val DialDeep = Color(0xFF59286D)
 
 /** The cool end of the dusk, behind the cards on Account and Schedule. */
 val Dusk = Color(0xFF2F4A63)
@@ -162,6 +224,21 @@ val SurfaceGreen = Color(0xFFCFE0C6)
 val SurfaceGold = Color(0xFFF5C77A)
 val SurfaceOrange = Color(0xFFE9C7A1)
 val SurfaceSky = Color(0xFFC9D8E9)
+
+/**
+ * The ground the consent screen stands on, and the only screen that has one.
+ *
+ * Onboarding is painted on a warm wash, which is right for a flow about
+ * somebody you love and wrong for four paragraphs of what-we-read-and-where-
+ * it-stays. The wash is brightest exactly where that body copy sits, so the
+ * copy went grey-on-orange and stopped being readable on the one screen where
+ * being read is the entire function.
+ *
+ * A deep blue instead: far enough from the wash to be a different place, dark
+ * enough for white type at full contrast, and close enough to [Paper] that
+ * arriving on it does not feel like leaving the app.
+ */
+val TermsGround = Color(0xFF11202F)
 
 // --- the marks ----------------------------------------------------------
 //

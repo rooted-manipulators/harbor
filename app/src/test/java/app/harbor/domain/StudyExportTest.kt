@@ -28,6 +28,8 @@ class StudyExportTest {
     private fun bundle(
         note: String? = "SECRET_WORDS",
         topic: String? = "the tomatoes",
+        arm: StudyArm = StudyArm.GARDEN,
+        grants: StudyExport.Grants = allGranted,
     ) = StudyExport.Bundle(
         participant = UUID.fromString("33333333-3333-3333-3333-333333333333"),
         exportedAt = at,
@@ -84,6 +86,9 @@ class StudyExportTest {
             ),
         ),
         lastTransitionAt = at,
+        grants = grants,
+        arm = arm,
+        studyCode = if (arm == StudyArm.BEES) "B-07" else "A-07",
         beats = listOf(
             Beat(at, Moment.APP_OPENED),
             Beat(at, Moment.CALL_STARTED, TriggerSource.WALKING_STOP.name),
@@ -91,7 +96,53 @@ class StudyExportTest {
         ),
     )
 
+    /**
+     * Everything granted, which is the uninteresting case and therefore the
+     * right default: a test that is not about permissions should not have to
+     * think about them, and the tests below that *are* about them pass their
+     * own.
+     */
+    private val allGranted = StudyExport.Grants(
+        activityRecognition = true,
+        notifications = true,
+        fullScreen = true,
+        overApps = true,
+        usageAccess = true,
+        unrestricted = true,
+    )
+
     // --- redaction ----------------------------------------------------------
+
+    @Test
+    fun `the file says which switches were on, so a quiet week can be read`() {
+        // A week with no cues has five explanations and only one of them is
+        // a finding. Without these the other four are invisible and every
+        // one of them looks like "the trigger did not fire".
+        val blind = StudyExport.json(
+            bundle(
+                grants = StudyExport.Grants(
+                    activityRecognition = true,
+                    notifications = false,
+                    fullScreen = false,
+                    overApps = false,
+                    usageAccess = false,
+                    unrestricted = false,
+                ),
+            ),
+        )
+        assertTrue(blind.contains("\"notifications\":false"))
+        assertTrue(blind.contains("\"usage_access\":false"))
+        assertTrue(blind.contains("\"over_apps\":false"))
+        assertTrue(blind.contains("\"unrestricted\":false"))
+        assertTrue(StudyExport.json(bundle()).contains("\"notifications\":true"))
+    }
+
+    @Test
+    fun `the per-trigger cap is on the file`() {
+        // Four a day means nothing to a reader who cannot see that only two
+        // of them could ever have come from the walk.
+        assertTrue(StudyExport.json(bundle()).contains("\"source_cap\":2"))
+    }
 
     @Test
     fun `the words of a line never leave the phone`() {
@@ -169,7 +220,38 @@ class StudyExportTest {
         assertTrue(json.contains("\"resolution\":\"called\""))
         // 3: where people moved their thresholds, as in force at the time.
         assertTrue(json.contains("\"threshold_snapshot\""))
-        assertTrue(json.contains("\"walking_minutes\":10"))
+        assertTrue(json.contains("\"walking_minutes\":3"))
+    }
+
+    @Test
+    fun `the arm is on the file, so two arms are one table`() {
+        // Without this the study is two piles of results nobody can tell
+        // apart, and nothing recovers it after the fact.
+        assertTrue(StudyExport.json(bundle(arm = StudyArm.GARDEN)).contains("\"arm\":\"garden\""))
+        assertTrue(StudyExport.json(bundle(arm = StudyArm.BEES)).contains("\"arm\":\"bees\""))
+        // And the format number moved with it, so a reader can refuse a file
+        // that predates the field rather than quietly treating it as control.
+        assertTrue(StudyExport.json(bundle()).contains("\"format\":4"))
+    }
+
+    @Test
+    fun `an arm is a letter, not a coin flip`() {
+        // Batches are decided on paper before anybody is handed a phone.
+        assertEquals(StudyArm.BEES, StudyArm.fromCode("B-07"))
+        assertEquals(StudyArm.BEES, StudyArm.fromCode("  b12 "))
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode("A-07"))
+        // The two ways somebody ends up with no code at all.
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode(null))
+        assertEquals(StudyArm.GARDEN, StudyArm.fromCode("   "))
+    }
+
+    @Test
+    fun `unknown arm text reads as the control rather than throwing`() {
+        // A file written by a later build should not stop somebody opening
+        // this week's data.
+        assertEquals(StudyArm.GARDEN, StudyArm.of("moths"))
+        assertEquals(StudyArm.GARDEN, StudyArm.of(null))
+        assertEquals(StudyArm.BEES, StudyArm.of("BEES"))
     }
 
     @Test

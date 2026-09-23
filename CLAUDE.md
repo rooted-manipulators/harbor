@@ -197,10 +197,45 @@ Done:
   posts it with a full-screen intent and degrades gracefully; `Ringer` loops
   the contact's sound. See ADR-009.
 
+- `ui/PersonScreen` + `ui/DayClock` + `domain/DayArcs` — a person's page,
+  rebuilt around a dial. **Two scales, one inside the other:** an ordinary
+  twelve-hour clock face, and around it a ring that is a whole day — one turn
+  for twenty-four hours, midnight at the top. The arcs go on the ring, because
+  that is the only scale on which an arc means one stretch of one day; a
+  twelve-hour ring would draw a 9am lecture over the evening too. The week's
+  own two marks are what is bent round it: a thorned arc over busy hours, a
+  blooming one over hours kept free, and nothing over hours nobody marked.
+  `DayArcs.degreesAt` is the ring's scale and `faceDegreesAt` is the face's —
+  mixing them puts an evening reminder over the morning, so they are named
+  apart rather than separated by an argument.
+  Press a free arc, drop a flower on it, push it round to pick a time, and
+  Done writes the same `PROPOSED_LATER` row that tapping "later" on a cue
+  writes — so the hold, the card on home and the study's export all work on it
+  already. Dragging it into a thorn or off the end buzzes and will not move.
+  `DayArcs` is pure and has 24 tests; the drawing and the platform live apart
+  from it.
+  **The dial shows *your* week, not theirs.** Harbor holds one week. Reading
+  somebody else's needs `domain/Sharing` (ADR-013), which exists with no
+  caller — the seam for it is one argument wide and is documented at the top
+  of `PersonScreen`. Do not relabel the dial as theirs without wiring that.
+
 - `ui/ContactScreen` — who the cue is about: name, number, ringtone, photo.
   No permissions: the system ringtone picker, `ACTION_GET_CONTENT` for the
   image, and a copy into app storage. Do not "improve" this with
   `READ_CONTACTS`.
+
+- `backend/supabase/functions/whatsapp/` + `data/WhatsAppInbox.kt` — the bot a
+  participant forwards a class group message to, so a week can stay current
+  without anybody redrawing it (ADR-014). It proposes into `schedule_inbox`
+  and the phone places the blocks; it is off the cue path and off by default.
+  **Not yet run against a real WhatsApp number** — the parser and the ingest
+  chain are tested, the webhook has never been called by Meta.
+
+- `ui/ScheduleScreen` tools — opens on the week. Copy a day to the next (both
+  views, with undo), do not disturb as one daily period stamped onto every day
+  as busy blocks (`Windows.setQuiet`, read back by `quietPeriod`; the seeded
+  nights are its default), and "From calendar" at the foot of the week, which
+  asks for `READ_CALENDAR` only at the press (ADR-015).
 
 Not built yet: threshold calibration, the Garden/Jar, the other prototype
 screens, and Supabase sync.

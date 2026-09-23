@@ -31,11 +31,24 @@ internal class Ringer(private val context: Context) {
     fun start(soundRef: String?) {
         stop()
 
-        val uri: Uri = soundRef?.let(Uri::parse)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ?: return
+        val fallback = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val uri: Uri = soundRef?.let(Uri::parse) ?: fallback ?: return
 
-        player = runCatching {
+        // Their sound, and then the phone's if theirs will not play.
+        //
+        // The comment above this function has always said a cue with no sound
+        // would be missed entirely, and that this is worse than one that sounds
+        // generic. The code did not do that: a chosen sound that failed was
+        // logged and the reminder arrived in silence. Which is the failure that
+        // matters, because the sounds most likely to fail are the ones somebody
+        // went out of their way to choose.
+        player = play(uri) ?: run {
+            if (uri != fallback && fallback != null) play(fallback) else null
+        }
+    }
+
+    private fun play(uri: Uri): MediaPlayer? =
+        runCatching {
             MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -54,10 +67,11 @@ internal class Ringer(private val context: Context) {
             }
         }.onFailure {
             // A picked song can be deleted, or on a shared storage volume that
-            // is no longer mounted. The cue is still worth showing silently.
+            // is no longer mounted, or -- the common one before CueSounds --
+            // behind a read grant that expired with the activity that asked
+            // for it.
             Log.w(TAG, "could not play cue sound", it)
         }.getOrNull()
-    }
 
     fun stop() {
         player?.runCatching {

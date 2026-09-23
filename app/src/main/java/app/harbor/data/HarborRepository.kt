@@ -6,6 +6,8 @@ import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Moment
+import app.harbor.domain.Reminders
+import app.harbor.domain.StudyArm
 import app.harbor.domain.UserSettings
 import app.harbor.domain.WeekBlock
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +52,17 @@ interface HarborRepository {
 
     suspend fun setWeekBlocks(blocks: List<WeekBlock>)
 
+    /**
+     * Put the quiet nights on the week, once ever.
+     *
+     * Once, and the marker is what makes that true: somebody who drags them
+     * off should not find them back the next time they open the screen. A
+     * deleted night is a decision, not an accident to be corrected.
+     *
+     * @return true if they were added by this call.
+     */
+    suspend fun seedQuietNightsOnce(): Boolean
+
     suspend fun setDailyAnswer(day: LocalDate, answer: String)
 
     /**
@@ -92,8 +105,21 @@ interface HarborRepository {
     /** Stage 9. */
     suspend fun append(entry: LedgerEntry)
 
-    /** Marks a proposed-later plan as dealt with, so it stops suppressing. */
-    suspend fun markReminderDone(id: UUID)
+    /**
+     * Marks a plan the user made as closed, and records how it closed.
+     *
+     * [how] is not decoration. A proposed-later row that never gets one of
+     * these is a plan that quietly lapsed, and telling that apart from a plan
+     * somebody kept is the whole reason this method exists. Implementations
+     * write the beat themselves so there is no way to close a plan and forget
+     * to say how — see [app.harbor.domain.Moment.REMINDER_CLOSED].
+     *
+     * Note what this does *not* do: it never writes a call. Somebody tapping
+     * "I already did" is telling us about a call Harbor had no part in, and
+     * inventing a ledger row for it would put a call in the study's data that
+     * nothing ever observed.
+     */
+    suspend fun markReminderDone(id: UUID, how: Reminders.Closed)
 
     /**
      * Whether the first run is behind us.
@@ -105,6 +131,92 @@ interface HarborRepository {
     suspend fun hasOnboarded(): Boolean
 
     suspend fun setOnboarded()
+
+    /**
+     * Which arm of the study this install is in.
+     *
+     * Decided once and then fixed for the life of the install. Like
+     * [hasOnboarded] it is a fact about this device rather than about the
+     * person — but unlike it, this one *does* belong in the export, because
+     * every row of behaviour is meaningless without it.
+     *
+     * Reading it before it has been set answers [StudyArm.GARDEN], which is
+     * the arm that already existed. There is no setter that can change it
+     * afterwards: see [claimArm].
+     */
+    suspend fun arm(): StudyArm
+
+    /**
+     * The same answer, as something the UI can watch.
+     *
+     * ## Why a flow, for a value that cannot change
+     *
+     * It can change exactly once: from the default to the claimed one, when
+     * somebody types their code on the first screen of their first run. That
+     * one transition is the whole problem. The arm was read once when the
+     * process started -- which is *before* the code screen -- and held for
+     * the life of the process, so a participant handed a bees phone typed
+     * their code and then did the entire first session in the control arm.
+     * The bee appeared the next time the app was launched from cold.
+     *
+     * First run is the session somebody is watched through. Getting the arm
+     * wrong for it is getting it wrong for the observation the study is
+     * built around, and nothing in the app said anything was amiss.
+     *
+     * So: still write-once, still refuses reassignment, but observable, so
+     * the screen follows the claim rather than predating it.
+     */
+    val armFlow: StateFlow<StudyArm>
+
+    /** Whether an arm has been claimed yet. False only before the code screen. */
+    suspend fun hasClaimedArm(): Boolean
+
+    /**
+     * The study code this install was opened with, or null if it was never
+     * asked, or empty if somebody went past without one.
+     *
+     * Kept beside the arm so the export can tell an assigned participant from
+     * one who skipped: both are in [StudyArm.GARDEN], and only one of them was
+     * meant to be.
+     */
+    suspend fun studyCode(): String?
+
+    /**
+     * Put this install in the arm a code names, if it is not in one already.
+     *
+     * Claim rather than set, and it is the whole design. A participant who
+     * could be moved between arms halfway through is a participant whose
+     * ledger belongs to neither, so the first call wins and every later one is
+     * ignored — including one from a reinstall-and-retype, which would
+     * otherwise silently relabel a week of data.
+     *
+     * @return the arm this install is in, which may not be the one asked for.
+     */
+    suspend fun claimCode(code: String?): StudyArm
+
+    /**
+     * Throw this install away and start again on a new code.
+     *
+     * The escape hatch for a code typed wrong at setup, and the *only* way an
+     * arm ever changes. It is destructive on purpose: everything goes — the
+     * person, the week, the ledger, the settings — and the app comes back at
+     * onboarding as though it had just been installed.
+     *
+     * ## Why it cannot be a quiet switch
+     *
+     * [claimCode] refuses to reassign an arm because rows already written
+     * under one arm cannot honestly be relabelled as the other. A "change the
+     * code" that kept the ledger would produce exactly that file: some
+     * behaviour from the garden, some from the bees, and a single `arm` field
+     * at the top claiming all of it. Unreadable, and unreadable in a way
+     * nobody would notice until the study was over.
+     *
+     * So the arm stays immutable and the *install* is what gets replaced. The
+     * screen offering this has to say so before it happens.
+     *
+     * @return the arm the fresh install is in.
+     */
+    suspend fun startOver(code: String?): StudyArm
 
     /**
      * Every cue still held, for the study export.

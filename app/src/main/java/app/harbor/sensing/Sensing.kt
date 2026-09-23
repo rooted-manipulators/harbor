@@ -1,6 +1,10 @@
 package app.harbor.sensing
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import java.time.Instant
 import app.harbor.data.HarborRepository
 
@@ -27,7 +31,58 @@ object Sensing {
     suspend fun enable(context: Context, store: HarborRepository): Boolean {
         if (!ActivityTransitions.register(context)) return false
         store.setSettings(store.settings.value.copy(cuesEnabled = true))
+        // Registration only buys the right to be woken. The service is what
+        // keeps there being a process worth waking -- see SensingService.
+        SensingService.start(context)
         return true
+    }
+
+    /**
+     * Re-register if the user has cues on, whether or not anything is wrong.
+     *
+     * Registrations are lost by more than reboots, which is all [BootReceiver]
+     * covers. Installing a new build force-stops the app, and Android delivers
+     * nothing to a stopped app until it is launched by hand; Play services
+     * updating itself can drop them too. None of that is visible — the setting
+     * still says on, the screen still says on, and nothing is listening. Until
+     * this existed the only cure was toggling reminders off and on again, and
+     * nobody knew they had to.
+     *
+     * Called on every launch. Play services replaces an existing registration
+     * rather than stacking another, so re-registering when nothing was wrong
+     * costs a round trip and changes nothing.
+     */
+    suspend fun repair(context: Context, store: HarborRepository, replaced: Boolean = false) {
+        if (!store.settings.value.cuesEnabled) return
+        // The service first, and deliberately above the permission check.
+        //
+        // It used to be the last line of this function, behind an early
+        // return for a missing activity-recognition permission, which made
+        // one refusal take down things that have nothing to do with it.
+        // Revoke that permission from Settings and the service never
+        // restarts after a reboot; the process goes back to being cached and
+        // frozen; the scrolling trigger, which does not use activity
+        // recognition at all, stops with it. Nothing on any screen says so,
+        // because as far as the app knows only one permission is missing.
+        SensingService.start(context)
+        if (!ActivityTransitions.hasPermission(context)) return
+        // Clear before asking again, but only after the package was replaced.
+        //
+        // requestActivityTransitionUpdates is documented to replace an
+        // existing registration, and on an ordinary launch it plainly does --
+        // that is the path sensing runs on every day, and it is working. After
+        // a package replace it appears not to: measured on 18 Sep, an install
+        // at 02:49:40 was followed by a successful re-register at 02:49:44 and
+        // then no transition for eleven minutes, through a walk. What Play
+        // services still holds there is a PendingIntent that died with the old
+        // package.
+        //
+        // Narrow on purpose. Clearing on every launch would put an extra
+        // unregister on the one path that is known to work, to fix a case that
+        // only happens when the app is updated. [replaced] is true only from
+        // ACTION_MY_PACKAGE_REPLACED.
+        if (replaced) ActivityTransitions.unregister(context)
+        ActivityTransitions.register(context)
     }
 
     /**
@@ -42,6 +97,10 @@ object Sensing {
     suspend fun disable(context: Context, store: HarborRepository) {
         store.setSettings(store.settings.value.copy(cuesEnabled = false))
         ActivityTransitions.unregister(context)
+        // Last, and unconditionally: somebody who just turned reminders off
+        // should watch the line leave the shade. Leaving it there would be the
+        // app saying it had stopped while visibly still running.
+        SensingService.stop(context)
     }
 
     /**
@@ -64,6 +123,66 @@ object Sensing {
     fun lastTransition(context: Context): Instant? =
         SensingStore(context).lastTransitionAt
 
+    /**
+     * The last walk the tracker closed, what it measured, and what came of it.
+     *
+     * [lastTransition] answers "is the phone still talking to us". This answers
+     * the question after it: something was heard, a walk was measured — so why
+     * was there no reminder? Internal because the type is; the only caller is
+     * the screen somebody visits when nothing arrives.
+     */
+    internal fun lastBout(context: Context): SensingStore.Recorded? =
+        SensingStore(context).lastBout
+
+    /**
+     * The same, for the scrolling trigger: the last stretch long enough to
+     * ask about, and what the policy said.
+     *
+     * This one matters more than [lastBout] does, because the scrolling
+     * trigger has a way to fail that the walk does not. Usage access is
+     * granted on a Settings screen and can be taken away on the same screen,
+     * by the person, months later, without any prompt that mentions Harbor.
+     * When that happens the switch still reads on, nothing on any screen is
+     * wrong, and no reminder ever comes again. A line saying when a stretch
+     * was last seen is the only thing that can tell that apart from a quiet
+     * week.
+     */
+    internal fun lastStretch(context: Context): SensingStore.Watched? =
+        SensingStore(context).lastStretch
+
     fun isActive(context: Context, store: HarborRepository): Boolean =
         store.settings.value.cuesEnabled && ActivityTransitions.hasPermission(context)
+
+    /**
+     * Whether the OS is allowed to put Harbor to sleep in the background.
+     *
+     * The quietest of the silent failures, and on some phones the most
+     * complete. Harbor has no service of its own (ADR-008) — it lives as a
+     * cached process waiting for Play services to wake it — and a cached
+     * process that the OEM freezes never receives the transition at all. The
+     * walk is sensed, the batch is delivered, nothing runs.
+     *
+     * Measured on a Galaxy S24+ (One UI, Android 16) on 2026-09-17: the
+     * process was frozen roughly two minutes after being backgrounded
+     * (`FreecessController: FZ ... reason: LEV`), and every transition across
+     * three real walks was lost. The only ones that ever arrived came while
+     * the app happened to be on screen. Nothing inside the app can tell that
+     * from a week of never walking, which is why it has to be asked for
+     * rather than hoped for.
+     */
+    fun isUnrestricted(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java)
+            .isIgnoringBatteryOptimizations(context.packageName)
+
+    /**
+     * The system's own dialog for granting it — one tap, in place, rather
+     * than sending somebody hunting through Settings.
+     *
+     * Needs `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in the manifest to be
+     * offered this way. See the note there about what that costs.
+     */
+    fun unrestrictedRequest(context: Context): Intent = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.fromParts("package", context.packageName, null),
+    )
 }

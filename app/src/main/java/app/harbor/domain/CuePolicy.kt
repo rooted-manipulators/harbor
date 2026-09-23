@@ -31,6 +31,34 @@ object CuePolicy {
     val SETTLE: Duration = Duration.ofSeconds(90)
 
     /**
+     * How late a deferred signal may still fire, measured from [SETTLE].
+     *
+     * A walk that ended is held for [SETTLE] and re-asked afterwards, because
+     * the transition arrives the instant stillness is detected and nothing
+     * else will wake the pipeline later — see `sensing/SettleAlarm`. That
+     * re-ask is scheduled with an inexact alarm, so it can land late: Doze
+     * holds `setAndAllowWhileIdle` until a maintenance window, which is
+     * minutes rather than seconds.
+     *
+     * Landing late is fine. Landing *much* later is not: a cue for a stop that
+     * finished half an hour ago is a cue at the wrong moment, which this file
+     * exists to prevent. So a deferred signal past this window is dropped
+     * rather than fired.
+     */
+    val SETTLE_WINDOW: Duration = Duration.ofMinutes(15)
+
+    /**
+     * Whether a deferred signal has aged out — the stop it belongs to is over
+     * and the moment with it.
+     *
+     * Pure, and separate from [decide], because the deferral path has no
+     * signal to hand [decide] once it has expired: there is nothing to weigh,
+     * only something to throw away.
+     */
+    fun settleExpired(stillSince: Instant, now: Instant): Boolean =
+        Duration.between(stillSince, now) > SETTLE.plus(SETTLE_WINDOW)
+
+    /**
      * A transition the sensing layer has observed. [activeMinutes] is the
      * length of the bout that just ended — the walk, or the app session.
      */
@@ -49,8 +77,11 @@ object CuePolicy {
      * user swiped away without answering still spent one of their two.
      * [lastCueAt] is not derived from today either, because the cooldown has
      * to survive midnight — a cue at 23:55 must still suppress one at 00:05.
-     * And [hasPendingReminder] spans every day, since a plan made on Tuesday
-     * for Friday is still a plan.
+     * And [hasPendingReminder] spans every day, since a plan made this
+     * evening for tomorrow is still a plan in the morning. It is bounded at
+     * the far end rather than open — a plan whose time has been and gone stops
+     * holding reminders back, closed or not — but that bound is the caller's
+     * to apply, not this policy's. See [Reminders.holding].
      */
     data class DayState(
         val entriesToday: List<LedgerEntry>,
@@ -65,6 +96,16 @@ object CuePolicy {
          * device calendar, or pulled from a campus system.
          */
         val busyNow: Boolean = false,
+
+        /**
+         * Today's cues broken down by what triggered them.
+         *
+         * Separate from [cuesToday] rather than summed from it, for the same
+         * reason [cuesToday] is separate from `entriesToday`: they count
+         * different things and a caller that conflated them would be wrong in
+         * a way nothing here could catch. Absent sources are zero.
+         */
+        val cuesTodayBySource: Map<TriggerSource, Int> = emptyMap(),
     )
 
     /** What the pipeline decided, and why. The why is worth keeping. */
@@ -77,6 +118,16 @@ object CuePolicy {
     }
 
     enum class Reason {
+        /** This trigger exists but the person has not turned it on. */
+        SOURCE_OFF,
+        /**
+         * This trigger has had its share of the day, though the day as a whole
+         * has room. Distinct from [DAILY_CAP_REACHED] because they mean
+         * opposite things to whoever reads the logs: one says the person has
+         * been interrupted enough, the other says one source is monopolising a
+         * budget that is not full.
+         */
+        SOURCE_CAP_REACHED,
         /** The user has cues switched off. Their choice, and it is absolute. */
         CUES_DISABLED,
 
@@ -95,7 +146,7 @@ object CuePolicy {
         /** Too soon after the last cue. */
         IN_COOLDOWN,
 
-        /** They planned a later time and it hasn't been dealt with yet. */
+        /** They planned a later time, and that time is still ahead of them. */
         REMINDER_PENDING,
 
         /** Stopped, but not for long enough to be sure they've settled. */
@@ -151,13 +202,29 @@ object CuePolicy {
         if (day.entriesToday.any { it.resolution.isConnection }) {
             return Decision.Hold(Reason.ALREADY_CONNECTED_TODAY)
         }
+        // A trigger somebody has not switched on may not fire, whatever
+        // else is true. Checked before the caps so a declined trigger never
+        // spends a slot the other one could have used.
+        if (signal.source == TriggerSource.SESSION_END && !settings.scrollCues) {
+            return Decision.Hold(Reason.SOURCE_OFF)
+        }
         if (day.cuesToday >= thresholds.dailyCap) {
             return Decision.Hold(Reason.DAILY_CAP_REACHED)
+        }
+        // And this trigger's own share of it. See Thresholds.sourceCap: a
+        // frequent trigger against a shared ceiling takes every slot and the
+        // rare one is never seen.
+        if (day.cuesTodayBySource.getOrDefault(signal.source, 0) >= thresholds.perSourceCap) {
+            return Decision.Hold(Reason.SOURCE_CAP_REACHED)
         }
         if (day.hasPendingReminder) {
             return Decision.Hold(Reason.REMINDER_PENDING)
         }
-        if (day.lastCueAt != null) {
+        // Zero is off, said out loud rather than left to the arithmetic. A
+        // zero-length comparison would happen to work for a clock that only
+        // moves forwards, and would hold a cue for ever on one that had just
+        // been corrected backwards.
+        if (thresholds.cooldownMinutes > 0 && day.lastCueAt != null) {
             val elapsed = Duration.between(day.lastCueAt, now)
             if (elapsed < Duration.ofMinutes(thresholds.cooldownMinutes.toLong())) {
                 return Decision.Hold(Reason.IN_COOLDOWN)
@@ -166,9 +233,8 @@ object CuePolicy {
 
         // --- stage 4: kairos ---------------------------------------------
         // Fire on the completed stop, never mid-activity. Handoff, section 7.
-        // Only meaningful for a sensed transition: a note or the daily
-        // question has no stop to wait out.
-        if (signal.source.isSensedTransition) {
+        // Only meaningful for a trigger with a stop to wait out.
+        if (signal.source.waitsOutAStop) {
             if (Duration.between(signal.stillSince, now) < SETTLE) {
                 return Decision.Hold(Reason.TRANSITION_UNSETTLED)
             }
@@ -178,16 +244,31 @@ object CuePolicy {
     }
 
     /**
-     * Whether this source came from watching the user's activity, as opposed
-     * to something the app or the user initiated.
+     * Whether this trigger has a stop that has to be waited out before the
+     * moment is real.
      *
-     * Only these two carry a bout to measure and a transition to settle. When
-     * a new source is added, the compiler will not force you to think about
-     * this one — so think about it here.
+     * A walk does. The transition arrives the instant the phone decides you
+     * are still, which is also the instant you might be waiting at a
+     * crossing, so [SETTLE] holds it until the stillness has lasted long
+     * enough to mean something.
+     *
+     * A scrolling stretch does not, and this used to say it did.
+     *
+     * The two triggers are opposite in shape. A walk becomes worth
+     * interrupting when it *ends*; a long stretch in one app is worth
+     * interrupting while it is still going on — that is the whole of what the
+     * trigger is for, and waiting for it to end would mean arriving after the
+     * phone had been put down, which is nobody's moment. `SESSION_END` keeps
+     * its name because it is written into every stored ledger entry and the
+     * study's wire format, but what it marks is the stretch, not its end.
+     *
+     * When a new source is added, the compiler will not force you to think
+     * about this one — so think about it here.
      */
-    private val TriggerSource.isSensedTransition: Boolean
+    private val TriggerSource.waitsOutAStop: Boolean
         get() = when (this) {
-            TriggerSource.WALKING_STOP, TriggerSource.SESSION_END -> true
+            TriggerSource.WALKING_STOP -> true
+            TriggerSource.SESSION_END,
             TriggerSource.NOTE,
             TriggerSource.GAME,
             TriggerSource.MANUAL,

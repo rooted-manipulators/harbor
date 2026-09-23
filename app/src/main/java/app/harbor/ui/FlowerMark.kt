@@ -1,42 +1,50 @@
 package app.harbor.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import app.harbor.R
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.FlowerSpec
-import app.harbor.domain.Flowers
 
 /**
- * Draws a flower, the way the specimen sheet draws one.
+ * A flower, as the artwork draws it.
  *
- * Petal count, colours and shape all come from [FlowerSpec], which is ported
- * from the prototype's library — so a marigold here is the same marigold the
- * web shows. Shared by the bloom that follows a call, by a person's specimen
- * on home, and by the picker.
+ * Twenty flowers, shipped as the illustrator's own files rather than
+ * reconstructed. Two cuts of each live in `res/drawable-nodpi`: the whole
+ * plant, and the bloom on its own. `tools/cut_flowers.py` makes both from the
+ * twenty sources in `tools/flower-source`, and is the only thing that should
+ * ever write them.
  *
- * ## Three things make it look like the sheet
+ * This is a **reversal** of the rule in `docs/05-changing-the-ui.md` that every
+ * mark in the app is drawn geometry. Three passes went into drawing these --
+ * one shape function, then a per-flower one, then the vectorised plate traced
+ * into Bezier paths -- and each was a recognisable flower that was not *this*
+ * flower. The artwork has soft light inside the petals that a fill cannot
+ * reach, and matching it was never going to happen by hand. What the reversal
+ * costs is real and worth knowing:
  *
- * The sheet's flowers are not flat shapes. Each petal is an **ellipse with a
- * vertical gradient**, light at the tip and deep at the throat; every petal is
- * drawn at **80% opacity** and composited with **multiply**; and the petals
- * are anchored at the flower's centre so they overlap near it. Where two
- * petals cross, multiply darkens the overlap, and that darkening is the whole
- * of the depth — there is no shading, no shadow and no outline anywhere.
+ * - The flowers no longer restyle with the palette. They are fixed pictures.
+ *   `Flowers.petal`/`petalDeep`/`heart` are still the flower's colour for
+ *   anything that needs one, and still come off the same sheet.
+ * - About 1MB of APK, and heap while they are on screen: a decoded bitmap is
+ *   width x height x 4 bytes, so the 448px blooms are roughly half a megabyte
+ *   each. A person's ledger showing a dozen different kinds at once is the
+ *   worst case and holds a few megabytes.
+ * - They are pixels, so they do not scale past their own size. The cuts are
+ *   sized for the largest place each is used -- see the constants in the
+ *   cutter -- and going bigger than that will go soft.
  *
- * Drawn rather than shipped as art, because the shape is a function of the
- * spec: adding a flower to the library stays a data change, not an art
- * request. The field draws its own much cheaper version of this for the
- * top-down view, where there can be hundreds on screen at once.
+ * The two top-down views are deliberately **not** artwork: see [drawFlowerDot].
  */
 @Composable
 fun FlowerMark(
@@ -44,113 +52,96 @@ fun FlowerMark(
     modifier: Modifier = Modifier,
     scale: Float = 1f,
 ) {
-    val spec = Flowers.spec(kind)
-    Canvas(modifier) {
-        val radius = minOf(size.width, size.height) / 2f * 0.9f * scale
-        translate(left = size.width / 2f, top = size.height / 2f) {
-            drawFlower(spec, radius)
-        }
-    }
-}
-
-/** How far a petal reaches, how wide it is, and where it sits on the stem. */
-private data class Petal(val rx: Float, val ry: Float, val cy: Float)
-
-private fun petalOf(shape: FlowerSpec.Shape, radius: Float): Petal = when (shape) {
-    // The sheet's default: a long lobe, reaching a full radius at the tip.
-    FlowerSpec.Shape.ROUND -> Petal(radius * 0.38f, radius * 0.60f, -radius * 0.40f)
-    // Wider and blunter, sitting lower, like a poppy or a tulip.
-    FlowerSpec.Shape.CUP -> Petal(radius * 0.50f, radius * 0.52f, -radius * 0.34f)
-    // Narrow and reaching, drawn as a spear rather than an ellipse.
-    FlowerSpec.Shape.POINT -> Petal(radius * 0.24f, radius * 0.62f, -radius * 0.40f)
-}
-
-/**
- * Shared by the composable above, by the specimen arch, and by the bloom.
- *
- * Draws from the origin, so callers translate to wherever the flower belongs.
- */
-internal fun DrawScope.drawFlower(spec: FlowerSpec, radius: Float) {
-    val light = Color(spec.petal)
-    val deep = Color(spec.petalDeep)
-    val p = petalOf(spec.shape, radius)
-    val top = p.cy - p.ry
-    val foot = p.cy + p.ry
-
-    for (i in 0 until spec.petals) {
-        rotate(degrees = i * 360f / spec.petals, pivot = Offset.Zero) {
-            // Light at the tip, deep at the throat. The gradient turns with
-            // the petal because it is built inside the rotation.
-            val brush = Brush.verticalGradient(
-                colors = listOf(light, deep),
-                startY = top,
-                endY = foot,
-            )
-            if (spec.shape == FlowerSpec.Shape.POINT) {
-                drawPath(
-                    path = spearPath(p),
-                    brush = brush,
-                    alpha = PETAL_ALPHA,
-                    blendMode = PETAL_BLEND,
-                )
-            } else {
-                drawOval(
-                    brush = brush,
-                    topLeft = Offset(-p.rx, top),
-                    size = Size(p.rx * 2f, p.ry * 2f),
-                    alpha = PETAL_ALPHA,
-                    blendMode = PETAL_BLEND,
-                )
-            }
-        }
-    }
-
-    // The throat. Softer than the petals rather than a hard dot: in the sheet
-    // the centre is where the flower is darkest, not where it is sharpest.
-    drawCircle(
-        color = Color(spec.heart),
-        radius = radius * heartOf(spec.shape),
-        center = Offset.Zero,
-        alpha = 0.8f,
+    Image(
+        painter = painterResource(bloomOf(kind)),
+        contentDescription = null,
+        modifier = if (scale == 1f) modifier else modifier.scale(scale),
+        contentScale = ContentScale.Fit,
     )
 }
 
-/** Petals are laid at 80%, so where they cross they darken. */
-private const val PETAL_ALPHA = 0.92f
-
-/**
- * How one petal sits on the next.
- *
- * Multiply, which is what this was, is the right answer on paper: overlapping
- * translucent petals get *darker* where they cross, the way pigment does, and
- * on the light specimen's bone page that is exactly what the sheet shows.
- *
- * On a near-black ground it is catastrophic and quiet about it. Multiplying
- * anything by a near-black backdrop gives near-black, so every bloom in the
- * app -- the picker, a person's specimen, the patch, the field -- came out a
- * dim smudge with a faint rim, and nothing about it looked broken enough to
- * read as a bug rather than as a small flower.
- *
- * Screen is multiply's opposite: overlaps get lighter. The petals stop being
- * pigment and start being light, which is what a flower has to be when the
- * page behind it is the night.
- */
-private val PETAL_BLEND = BlendMode.Screen
-
-private fun heartOf(shape: FlowerSpec.Shape): Float = when (shape) {
-    FlowerSpec.Shape.ROUND -> 0.22f
-    FlowerSpec.Shape.CUP -> 0.17f
-    FlowerSpec.Shape.POINT -> 0.19f
+/** The whole plant: bloom, stem, two leaves. For the specimen arch. */
+@DrawableRes
+internal fun plantOf(kind: FlowerKind): Int = when (kind) {
+    FlowerKind.GLAD_WE_TALKED -> R.drawable.flower_glad_we_talked
+    FlowerKind.LIGHTER_NOW -> R.drawable.flower_lighter_now
+    FlowerKind.FELT_LOVED -> R.drawable.flower_felt_loved
+    FlowerKind.SHE_REMEMBERED -> R.drawable.flower_she_remembered
+    FlowerKind.EASY_SILENCE -> R.drawable.flower_easy_silence
+    FlowerKind.STEADIER_NOW -> R.drawable.flower_steadier_now
+    FlowerKind.WORTH_SLOWING_DOWN -> R.drawable.flower_worth_slowing_down
+    FlowerKind.SAID_WHAT_I_MEANT -> R.drawable.flower_said_what_i_meant
+    FlowerKind.WANT_TO_TRY_SOMETHING -> R.drawable.flower_want_to_try_something
+    FlowerKind.ASKED_MORE_THAN_USUAL -> R.drawable.flower_asked_more_than_usual
+    FlowerKind.LOOKING_FORWARD -> R.drawable.flower_looking_forward
+    FlowerKind.STILL_THINKING_ABOUT_IT -> R.drawable.flower_still_thinking_about_it
+    FlowerKind.HARD_TO_SHAKE_OFF -> R.drawable.flower_hard_to_shake_off
+    FlowerKind.TIME_TO_ACTUALLY_DO_IT -> R.drawable.flower_time_to_actually_do_it
+    FlowerKind.NOTHING_LEFT_UNSAID -> R.drawable.flower_nothing_left_unsaid
+    FlowerKind.WONDERING_IF_THAT_LANDED -> R.drawable.flower_wondering_if_that_landed
+    FlowerKind.SAID_THE_HARD_THING -> R.drawable.flower_said_the_hard_thing
+    FlowerKind.GLAD_SHE_PICKED_UP -> R.drawable.flower_glad_she_picked_up
+    FlowerKind.WISHED_IT_WAS_LONGER -> R.drawable.flower_wished_it_was_longer
+    FlowerKind.DREADED_THIS_ONE -> R.drawable.flower_dreaded_this_one
 }
 
-/** A spear petal: straight sides, a blunt shoulder, a point at the tip. */
-private fun spearPath(p: Petal): Path = Path().apply {
-    val tip = p.cy - p.ry
-    val foot = p.cy + p.ry
-    val shoulder = p.cy - p.ry * 0.25f
-    moveTo(0f, foot)
-    lineTo(-p.rx, shoulder)
-    lineTo(0f, tip)
-    lineTo(p.rx, shoulder)
-    close()
+/**
+ * The bloom on its own. For every small mark.
+ *
+ * A 34dp ledger row, a 44dp avatar, the 46dp field chip: in a box that size a
+ * whole plant leaves the actual flower about a third of the height, which is
+ * smaller than the bloom is today and smaller than the thing is worth.
+ */
+@DrawableRes
+internal fun bloomOf(kind: FlowerKind): Int = when (kind) {
+    FlowerKind.GLAD_WE_TALKED -> R.drawable.flower_glad_we_talked_bloom
+    FlowerKind.LIGHTER_NOW -> R.drawable.flower_lighter_now_bloom
+    FlowerKind.FELT_LOVED -> R.drawable.flower_felt_loved_bloom
+    FlowerKind.SHE_REMEMBERED -> R.drawable.flower_she_remembered_bloom
+    FlowerKind.EASY_SILENCE -> R.drawable.flower_easy_silence_bloom
+    FlowerKind.STEADIER_NOW -> R.drawable.flower_steadier_now_bloom
+    FlowerKind.WORTH_SLOWING_DOWN -> R.drawable.flower_worth_slowing_down_bloom
+    FlowerKind.SAID_WHAT_I_MEANT -> R.drawable.flower_said_what_i_meant_bloom
+    FlowerKind.WANT_TO_TRY_SOMETHING -> R.drawable.flower_want_to_try_something_bloom
+    FlowerKind.ASKED_MORE_THAN_USUAL -> R.drawable.flower_asked_more_than_usual_bloom
+    FlowerKind.LOOKING_FORWARD -> R.drawable.flower_looking_forward_bloom
+    FlowerKind.STILL_THINKING_ABOUT_IT -> R.drawable.flower_still_thinking_about_it_bloom
+    FlowerKind.HARD_TO_SHAKE_OFF -> R.drawable.flower_hard_to_shake_off_bloom
+    FlowerKind.TIME_TO_ACTUALLY_DO_IT -> R.drawable.flower_time_to_actually_do_it_bloom
+    FlowerKind.NOTHING_LEFT_UNSAID -> R.drawable.flower_nothing_left_unsaid_bloom
+    FlowerKind.WONDERING_IF_THAT_LANDED -> R.drawable.flower_wondering_if_that_landed_bloom
+    FlowerKind.SAID_THE_HARD_THING -> R.drawable.flower_said_the_hard_thing_bloom
+    FlowerKind.GLAD_SHE_PICKED_UP -> R.drawable.flower_glad_she_picked_up_bloom
+    FlowerKind.WISHED_IT_WAS_LONGER -> R.drawable.flower_wished_it_was_longer_bloom
+    FlowerKind.DREADED_THIS_ONE -> R.drawable.flower_dreaded_this_one_bloom
+}
+
+/**
+ * A flower seen from above, in a garden, eleven pixels across.
+ *
+ * Not the artwork, on purpose, and the same call the field makes for the same
+ * reason. At this size a photographed bloom is a coloured smudge -- there is
+ * no shape left to recognise, only a hue -- and a plot view can put hundreds
+ * on screen at once, where the artwork would mean decoding every kind the
+ * garden holds into a bitmap that is two hundred times the size it is drawn
+ * at. Petals walked around a centre cost one fill each and read the same.
+ *
+ * Tell a flower apart here by its colour; anything wanting its shape is being
+ * drawn at [FlowerMark]'s size instead.
+ */
+internal fun DrawScope.drawFlowerDot(spec: FlowerSpec, radius: Float) {
+    val rx = radius * 0.38f
+    val ry = radius * 0.60f
+    val lift = radius * 0.40f
+    for (i in 0 until spec.petals) {
+        rotate(degrees = i * 360f / spec.petals, pivot = Offset.Zero) {
+            drawOval(
+                color = Color(spec.petal),
+                topLeft = Offset(-rx, -lift - ry),
+                size = Size(rx * 2f, ry * 2f),
+                alpha = 0.7f,
+            )
+        }
+    }
+    drawCircle(Color(spec.heart), radius * 0.22f, Offset.Zero, alpha = 0.8f)
 }

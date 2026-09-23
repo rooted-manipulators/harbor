@@ -6,6 +6,10 @@ import android.os.Build
 import android.content.ContentValues
 import android.content.ContentUris
 import app.harbor.domain.StudyExport
+import androidx.core.app.NotificationManagerCompat
+import app.harbor.cue.CueNotifier
+import app.harbor.sensing.ActivityTransitions
+import app.harbor.sensing.ScrollWatch
 import app.harbor.sensing.Sensing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -59,6 +63,24 @@ object StudyFile {
      * swallowed on purpose — a study file that cannot be written is not a
      * reason to crash somebody's phone, and the next pause will try again.
      */
+    /**
+     * The five switches outside the app, read now.
+     *
+     * Here rather than inlined, because two places build an export bundle --
+     * the background write on every pause, and the card somebody taps to
+     * hand the file over -- and a grant recorded by one and not the other
+     * would be a field that means different things in different rows of the
+     * same study.
+     */
+    fun grantsOf(context: Context): StudyExport.Grants = StudyExport.Grants(
+        activityRecognition = ActivityTransitions.hasPermission(context),
+        notifications = NotificationManagerCompat.from(context).areNotificationsEnabled(),
+        fullScreen = CueNotifier.canTakeTheScreen(context),
+        overApps = CueNotifier.hasOverlayGrant(context),
+        usageAccess = ScrollWatch.hasPermission(context),
+        unrestricted = Sensing.isUnrestricted(context),
+    )
+
     suspend fun refresh(context: Context, store: HarborRepository): File? =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -72,7 +94,10 @@ object StudyFile {
                     beats = store.beats(),
                     cues = store.allCues(),
                     entries = store.recentEntries(),
+                    arm = store.arm(),
+                    studyCode = store.studyCode(),
                     lastTransitionAt = Sensing.lastTransition(context),
+                    grants = grantsOf(context),
                 )
                 val dir = File(context.getExternalFilesDir(null), FOLDER).apply { mkdirs() }
                 // One file, overwritten, rather than one per pause. The

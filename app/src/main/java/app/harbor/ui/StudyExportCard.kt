@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import app.harbor.data.HarborRepository
+import app.harbor.data.StudyFile
 import app.harbor.domain.StudyExport
 import app.harbor.sensing.Sensing
 import app.harbor.ui.theme.Notice
@@ -64,7 +65,10 @@ fun StudyExportCard(store: HarborRepository) {
                 beats = store.beats(),
                 cues = store.allCues(),
                 entries = store.recentEntries(),
+                arm = store.arm(),
+                studyCode = store.studyCode(),
                 lastTransitionAt = Sensing.lastTransition(context),
+                grants = StudyFile.grantsOf(context),
             )
         }
     }
@@ -109,8 +113,7 @@ fun StudyExportCard(store: HarborRepository) {
         saved?.let { SmallCopy("Saved as $it.", size = 13) }
         if (failed) {
             SmallCopy(
-                "That did not save. Try somewhere else — Downloads is a safe " +
-                    "choice — and nothing was sent either way.",
+                "That didn't save. Try Downloads. Nothing was sent.",
                 size = 13,
             )
         }

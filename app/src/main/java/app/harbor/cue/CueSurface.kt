@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,6 +58,8 @@ import app.harbor.domain.TriggerSource
 import app.harbor.ui.theme.Avatar
 import app.harbor.ui.theme.AvatarSize
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import app.harbor.ui.theme.MarkSky
 import app.harbor.ui.theme.Paper
 import app.harbor.ui.theme.SmallCopy
 import java.time.Duration
@@ -91,7 +96,12 @@ internal fun CueSurface(
     BackHandler(enabled = step == CueStep.Cue) { onDismiss() }
 
     val who = contact?.label ?: "someone at home"
-    val usual = usualMinutes ?: 12
+    // Null stays null. This used to fall back to twelve, so a contact added
+    // ninety seconds ago was announced with "calls with Mom usually run ~12
+    // min" -- a statistic about a relationship Harbor had never once observed.
+    // It is the first thing somebody reads about a person they just added, and
+    // it was invented. Everything that quoted it is conditional now.
+    val usual = usualMinutes
 
     Column(
         Modifier
@@ -113,6 +123,20 @@ internal fun CueSurface(
                     ),
                 ),
             )
+            // The bars, kept out of the type.
+            //
+            // This is a full-screen activity on a phone that draws edge to
+            // edge, so 22dp of flat top padding put "harbor" and the time
+            // underneath the clock and the wifi icons. The gradient still runs
+            // the whole height -- the background is applied above this, so it
+            // fills the window and only the content is inset -- which is the
+            // point: this screen is meant to look like a time of day, and a
+            // black strip across the top of it would break that before anybody
+            // read a word.
+            //
+            // systemBars rather than statusBars because the footer is just as
+            // close to the gesture bar at the other end.
+            .windowInsetsPadding(WindowInsets.systemBars)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 26.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -173,20 +197,23 @@ internal fun CueSurface(
                 // under it already says the true, smaller thing.
                 CueSub(source.opening)
 
-                // .cue-length — the ask, with a stated size
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        "calls with $who usually run ~$usual min",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 13.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    )
+                // .cue-length: the ask, with a stated size, but only once
+                // there have been enough calls to know one.
+                if (usual != null) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "calls with $who usually run ~$usual min",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = 13.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.size(2.dp))
@@ -194,7 +221,17 @@ internal fun CueSurface(
                 // .cue-paths — three ways through, equal weight, no default
                 CuePath(
                     main = "Call now",
-                    sub = "~$usual min, usually",
+                    sub = usual?.let { "~$it min, usually" },
+                    // The one path with a colour under it.
+                    //
+                    // Three identical cards is three equal options, and these
+                    // three are not equal: one of them is the entire point of
+                    // the screen and the other two are ways of not doing it.
+                    // Amber is spoken for -- the tab, the primary button, the
+                    // selected chip -- and it would also make a reminder shout
+                    // at somebody who has just stopped walking. A little blue
+                    // lifts the call off the other two without raising a voice.
+                    lead = true,
                     mark = PathMark.Phone,
                     enabled = contact?.phoneE164 != null,
                 ) {
@@ -222,7 +259,15 @@ internal fun CueSurface(
 
                 // .cue-privacy
                 SmallCopy(
-                    "Your walking stays on this phone. $who never sees it.",
+                    // "Your walking" was the whole of what Harbor noticed
+                    // when this line was written. A reminder that arrives
+                    // mid-scroll was noticed another way, and naming only the
+                    // walk on that one would be reassuring somebody about a
+                    // thing that did not happen while saying nothing about
+                    // the thing that did. Generic rather than branching: it
+                    // is true either way and needs no plumbing to stay true
+                    // when a third trigger arrives.
+                    "What Harbor noticed stays on this phone. $who never sees it.",
                     size = 13,
                 )
             }
@@ -352,13 +397,21 @@ private fun CuePath(
     sub: String? = null,
     mark: PathMark? = null,
     enabled: Boolean = true,
+    /** The one path worth taking, tinted so the eye lands on it first. */
+    lead: Boolean = false,
     onClick: () -> Unit,
 ) {
+    // Eight per cent of the palette's own blue over the card's own surface,
+    // rather than a second surface colour. Laid over the weather wash it stays
+    // a tint of whatever is behind it -- so the card lifts in every weather
+    // instead of matching one of them and disappearing into another.
+    val base = MaterialTheme.colorScheme.surface
+    val ground = if (lead) lerp(base, MarkSky.copy(alpha = base.alpha), 0.22f) else base
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .background(ground)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 15.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -440,8 +493,15 @@ private val TriggerSource.opening: String
     get() = when (this) {
         TriggerSource.WALKING_STOP ->
             "You just stopped walking — a good moment, if you want it."
+        // Not "you just put something down". That was written when this
+        // trigger was going to fire after a session ended, and it fires
+        // during one now -- see CuePolicy.waitsOutAStop. Somebody reading it
+        // mid-scroll is being told they stopped, which is the exact thing
+        // the note above this forbids: Harbor may be wrong about whether
+        // this is a good moment, and may never be wrong about what just
+        // happened.
         TriggerSource.SESSION_END ->
-            "You just put something down — a good moment, if you want it."
+            "You have been in there a while — a good moment, if you want it."
         TriggerSource.NOTE ->
             "You were just thinking of them anyway."
         TriggerSource.GAME ->

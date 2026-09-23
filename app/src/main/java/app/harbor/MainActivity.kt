@@ -1,5 +1,9 @@
 package app.harbor
 
+import app.harbor.ui.theme.Space
+import app.harbor.ui.theme.Motion
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.slideInVertically
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import app.harbor.domain.StudyArm
+import app.harbor.ui.LocalStudyArm
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.tween
@@ -29,17 +35,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import app.harbor.cue.CallFlow
+import android.content.Intent
 import app.harbor.data.HarborStore
+import app.harbor.data.SupabaseClient
 import app.harbor.data.StudyFile
+import app.harbor.data.WhatsAppInbox
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Resolution
 import app.harbor.domain.CallStats
 import app.harbor.domain.Moment
+import app.harbor.sensing.Sensing
 import app.harbor.ui.ContactScreen
 import app.harbor.ui.CuesSetupScreen
 import app.harbor.ui.FlowerLanding
+import app.harbor.ui.ForwardYourChats
 import app.harbor.ui.GardenScreen
+import app.harbor.ui.SignInScreen
 import app.harbor.ui.HarborShell
 import app.harbor.ui.HarborTab
 import app.harbor.ui.HomeScreen
@@ -47,6 +59,7 @@ import app.harbor.ui.OnboardingScreen
 import app.harbor.ui.NotesScreen
 import app.harbor.ui.PersonScreen
 import app.harbor.ui.ScheduleScreen
+import app.harbor.ui.StudyCodeScreen
 import app.harbor.ui.SettingsScreen
 import app.harbor.ui.theme.HarborTheme
 import kotlinx.coroutines.launch
@@ -110,15 +123,58 @@ class MainActivity : ComponentActivity() {
         Cues(null, "Reminders"),
         Contact(null, "Your person"),
         Garden(null, "Your garden"),
-        Notes(null, "A petal"),
+        // "Send a petal", matching the page's own title. The bar used to
+        // say "A petal" while the page said "Send a petal." -- two names for
+        // one screen, a centimetre apart.
+        Notes(null, "Send a petal"),
         Person(null, null),
         Reflect(null, null),
+        SignIn(null, "Your account"),
+        StudyCode(null, "Study code"),
     }
 
     private lateinit var store: HarborStore
 
+    /** Built once. Reads its own preferences file and holds no state of ours. */
+    private val sync by lazy { SupabaseClient(applicationContext) }
+
+    /**
+     * The address a provider sign-in came home on, waiting to be dealt with.
+     *
+     * A provider hands the browser back to `harbor://auth#access_token=...`,
+     * which Android delivers as an Intent rather than as a return value. The
+     * activity is `singleTask`, so that arrives through [onNewIntent] while
+     * Harbor is already running -- and through [onCreate]'s own intent if the
+     * app was killed while the browser had the screen.
+     *
+     * Held as state so the composition can see it, and cleared by the screen
+     * that consumes it: replaying a sign-in on every rotation would sign
+     * somebody in twice and read as the app flickering.
+     */
+    private var signInRedirect by mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        takeRedirect(intent)
+    }
+
+    /**
+     * Whether this intent is a sign-in coming home, and if so, keep it.
+     *
+     * Checked by scheme rather than by trusting that only our own filter can
+     * reach here, because any app can send an Intent with any data.
+     */
+    private fun takeRedirect(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "harbor" || data.host != "auth") return
+        signInRedirect = data.toString()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The browser may have finished while Harbor was not running.
+        takeRedirect(intent)
         // Dark bars, stated rather than inferred.
         //
         // enableEdgeToEdge() with no arguments picks its bar style from the
@@ -135,6 +191,12 @@ class MainActivity : ComponentActivity() {
         // too and they run outside the composition.
         store = HarborStore(applicationContext)
 
+        // Put sensing back if it has fallen over. Installing a build
+        // force-stops the app, which stops delivery until it is launched by
+        // hand -- exactly the state a participant handed a new APK is in, and
+        // one that reports itself as working. See Sensing.repair.
+        lifecycleScope.launch { Sensing.repair(applicationContext, store) }
+
         setContent {
             HarborTheme {
                 var screen by remember { mutableStateOf(Screen.Home) }
@@ -150,6 +212,15 @@ class MainActivity : ComponentActivity() {
                 // Which screens get looked at, and in what order. A category
                 // per screen; nothing about what was on it.
                 LaunchedEffect(screen) { store.note(Moment.SCREEN, screen.name) }
+
+                // Anything the WhatsApp bot has parsed goes onto the week
+                // (ADR-014). Keyed on `resumes` rather than on the schedule
+                // screen, because a class that moved should already be
+                // suppressing cues by the time anybody thinks to look at the
+                // grid -- and because the point of forwarding a message was
+                // not having to open that screen. Returns 0 and costs nothing
+                // when signed out, offline, or with no backend.
+                LaunchedEffect(resumes) { WhatsAppInbox.drain(sync, store) }
                 var reflecting by remember { mutableStateOf<LedgerEntry?>(null) }
 
                 // The flower on its way into the field, drawn over whatever
@@ -165,6 +236,12 @@ class MainActivity : ComponentActivity() {
                 var growing by remember { mutableStateOf<FlowerKind?>(null) }
                 var landed by remember { mutableStateOf<java.util.UUID?>(null) }
                 var showing by remember { mutableStateOf<java.util.UUID?>(null) }
+                // Who the contact screen opens on (null is somebody new), and
+                // where it goes back to. It used to always edit the first
+                // contact and return to Cues, which was right while there
+                // could only be one.
+                var editing by remember { mutableStateOf<java.util.UUID?>(null) }
+                var contactBack by remember { mutableStateOf(Screen.Cues) }
                 val scope = rememberCoroutineScope()
                 val home = { screen = Screen.Home }
 
@@ -246,7 +323,24 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(enabled = onboarded == true && screen != Screen.Home) { home() }
 
-                CompositionLocalProvider(LocalReducedMotion provides reduceMotion) {
+                // The arm, watched rather than read once.
+                //
+                // It used to be a single read in a LaunchedEffect, on the
+                // reasoning that an arm cannot be reassigned so there was
+                // nothing to observe. True of every moment except the one
+                // that matters: the arm is *claimed* on the first screen of
+                // the first run, which is after this composable has already
+                // read it. So a bees participant typed their code and then
+                // did the whole of onboarding -- the part somebody sits and
+                // watches them through -- in the control arm, with the bee
+                // turning up only after the next cold start. See
+                // HarborRepository.armFlow.
+                val arm by store.armFlow.collectAsState()
+
+                CompositionLocalProvider(
+                    LocalReducedMotion provides reduceMotion,
+                    LocalStudyArm provides arm,
+                ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
                     // imePadding here rather than on each screen: the app is
                     // edge to edge, so the window no longer resizes itself
@@ -302,11 +396,23 @@ class MainActivity : ComponentActivity() {
                         //
                         // Keyed on the screen, so a redraw within one screen
                         // does not replay it.
+                        val rise = with(LocalDensity.current) { Space.two.roundToPx() }
                         AnimatedContent(
                             targetState = screen,
+                            // Material's fade-through: the old screen goes
+                            // quickly, then the new one fades in and rises
+                            // the last 16dp into place. Rising, not sliding
+                            // sideways, for the reason above -- vertical
+                            // says "arrived", not "next".
                             transitionSpec = {
-                                val d = if (reduceMotion) 0 else 200
-                                fadeIn(tween(d)) togetherWith fadeOut(tween(d))
+                                if (reduceMotion) {
+                                    fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                                } else {
+                                    (
+                                        fadeIn(tween(Motion.ENTER, delayMillis = OUT_MS, easing = Motion.Emphasised)) +
+                                            slideInVertically(tween(Motion.ENTER, delayMillis = OUT_MS, easing = Motion.Emphasised)) { rise }
+                                        ) togetherWith fadeOut(tween(OUT_MS, easing = Motion.Standard))
+                                }
                             },
                             label = "screen",
                             // Not `showing` -- that name is already taken in
@@ -318,8 +424,12 @@ class MainActivity : ComponentActivity() {
                             Screen.Home -> HomeScreen(
                                 store = store,
                                 onOpenGarden = { screen = Screen.Garden },
-                                onOpenCues = { screen = Screen.Cues },
                                 onOpenNotes = { screen = Screen.Notes },
+                                onAddContact = {
+                                    editing = null
+                                    contactBack = Screen.Home
+                                    screen = Screen.Contact
+                                },
                                 onOpenPerson = { id ->
                                     showing = id
                                     screen = Screen.Person
@@ -335,14 +445,19 @@ class MainActivity : ComponentActivity() {
 
                             Screen.Cues -> CuesSetupScreen(
                                 store = store,
-                                onEditContact = { screen = Screen.Contact },
+                                onEditContact = {
+                                    editing = store.contacts.value.firstOrNull()?.id
+                                    contactBack = Screen.Cues
+                                    screen = Screen.Contact
+                                },
                                 onOpenGarden = { screen = Screen.Garden },
                                 modifier = inset,
                             )
 
                             Screen.Contact -> ContactScreen(
                                 store = store,
-                                onDone = { screen = Screen.Cues },
+                                contactId = editing,
+                                onDone = { screen = contactBack },
                                 modifier = inset,
                             )
 
@@ -352,7 +467,11 @@ class MainActivity : ComponentActivity() {
                                 store = store,
                                 contactId = showing,
                                 onLeaveLine = { screen = Screen.Notes },
-                                onEdit = { screen = Screen.Contact },
+                                onEdit = {
+                                    editing = showing
+                                    contactBack = Screen.Person
+                                    screen = Screen.Contact
+                                },
                                 modifier = inset,
                             )
 
@@ -366,13 +485,42 @@ class MainActivity : ComponentActivity() {
                                 store = store,
                                 onDone = home,
                                 modifier = inset,
+                                otherWays = {
+                                    ForwardYourChats(
+                                        client = sync,
+                                        onOpenAccount = { screen = Screen.SignIn },
+                                    )
+                                },
                             )
 
                             Screen.Settings -> SettingsScreen(
                                 store = store,
                                 onEditSchedule = { screen = Screen.Schedule },
                                 onOpenCues = { screen = Screen.Cues },
+                                onOpenAccount = { screen = Screen.SignIn },
+                                onOpenStudyCode = { screen = Screen.StudyCode },
                                 onDone = home,
+                                modifier = inset,
+                            )
+
+                            Screen.StudyCode -> StudyCodeScreen(
+                                store = store,
+                                // Back to the very first screen, because that
+                                // is what startOver leaves behind: an install
+                                // with nothing in it.
+                                onStartOver = {
+                                    onboarded = false
+                                    screen = Screen.Home
+                                },
+                                onDone = { screen = Screen.Settings },
+                                modifier = inset,
+                            )
+
+                            Screen.SignIn -> SignInScreen(
+                                client = sync,
+                                redirect = signInRedirect,
+                                onRedirectHandled = { signInRedirect = null },
+                                onDone = { screen = Screen.Settings },
                                 modifier = inset,
                             )
 
@@ -480,3 +628,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** How long the old screen takes to go before the new one starts to arrive. */
+private const val OUT_MS = 120

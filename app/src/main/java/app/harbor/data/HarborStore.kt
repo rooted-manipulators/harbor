@@ -8,9 +8,10 @@ import app.harbor.domain.Cue
 import app.harbor.domain.CuePolicy
 import app.harbor.domain.LedgerEntry
 import app.harbor.domain.Moment
-import app.harbor.domain.Resolution
+import app.harbor.domain.Reminders
 import app.harbor.domain.Telemetry
 import app.harbor.domain.TriggerSource
+import app.harbor.domain.StudyArm
 import app.harbor.domain.UserSettings
 import app.harbor.domain.WeekBlock
 import app.harbor.domain.Windows
@@ -59,6 +60,31 @@ class HarborStore(context: Context) : HarborRepository {
     private val _dailyAnswers = MutableStateFlow(readDailyAnswers())
     override val dailyAnswers: StateFlow<Map<LocalDate, String>> = _dailyAnswers.asStateFlow()
 
+    // Android hands every caller in this process the same underlying
+    // SharedPreferences object for a given file name, so a write from one
+    // HarborStore instance (the widget's own, for instance) reaches every
+    // other instance's listener -- this is what that's for. Without it, a
+    // long-lived instance such as MainActivity's keeps whatever it read at
+    // construction and a change made elsewhere in the same process never
+    // reaches its StateFlows until the process restarts.
+    //
+    // Held in a field rather than passed inline: registerOnSharedPreferenceChangeListener
+    // keeps only a weak reference, so an unheld lambda is eligible for
+    // collection and can silently stop firing.
+    private val prefsListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                KEY_SETTINGS -> _settings.value = readSettings()
+                KEY_CONTACTS -> _contacts.value = readContacts()
+                KEY_BUSY -> _weekBlocks.value = readWeekBlocks()
+                KEY_ANSWERS -> _dailyAnswers.value = readDailyAnswers()
+            }
+        }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    }
+
     // --- settings ---------------------------------------------------------
 
     private fun readSettings(): UserSettings {
@@ -72,8 +98,27 @@ class HarborStore(context: Context) : HarborRepository {
     }
 
     override suspend fun setSettings(settings: UserSettings) {
+        // Noted here rather than at each stepper, because there are five
+        // screens that can move one of these and a sixth would forget.
+        // Compared field by field so a settings write that changed the mood
+        // or the sound does not report a threshold that did not move.
+        val was = _settings.value.thresholds
+        val now = settings.thresholds
         write { putString(KEY_SETTINGS, LedgerJson.settings(settings).toString()) }
         _settings.value = settings
+
+        if (was.walkingMinutes != now.walkingMinutes) {
+            note(Moment.THRESHOLD_MOVED, "walking_minutes", now.walkingMinutes)
+        }
+        if (was.sessionMinutes != now.sessionMinutes) {
+            note(Moment.THRESHOLD_MOVED, "session_minutes", now.sessionMinutes)
+        }
+        if (was.dailyCap != now.dailyCap) {
+            note(Moment.THRESHOLD_MOVED, "daily_cap", now.dailyCap)
+        }
+        if (was.cooldownMinutes != now.cooldownMinutes) {
+            note(Moment.THRESHOLD_MOVED, "cooldown_minutes", now.cooldownMinutes)
+        }
     }
 
     // --- contacts ---------------------------------------------------------
@@ -180,14 +225,33 @@ class HarborStore(context: Context) : HarborRepository {
                 cuesToday = cues.count {
                     it.firedDate == date && it.triggerSource != TriggerSource.MANUAL
                 },
+                // The same rows, grouped. Manual is excluded here too: a cue
+                // somebody asked for should not spend the walking trigger's
+                // share any more than it spends the day's.
+                cuesTodayBySource = cues
+                    .filter { it.firedDate == date && it.triggerSource != TriggerSource.MANUAL }
+                    .groupingBy { it.triggerSource }
+                    .eachCount(),
                 // Across every day, not just today: the cooldown has to
-                // survive midnight.
-                lastCueAt = cues.maxOfOrNull { it.firedAt },
-                // Also across every day: a plan made on Tuesday for Friday is
-                // still a plan.
-                hasPendingReminder = ledger.any {
-                    it.resolution == Resolution.PROPOSED_LATER && !it.reminderDone
-                },
+                // survive midnight. Manual cues are left out for the same
+                // reason they are left out of the cap — onboarding's preview
+                // is one, so counting it started a two-hour cooldown on the
+                // way out of the flow, and the first real walk after setting
+                // Harbor up could never produce anything.
+                lastCueAt = cues
+                    .filter { it.triggerSource != TriggerSource.MANUAL }
+                    .maxOfOrNull { it.firedAt },
+                // Across days when the plan was made for tomorrow, and then
+                // over: a plan holds reminders back until its own time has
+                // been and gone, whether or not anybody closed it.
+                //
+                // It used to hold until `reminderDone`, which nothing in the
+                // app ever set -- so one "later" tap switched sensed reminders
+                // off for the rest of the study with no way back. The hold is
+                // a question about now and is answered against the clock; the
+                // closing is a fact about the person and is written down. See
+                // domain/Reminders.
+                hasPendingReminder = Reminders.holding(ledger, Instant.now()) != null,
                 busyNow = Windows.busyAt(_weekBlocks.value, ZonedDateTime.now()),
             )
         }
@@ -209,28 +273,48 @@ class HarborStore(context: Context) : HarborRepository {
     }
 
     override suspend fun append(entry: LedgerEntry) {
+        // Any plan this moment closes on its own: they meant to call her, and
+        // then they called her. Worked out inside the lambda, which runs under
+        // the same lock as the write, so two rows landing at once cannot each
+        // miss what the other did.
+        val closed = mutableListOf<UUID>()
         writeList(KEY_LEDGER) {
+            val held = readLedger()
+            closed += Reminders.closedBy(held, entry)
             // Idempotent: re-appending the same moment replaces it rather than
             // duplicating, matching the server's upsert key.
-            (readLedger() + entry)
+            (held + entry)
                 .associateBy { it.id }
                 .values
+                .map { if (it.id in closed) it.copy(reminderDone = true) else it }
                 .sortedBy { it.occurredAt }
                 .takeLast(RETAINED)
                 .let(LedgerJson::entries)
         }
+        if (closed.isNotEmpty()) {
+            unsync(closed)
+            closed.forEach { note(Moment.REMINDER_CLOSED, Reminders.Closed.REACHED_THEM.name) }
+        }
     }
 
-    override suspend fun markReminderDone(id: UUID) {
+    override suspend fun markReminderDone(id: UUID, how: Reminders.Closed) {
         writeList(KEY_LEDGER) {
             readLedger()
                 .map { if (it.id == id) it.copy(reminderDone = true) else it }
                 .let(LedgerJson::entries)
         }
-        // The entry changed, so it has to go up to the server again.
+        unsync(listOf(id))
+        // How it closed, as a category and never anybody's words. This is the
+        // half of the study's second question that "later" never had: whether
+        // a deferred call is one that eventually happens.
+        note(Moment.REMINDER_CLOSED, how.name)
+    }
+
+    /** An amended entry has to go up to the server again. */
+    private suspend fun unsync(ids: List<UUID>) {
         write {
             val synced = prefs.getStringSet(KEY_SYNCED_ENTRIES, emptySet()).orEmpty()
-            putStringSet(KEY_SYNCED_ENTRIES, synced - id.toString())
+            putStringSet(KEY_SYNCED_ENTRIES, synced - ids.map(UUID::toString).toSet())
         }
     }
 
@@ -241,6 +325,77 @@ class HarborStore(context: Context) : HarborRepository {
 
     override suspend fun setOnboarded() {
         write { putBoolean(KEY_ONBOARDED, true) }
+    }
+
+    private val _arm = MutableStateFlow(StudyArm.of(prefs.getString(KEY_ARM, null)))
+    override val armFlow: StateFlow<StudyArm> = _arm.asStateFlow()
+
+    override suspend fun arm(): StudyArm = withContext(Dispatchers.IO) {
+        StudyArm.of(prefs.getString(KEY_ARM, null))
+    }
+
+    override suspend fun startOver(code: String?): StudyArm = withContext(Dispatchers.IO) {
+        // Everything, not a selection. Choosing which keys survive is how a
+        // reset quietly keeps a contact whose ledger rows have gone, or a
+        // "seen the reminder" flag from a study arm that no longer exists.
+        prefs.edit().clear().commit()
+        // Republish every flow by hand. The listener at the top of this class
+        // only watches two keys, and a clear() fires it for none of them --
+        // so without this the UI would keep showing the person and the week
+        // that no longer exist until the process died.
+        _settings.value = readSettings()
+        _contacts.value = readContacts()
+        _weekBlocks.value = readWeekBlocks()
+        _dailyAnswers.value = readDailyAnswers()
+        val arm = StudyArm.fromCode(code)
+        write {
+            putString(KEY_ARM, arm.wire)
+            putString(KEY_CODE, code?.trim().orEmpty())
+        }
+        _arm.value = arm
+        arm
+    }
+
+    override suspend fun seedQuietNightsOnce(): Boolean = withContext(Dispatchers.IO) {
+        if (prefs.getBoolean(KEY_NIGHTS_SEEDED, false)) {
+            false
+        } else {
+            val week = _weekBlocks.value
+            write { putBoolean(KEY_NIGHTS_SEEDED, true) }
+            // Appended rather than replacing: somebody may already have drawn
+            // their week in onboarding before ever opening this screen.
+            setWeekBlocks(week + Windows.quietNights())
+            true
+        }
+    }
+
+    override suspend fun hasClaimedArm(): Boolean =
+        withContext(Dispatchers.IO) { prefs.getString(KEY_ARM, null) != null }
+
+    override suspend fun studyCode(): String? =
+        withContext(Dispatchers.IO) { prefs.getString(KEY_CODE, null) }
+
+    override suspend fun claimCode(code: String?): StudyArm = withContext(Dispatchers.IO) {
+        // First call wins. See HarborRepository.claimCode: an arm that could
+        // be reassigned is an arm that cannot be trusted on the rows already
+        // written under it.
+        val held = prefs.getString(KEY_ARM, null)
+        if (held != null) {
+            StudyArm.of(held)
+        } else {
+            val arm = StudyArm.fromCode(code)
+            // The code is stored even when it is blank, because blank is
+            // itself the answer: somebody went past the screen without one.
+            write {
+                putString(KEY_ARM, arm.wire)
+                putString(KEY_CODE, code?.trim().orEmpty())
+            }
+            // The screen is watching this. Without it the claim reaches the
+            // preferences file and not the app, and the first session runs
+            // in the wrong arm -- see HarborRepository.armFlow.
+            _arm.value = arm
+            arm
+        }
     }
 
     // --- the study export -------------------------------------------------
@@ -319,6 +474,19 @@ class HarborStore(context: Context) : HarborRepository {
         const val KEY_LEDGER = "ledger"
         const val KEY_CUES = "cues"
         const val KEY_ONBOARDED = "onboarded"
+
+        /**
+         * Written once, never rewritten. Stored as the wire name rather than
+         * an ordinal so that reordering the enum cannot silently move every
+         * participant into the other arm.
+         */
+        /** Set the first time a week editor is opened. See seedQuietNightsOnce. */
+        const val KEY_NIGHTS_SEEDED = "nights_seeded"
+
+        const val KEY_ARM = "study_arm"
+
+        /** The code as typed, trimmed. Empty means asked and skipped. */
+        const val KEY_CODE = "study_code"
         const val KEY_PARTICIPANT = "participant_id"
         const val KEY_SYNCED_CUES = "synced_cue_ids"
         const val KEY_SYNCED_ENTRIES = "synced_entry_ids"

@@ -1,6 +1,12 @@
 package app.harbor.ui
 
 import androidx.compose.foundation.Canvas
+import app.harbor.ui.theme.Space
+import app.harbor.ui.theme.emberFill
+import app.harbor.ui.theme.entrance
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,13 +36,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.delay
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Animatable
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.draw.drawWithContent
@@ -52,6 +59,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.cue.Dialer
@@ -61,17 +70,22 @@ import app.harbor.domain.Contact
 import app.harbor.domain.FlowerKind
 import app.harbor.domain.Flowers
 import app.harbor.domain.LedgerEntry
+import app.harbor.domain.Reminders
 import app.harbor.domain.Resolution
 import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Ember
 import app.harbor.ui.theme.EmberLight
 import app.harbor.ui.theme.Eyebrow
 import app.harbor.ui.theme.Flow
+import app.harbor.ui.theme.PrimaryAction
+import app.harbor.ui.theme.QuietAction
 import app.harbor.ui.theme.SectionHeading
 import app.harbor.ui.theme.SmallCopy
 import app.harbor.ui.theme.Surface
 import app.harbor.ui.theme.pageContent
+import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Home, hand-translated from `components/harbor/home.tsx`.
@@ -92,9 +106,10 @@ import java.time.Instant
 fun HomeScreen(
     store: HarborRepository,
     onOpenGarden: () -> Unit,
-    onOpenCues: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenPerson: (java.util.UUID) -> Unit,
+    /** Opens the contact screen on nobody, to add a new person. */
+    onAddContact: () -> Unit,
     onReflect: (LedgerEntry) -> Unit,
     modifier: Modifier = Modifier,
     /** The flower just planted, which home opens where the camera lands. */
@@ -115,14 +130,16 @@ fun HomeScreen(
         .filter { it.resolution == Resolution.CALLED && it.flower != null }
         .sumOf { Flowers.flowerCount(it.callMinutes) }
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        // The weather, as the ground of the whole screen.
-        //
-        // Home is the screen the field lives on, so home is the screen the
-        // weather owns. Everything below is drawn over it, and the field adds
-        // only its terrain -- no second sky, no box, no seam.
-        FieldSky(settings.weather, Modifier.fillMaxSize())
+    // Where a bee took off from, while one is in the air, and where the
+    // last one came down. See BeeFlight and FieldBee: the flight hands the
+    // resident bee its position so the arrival is one bee continuing rather
+    // than one vanishing and another appearing.
+    var beeFrom by remember { mutableStateOf<Offset?>(null) }
+    var beeLanded by remember { mutableStateOf<Offset?>(null) }
+    // Whether the field is zoomed in enough to have a bee in it at all.
+    var closeUp by remember { mutableStateOf(true) }
 
+    BoxWithConstraints(modifier.fillMaxSize()) {
         // How tall the field can be, given how tall the phone actually is.
         //
         // It was a fixed number, and a fixed number cannot be right: the
@@ -136,6 +153,72 @@ fun HomeScreen(
         // half the phone and then lets the first card climb back over it.
         val fieldHeight = (maxHeight * 0.46f).coerceIn(280.dp, 400.dp)
 
+        // How far down the field sits from the top of the phone. Small on
+        // purpose: enough that there is sky above the land rather than land
+        // against the bezel, and not so much that the greeting loses the
+        // ground it stands on.
+        val FieldDrop = 28.dp
+
+        // The weather, as the ground the field stands on -- and sized to the
+        // field rather than to the phone.
+        //
+        // Everything in the wash is a fraction of its own canvas: the light
+        // sits 0.62 of the height out from its centre, the bands land at
+        // eight fractions, the settle to the page finishes at 0.60. Given the
+        // whole screen, all of that scaled to a 2400-pixel canvas while the
+        // field itself only ever occupied the top four hundred and something
+        // -- so the glow came out nearly three times the size it is in the
+        // garden, which hands the same composable a panel.
+        //
+        // Bounding it to the field makes the two screens one picture at two
+        // sizes. Below it is the page, which is where the wash was heading
+        // anyway: its last two stops are already Paper.
+        FieldSky(
+            // The answer -- and in the bees arm the hour instead. FieldSky
+            // asks the arm itself, because there are two call sites and
+            // neither of them should be the one that decides.
+            settings.weather,
+            Modifier
+                .fillMaxWidth()
+                .height(fieldHeight + FieldDrop),
+        )
+
+        // Scrolling down pulls the camera off the field; scrolling back up
+        // puts you in it again.
+        //
+        // The page and the field move as one thing rather than the field being
+        // a picture the page slides over. Reading down the screen is already a
+        // step back from the moment -- from "call her" to what has happened
+        // lately -- and the view follows the attention rather than sitting
+        // still while the attention leaves.
+        //
+        // Over one field's height: any less and the island snaps out while
+        // the first card is still arriving, any more and the whole page has
+        // scrolled by before the view has finished moving.
+        val scroll = rememberScrollState()
+        // How far you have to scroll to pull the camera all the way back.
+        //
+        // Fixed to the field's own height rather than to whatever the page
+        // happens to contain. On a day-one home -- one person, nothing grown,
+        // no reminder waiting -- the page only scrolls about a hundred pixels,
+        // so the entire crane shot fired and finished inside one flick. The
+        // shot was not broken; there was nowhere to perform it.
+        //
+        // The spacer at the bottom of the column is what makes this true.
+        //
+        // A short runway, and the shortest one that works.
+        //
+        // With none at all a day-one home scrolls about fifty pixels, and the
+        // whole move is over before a finger has left the glass -- which is
+        // what "it doesn't change to the top view" actually is. It does; you
+        // cannot see it happen.
+        //
+        // A full field's height was the other error: the page then ran on for
+        // a screen of empty ground. Three tenths is a flick, and it is the
+        // least that lets the camera be watched arriving.
+        val pullSpan = fieldHeight * 0.30f
+        val pullOver = with(LocalDensity.current) { pullSpan.toPx() }
+
         // `modifier` belongs to the BoxWithConstraints above; applying it
         // here as well would pay the Scaffold's insets twice.
         Column(
@@ -144,7 +227,7 @@ fun HomeScreen(
                 // No ground of its own: HarborShell paints the ground and the
                 // dusk over it, and a second opaque background here covered
                 // that gradient -- which is what made every screen read flat.
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
         ) {
             // The field, full bleed, with the greeting standing on it.
             //
@@ -164,6 +247,23 @@ fun HomeScreen(
                     store,
                     Modifier
                         .fillMaxSize()
+                        // Dropped a little down the screen.
+                        //
+                        // The horizon sits a seventh of the way down whatever
+                        // canvas the field is given, and on home that canvas
+                        // starts at the top of the phone -- so the horizon
+                        // landed just under the status bar, with the land
+                        // pressed against the top edge and nothing above it.
+                        // The garden gives the same field a panel to sit in and
+                        // reads correctly; home was the screen without the
+                        // breathing room.
+                        //
+                        // An offset rather than padding, so only the drawing
+                        // moves. Padding would shorten the canvas, and a
+                        // shorter canvas moves the horizon back up by the same
+                        // fraction -- the field would shrink and stay exactly
+                        // where it was.
+                        .offset(y = FieldDrop)
                         // The field is erased into the page, not covered by it.
                         //
                         // A scrim painted over the bottom of the terrain only
@@ -191,6 +291,24 @@ fun HomeScreen(
                     // which is what the close opening shot costs otherwise.
                     interactive = true,
                     standClose = true,
+                    onCloseUp = { closeUp = it },
+                    // Measured against whichever is shorter: a field's height,
+                    // or everything the page actually has to scroll.
+                    //
+                    // A fixed distance alone assumes the page is long. Home
+                    // with one contact and nothing lately is barely taller
+                    // than the screen, so the scroll ran out at a fraction of
+                    // a field's height and the pull stopped a quarter of the
+                    // way in -- the island never arrived, and the feature
+                    // looked broken on exactly the phone a new participant
+                    // has. Against the real range, reaching the bottom always
+                    // reaches the island, and a long page still takes a
+                    // field's height to get there rather than snapping out in
+                    // the first inch.
+                    pullBack = {
+                        val span = minOf(scroll.maxValue.toFloat(), pullOver)
+                        if (span <= 0f) 0f else scroll.value / span
+                    },
                     controls = false,
                     sky = false,
                     arriving = growing != null,
@@ -254,13 +372,20 @@ fun HomeScreen(
                 Column(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 24.dp, end = 24.dp, bottom = 26.dp),
+                        .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                 ) {
                     Text(
                         if (settings.name.isBlank()) "Hey there." else "Hey, ${settings.name}.",
                         style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp),
+                        // A name is whatever somebody typed, and this line ran
+                        // to within a few pixels of the right edge on an
+                        // ordinary first name. Two lines and an ellipsis mean
+                        // a long one wraps like a greeting instead of being
+                        // cut off mid-word.
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.size(5.dp))
+                    Spacer(Modifier.size(4.dp))
                     // The line under the greeting is the field's caption.
                     //
                     // With nothing planted it says so, because an empty field
@@ -288,6 +413,57 @@ fun HomeScreen(
                     .offset(y = (-40).dp)
                     .pageContent(),
             ) {
+                // A plan they made and nobody has closed.
+                //
+                // This is the "reminder inside Harbor" the cue promises when
+                // somebody taps a later time. Until this card existed there
+                // was nothing behind that promise, and the plan it left behind
+                // held every sensed reminder back for good -- see
+                // domain/Reminders.
+                //
+                // It waits to be found rather than arriving. A reminder that
+                // comes looking for you is a cue, and a cue is the one thing
+                // this person has just said "not now" to.
+                Reminders.due(entries, Instant.now())?.let { plan ->
+                    val who = contacts.firstOrNull { it.id == plan.contactId }
+                    val close: (Reminders.Closed) -> Unit = { how ->
+                        scope.launch {
+                            store.markReminderDone(plan.id, how)
+                            entries = store.recentEntries()
+                        }
+                    }
+                    Surface {
+                        SectionHeading("You made room for this.")
+                        SmallCopy(
+                            "You thought " +
+                                timeLabel(
+                                    plan.proposedTime!!
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalTime(),
+                                ) +
+                                " might suit for " + (who?.label ?: "someone") +
+                                ". It still might.",
+                        )
+                        if (who != null && who.phoneE164 != null) {
+                            // No closing call here. The row the dialer writes
+                            // closes the plan by itself, and a plan marked
+                            // closed by a call that never happened is a worse
+                            // record than one simply left open.
+                            PrimaryAction("Call " + who.label) {
+                                Dialer.handOff(context, store, scope, who)
+                            }
+                        }
+                        // Both of these close it, and neither costs anything.
+                        // "I already did" is taken at its word and writes no
+                        // call -- Harbor did not see one, so Harbor does not
+                        // claim one.
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            QuietAction("I already did") { close(Reminders.Closed.SAID_SO) }
+                            QuietAction("Let it go") { close(Reminders.Closed.LET_GO) }
+                        }
+                    }
+                }
+
                 // A call Harbor watched you start and never heard about.
                 CallStats.pendingReflection(entries, Instant.now())?.let { waiting ->
                     Surface {
@@ -299,7 +475,7 @@ fun HomeScreen(
                                 " earlier. It only takes a moment, and it is what grows " +
                                 "the flower.",
                         )
-                        TextLink("Tell me") { onReflect(waiting) }
+                        TextLink("Tell me", onClick = { onReflect(waiting) })
                     }
                 }
 
@@ -307,22 +483,45 @@ fun HomeScreen(
                 // reads as the sky over the garden rather than something to get
                 // past before the call button, and it is compact enough now to
                 // sit there without pushing anybody below the fold.
-                WeatherBar(store)
+                WeatherBar(
+                    store,
+                    // Only the bees arm draws anything with this; BeeFlight
+                    // returns immediately in the garden. Reported from here
+                    // rather than handled inside the bar because the bee has
+                    // to fly out of the bar and into the field, and only the
+                    // page contains both.
+                    onBeeOff = { beeFrom = it },
+                )
 
                 // No "Your people" heading. A row of faces with a call button
                 // under each one does not need to be told what it is, and the
                 // header was costing a line directly above the one thing this
                 // whole app exists to make easy.
-                if (contacts.isEmpty()) {
-                    SmallCopy("Nobody yet. Add someone, and their patch appears above.")
-                    TextLink("Choose someone", onOpenCues)
-                }
-                contacts.chunked(2).forEach { row ->
+                //
+                // The last place in the grid is always the way to add
+                // somebody. With nobody yet it is the only thing here, which
+                // is the empty state: a button, not a sentence about one.
+                (contacts.map<Contact, Contact?> { it } + null).chunked(2).forEach { row ->
                     Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            // So the dashed tile stands as tall as the person
+                            // beside it, whatever that person's tile holds.
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(Space.oneHalf),
                     ) {
                         row.forEach { contact ->
+                            if (contact == null) {
+                                AddContactTile(
+                                    onClick = onAddContact,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .heightIn(min = AddTileMin)
+                                        .entrance(contacts.size),
+                                )
+                                return@forEach
+                            }
                             PersonTile(
                                 contact = contact,
                                 // Flowers, not calls: one a minute, the same
@@ -346,7 +545,8 @@ fun HomeScreen(
                                 onCall = contact.phoneE164?.let {
                                     { Dialer.handOff(context, store, scope, contact) }
                                 },
-                                modifier = Modifier.weight(1f),
+                                // One after another, left to right and down.
+                                modifier = Modifier.weight(1f).entrance(contacts.indexOf(contact)),
                             )
                         }
                         if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -357,10 +557,45 @@ fun HomeScreen(
                 // finding a moment and setting your pace live under Account. Home
                 // is the garden, your people, and a quick way to say something.
                 SendAPetal(onOpenNotes)
+
+                // The runway itself. See pullSpan.
+                Spacer(Modifier.height(pullSpan))
+
             }
         }
+
+        // Last in the box, so it flies over the page rather than under it.
+        //
+        // It has to be outside the scrolling column: the bee's launch point
+        // is the thumb's position in root space, and a child of a scroller
+        // is offset by however far that scroller has moved. Here the
+        // coordinates it is given are the coordinates it draws in.
+        // The one that lives here. Hidden only while a flight is in the
+        // air, so there is never two of them on screen at once.
+        FieldBee(
+            weather = settings.weather,
+            fieldHeight = fieldHeight + FieldDrop,
+            startAt = beeLanded,
+            visible = beeFrom == null,
+            near = closeUp,
+        )
+
+        BeeFlight(
+            from = beeFrom,
+            weather = settings.weather,
+            // Into the lower part of the field, which is where the flowers
+            // are and so where a bee would be going.
+            toY = with(LocalDensity.current) { (fieldHeight * 0.55f).toPx() },
+            onDone = { beeLanded = it; beeFrom = null },
+        )
     }
 }
+
+/**
+ * The shortest the add tile may be: a person's arch and plinth. Only matters
+ * when it has a row to itself and nobody beside it to match.
+ */
+private val AddTileMin = 176.dp
 
 /** A person as a specimen: their patch under glass, and a way to call them. */
 @Composable
@@ -404,16 +639,16 @@ private fun PersonTile(
                     // action in the design. It was an 8dp rectangle in flat
                     // primary, which is what the light specimen asked for.
                     .clip(RoundedCornerShape(99.dp))
-                    .background(Brush.verticalGradient(listOf(EmberLight, Ember)))
+                    .emberFill()
                     .clickable(onClick = onCall)
-                    .padding(vertical = 11.dp),
+                    .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Canvas(Modifier.size(13.dp)) {
                     drawHandset(this, onInk)
                 }
-                Spacer(Modifier.size(7.dp))
+                Spacer(Modifier.size(8.dp))
                 Text(
                     "Call " + contact.label,
                     maxLines = 1,
@@ -429,7 +664,7 @@ private fun PersonTile(
         }
 
         usual?.let {
-            Spacer(Modifier.size(7.dp))
+            Spacer(Modifier.size(8.dp))
             Eyebrow("usually ${CallStats.formatDuration(it)}")
         }
     }
@@ -444,7 +679,9 @@ internal fun TextLink(text: String, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            // 15 + a 13sp line clears 48dp. Quiet is about weight and colour,
+            // not about being hard to press.
+            .padding(vertical = 16.dp),
         style = MaterialTheme.typography.labelLarge.copy(
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -472,9 +709,9 @@ private fun SendAPetal(onClick: () -> Unit) {
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, CardEdge, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
             Modifier

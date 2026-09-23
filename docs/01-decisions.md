@@ -166,6 +166,66 @@ and do not add Health Connect unless step *history* is wanted elsewhere.
 The app-session trigger (`UsageStatsManager`) is v0.2. It is the
 platform-harder half and the study does not need it to answer its questions.
 
+**Amended 2026-09-19: v0.2 is now, and the study does need it.** The question
+the study is being asked to answer changed: not *does a reminder after a walk
+work*, but *which kind of moment works better*. That is a comparison, and a
+comparison needs two triggers. The second one is the long stretch in one app,
+built in `sensing/ScrollWatch.kt` on `UsageStatsManager`, exactly as this ADR
+named it.
+
+Three things about it are decisions rather than implementation, and are here
+because they are the ones somebody would otherwise quietly reverse.
+
+**It is opt-in, separately from cues.** `UserSettings.scrollCues` is off until
+somebody takes it on the onboarding screen, and `CuePolicy` refuses a
+`SESSION_END` when it is off — before the caps, so a declined trigger cannot
+spend a slot the walk could have used. Reading which app is in front is a
+different promise from reading whether the phone is moving, it is a different
+grant (`PACKAGE_USAGE_STATS`, which has no dialog, only a Settings screen),
+and it gets its own consent. The disclosure is shown only to the people who
+take the option, at reading size, with the detail behind a link that opens in
+place. Do not shrink it: that Harbor can see which app you are in is the whole
+of what is being agreed to.
+
+**It fires during the stretch, not after it.** This is the one that looks like
+a bug if you come to it from the walking trigger. A walk becomes worth
+interrupting when it *ends*, so `CuePolicy.SETTLE` holds it until the
+stillness has lasted. A long stretch in one app is worth interrupting while it
+is still going on — waiting for it to end means arriving after the phone is
+face down, which is nobody's moment. So `SESSION_END` is outside the settle
+gate. It keeps its name because the name is written into every stored ledger
+entry and into the study's wire format; what it marks is the stretch, not the
+end of one.
+
+**It is a poll, in the foreground service.** Android has no "twenty minutes in
+one app" event; the two it does offer — an app launching, the screen going off
+— are both the wrong end. `SensingService` exists anyway (see ADR-008 as
+amended) and now also looks at a clock every two minutes, doing nothing at all
+for anybody who has not turned the trigger on, and nothing while the screen is
+off. That reverses the "this service does no work" rule in that file for this
+one case only.
+
+**It takes the screen, and that costs a heavy permission.** A
+full-screen intent covers the locked or dark phone and does nothing on an
+unlocked one: there the system shows a heads-up banner and leaves you where
+you were. Correct for almost everything and wrong for this trigger, whose
+job is to interrupt the feed in front of you — a banner over a feed is a
+thing people flick away unread. `SYSTEM_ALERT_WINDOW` is the only grant that
+lets an activity start from the background on a phone in somebody's hand, so
+Harbor asks for it: late, only of people who took the trigger, and never as
+a condition of the app working. Without it the cue is the banner it already
+was. Not for a Play listing as it stands; this is a one-week study build.
+
+A consequence worth stating: with that grant, the *walking* cue takes the
+screen on an unlocked phone too, where it used to be a banner. That is what
+ADR-009 asks for and it had never actually happened before.
+
+The caps move with it: four reminders a day, two from each trigger
+(`Thresholds.sourceCap`). Against a single shared ceiling the frequent trigger
+takes every slot and the rare one is never seen, and a week of running both
+would end with no comparison at all — which is the whole reason the second
+trigger exists.
+
 ---
 
 ## ADR-006 — Package name
@@ -268,6 +328,30 @@ So: `TransitionReceiver` is a plain broadcast receiver, woken by Play
 services, using `goAsync()` for the few milliseconds it takes to read the
 ledger and write a cue.
 
+**Amended 2026-09-17: one inexact alarm, for the settle wait.** No service
+still, but the receiver-only design had a hole in it that took until the first
+real walk to find. `CuePolicy` will not fire until the user has been still for
+`SETTLE`, and Play services wakes the receiver at the instant stillness is
+detected — inside that window, every time — and then has nothing further to
+send while the user stays still. So the one chance to evaluate a walk was the
+one moment it was certain to be refused, and `BoutTracker` had already cleared
+the bout. No sensed walk could ever produce a cue. The unit tests all passed:
+each handed `decide` a signal that was already settled, describing a caller
+that did not exist.
+
+`sensing/SettleAlarm` is that caller. The signal is parked in `SensingStore`
+and an `AlarmManager` alarm re-asks once it has settled. This is not the
+service ADR-008 refuses: it is nothing between firings, no notification, no
+permission. The alarm is inexact (`setAndAllowWhileIdle`) because
+`SCHEDULE_EXACT_ALARM` is not worth spending on a ninety-second timer, so it
+can land minutes late under Doze — `CuePolicy.settleExpired` drops a signal
+that lands *much* later rather than firing into a moment that has passed.
+
+Registrations are also re-established on every launch (`Sensing.repair`), not
+only on boot. Installing a build force-stops the app, and Android delivers
+nothing to a stopped app until it is launched by hand; that is the state every
+participant handed a new APK was in, and it reported itself as working.
+
 ### What this costs
 
 A permanent notification is also a *disclosure* — the user can see sensing is
@@ -358,6 +442,30 @@ cue writes a `dismissed` ledger entry and nothing else happens.
 
 ---
 
+**Amended 18 Sep 2026: delivered like an alarm, worded like Harbor.**
+
+This ADR is about what the cue *says*. Nothing in it is about how insistently
+Android carries the notification, and the two had been conflated: the cue was
+posted as `CATEGORY_REMINDER`, which is the bucket people learn to swipe past
+unread, and its sound rode the notification volume. A cue that arrives while
+the phone is face-down in a bag and makes no sound has lost the moment it
+exists to catch, however carefully its words were chosen.
+
+So it is now `CATEGORY_ALARM`, with alarm audio usage and a request to be heard
+through Do Not Disturb. An alarm category claims nothing about who is calling.
+
+Not `CATEGORY_CALL`, which is the one that would be a lie, and which on API 31+
+brings `CallStyle` and the answer/decline pair this ADR exists to refuse. The
+words on the surface do not change: no "Mom is calling", no imitation of the
+system call UI, and the line saying the walking stays on the phone.
+
+The DND request is honoured only if Harbor holds notification policy access and
+is ignored otherwise, so a phone inside a Sleep schedule can still swallow the
+cue. That is worth knowing before a silent night is read as a trigger that
+failed.
+
+---
+
 ## ADR-010 — No location, no route tracking
 
 **Status:** accepted (2026-09-10)
@@ -429,6 +537,13 @@ established it was even possible.
 Asking a study participant to hand a student app their college password is a
 security problem we would be creating for them, and no timetable is worth it.
 
+A fourth arrived later and sits alongside the first rather than replacing it:
+**a message forwarded to a WhatsApp bot** (ADR-014). No permission and no
+credential either, and it is the only one of the four that keeps a week
+current *after* onboarding, because it is fed by the announcements people are
+already receiving. The rule below stays source-agnostic — this is one more
+place a `WeekBlock` can come from, and the policy still cannot tell.
+
 ### Windows are weekly, not dated
 
 A timetable's real shape. A one-off engagement is not worth modelling — the
@@ -439,3 +554,322 @@ costs almost nothing.
 
 Someone sitting in a lecture who asks for the prompt is making their own
 decision. Consistent with every other gate `MANUAL` bypasses.
+
+---
+
+## ADR-012 — The flowers are artwork, not drawn geometry
+
+**17 Sep 2026. Reverses, for the flowers only, the rule in
+`docs/05-changing-the-ui.md` that every mark in the app is drawn on a canvas.**
+
+### What changed
+
+The twenty flowers ship as image files — `res/drawable-nodpi/flower_*.webp`,
+two cuts of each, made by `tools/cut_flowers.py` from the twenty source PNGs in
+`tools/flower-source`. Nothing draws a flower's shape in code any more.
+
+### Why
+
+Three separate attempts were made to draw them, in order: one petal function
+for all twenty, then a silhouette per flower, then the illustration vectorised
+and its Bézier outlines ported into Compose paths. Each one produced a
+recognisable flower. None produced *the* flower. The artwork carries soft light
+inside the petals and a glow through the throat that a fill cannot reach, and
+the gap was still obvious at the third attempt, which was tracing the real
+outlines rather than approximating them.
+
+At that point continuing to draw them is a preference for a rule over a result.
+The flowers are the reward surface of the whole product — they are what a week
+of calling looks like — and they are the one place in the app where the picture
+being right matters more than the picture being cheap.
+
+### What it costs, accepted knowingly
+
+- **They no longer restyle with the palette.** This was the reason for the
+  original rule and it is a real loss: a future skin changes every other mark
+  for free and cannot touch these. `Flowers.kt` still holds three colours per
+  flower, off the same sheet, for the things that need a colour rather than a
+  picture.
+- **About 1MB of APK**, and heap while they are on screen — a decoded bitmap is
+  width × height × 4 bytes.
+- **They do not scale past their own size.** The cuts are sized for the largest
+  place each is used; going bigger will go soft.
+
+### What is still drawn
+
+The two top-down views — the field's cells and the garden's dots — draw a
+flower a few pixels across, hundreds at a time. There is no shape to recognise
+at that size, only a hue, and the artwork would mean decoding every kind the
+garden holds. Those keep the cheap petals-around-a-centre mark, and the rule in
+`docs/05-changing-the-ui.md` is unchanged for every other icon in the app.
+
+### If this is ever reversed
+
+The last drawn version is the traced one, in the history of
+`ui/FlowerMark.kt` and the deleted `ui/FlowerArt.kt`. It is the closest a
+drawn flower got, and it is the thing to start from rather than starting over.
+
+---
+
+## ADR-013 — The other person has the app too, so Harbor gets a server
+
+**17 Sep 2026. Reverses ADR-003 and ADR-004 (no server dependency, no
+`INTERNET` permission) and ADR-007 (the parent gets no software). Supersedes
+the header note in `0001_init.sql` that there is "deliberately no
+parent-facing role, table, or policy".**
+
+### What changed
+
+Harbor is no longer a kid-and-parent app with one participant and one
+bystander. Everybody who uses it has it. You add your aunt; she is a Harbor
+account; you can ask to see when she is free and she can say yes. Future
+features are collaborative by intent.
+
+That makes a server load-bearing for the first time. Two accounts cannot share
+anything through a `SharedPreferences` file.
+
+### What it costs, accepted knowingly
+
+These are the reasons the old ADRs existed, and they do not stop being true
+because the decision changed.
+
+- **"Nothing leaves this phone" stops being physically true.** It was not a
+  policy before; it was the absence of an `INTERNET` permission and of any HTTP
+  client in the dependency list. Anyone could verify it by reading
+  `app/build.gradle.kts`. From here it is a promise about what the code does,
+  which is a weaker kind of promise, and it has to be kept by review.
+- **A new failure mode: the network.** ADR-003's actual argument was that the
+  cue has to fire on a train with no signal. That argument is untouched and
+  becomes a constraint instead of an architecture: sensing, the policy, the
+  ledger and the cue surface must keep working with the radio off. The device
+  stays authoritative for everything it already owns. Sync is a mirror, never a
+  source of truth, and nothing in the cue path may await it.
+- **Identity.** There was no account. Now there is one, and with it sign-in,
+  sign-out, account deletion, and somebody's phone number on a server.
+- **The study's consent basis moves.** Participants agreed to an app that could
+  not send anything anywhere. That is no longer what they would be running. See
+  "Before this ships", below.
+
+### What is shared, and what is not
+
+Only the *shape* of a week: day, start, end, busy-or-free. `WeekBlock.label`
+is documented "Never leaves the device" and `week_blocks` in `0011` has no
+column for it, which is the cheapest way to keep that promise — there is
+nowhere to put it. "Busy 2–4pm Tuesday" crosses the wire. "Therapy" does not.
+
+Sharing is asked for and granted, never assumed; it is read-only; it is
+revocable, and revoking it takes effect on the next query because the policy is
+evaluated per query and cached nowhere.
+
+Not shared, and not proposed for sharing: the ledger, the garden, cues, or
+anything about whether a call happened. Who you called and how it felt is the
+most private thing in this app and none of it is anybody else's business.
+
+### Identity is an email address
+
+Phone was the first answer and lasted about an hour. It reads well for an app
+about ringing people — the number you would type to add your aunt is the number
+that finds her — but it means paying an SMS provider per sign-in and per retry,
+during a study, before anybody has agreed the feature is worth having.
+
+So: sign in with Google, with Microsoft, or with a code to your inbox.
+
+Google and Microsoft are Supabase's own providers. `azure` is the one that
+covers Outlook, Hotmail and Live, which are one account wearing three names —
+there is no `microsoft` provider and asking for one returns a 400 that reads
+like the account is bad.
+
+**Yahoo is not a Supabase provider and cannot be configured as one.** That is
+why the email code exists, and it is not a lesser third option: it needs no
+provider set up at all and works for Yahoo, for a university address, for
+anybody. It is the route that always works, and the two buttons are the
+convenience.
+
+Provider sign-in goes through the browser, not a WebView. A password field on a
+screen Harbor drew is the exact shape of a phishing page, and both Google and
+Microsoft refuse to load in a WebView for that reason. The browser comes home to
+`harbor://auth`, which is `SupabaseClient.REDIRECT` and the intent filter on
+`MainActivity`; the two have to agree or the sign-in ends on a page that cannot
+be found.
+
+`request_link()` in `0011` now matches on email, case-insensitively, because
+nobody types their own capitals the same way twice and an address that fails to
+match because somebody wrote Gmail with a capital G looks exactly like "she has
+not signed up".
+
+It leaks whether an address is registered, to somebody who already has that
+address. Every invite-by-identifier system leaks exactly that. Writing it down
+is better than implying otherwise.
+
+### Before this ships to anybody in the study
+
+1. **Re-consent.** The information sheet describes an app with no network.
+   Running a syncing build against people who agreed to the other one is not a
+   thing to do quietly.
+2. **Offline first, proven.** A build with the radio off must still sense a
+   walk, decide, fire a cue, record it and write the study file. If that is not
+   true, this change has broken the product to add a feature.
+3. **Account deletion.** `on delete cascade` is in the schema. There is no way
+   to ask for it from the app yet.
+
+### Still open
+
+- Whether the week syncs at all for a user with no links. It has no reason to,
+  and not uploading it by default is the better posture.
+- What the requester sees while a link is `pending`, and whether the addressee
+  is notified in-app or not at all.
+- Whether two accounts that link each way should collapse into one mutual
+  state in the UI, while staying two rows underneath.
+
+---
+
+## ADR-014 — A timetable can arrive by WhatsApp
+
+**Status:** accepted (2026-09-18). Adds a fourth candidate source to ADR-011
+and does not change the rule ADR-011 built.
+
+### What
+
+A participant forwards a message from a class group chat to a Harbor WhatsApp
+number. A Supabase edge function reads the days and times out of it, files
+them in `schedule_inbox`, and the phone places them on the week the next time
+Harbor comes to the front.
+
+`backend/supabase/functions/whatsapp/`, `0013_whatsapp_inbox.sql`,
+`data/WhatsAppInbox.kt`, `ui/ForwardYourChats.kt`.
+
+### Why
+
+ADR-011 chose a self-entered timetable and listed what to try after it. This
+is none of those three, and it beats two of them on the thing that actually
+matters: it needs no permission, no credential, and no campus API that does
+not exist. What it needs is a message people are already receiving.
+
+The self-entered week is not wrong, it is just not kept up. Somebody draws
+their week once in onboarding and then a class moves on a Tuesday afternoon —
+and the grid, which is what stops a cue landing in a lecture, is now quietly
+wrong in a way nobody will fix by opening a screen. The announcement of that
+move is already in a chat on the same phone.
+
+### What it costs, and why the schedule screen changed in the same commit
+
+A forwarded message leaves the device. It goes to WhatsApp — so to Meta — and
+to our function. That is a real cost, and it contradicted a line the schedule
+screen was showing: *"nothing leaves this phone"*.
+
+So that line changed, in the same commit, to what is still true: **what you
+draw stays on this phone**. The part that does not stay says so itself, on the
+card that offers it, where somebody deciding whether to use this can read it.
+`CLAUDE.md` requires exactly this — the explainer's copy is a promise the code
+has to keep — and it is the reason this feature is a card you opt into rather
+than a setting that was already on.
+
+Three things narrow the cost:
+
+1. **The bot keeps nothing but times.** `readTimetable` returns day, start and
+   end. There is no column in `schedule_inbox` for the text, the subject, the
+   room, the sender or the group, and the row is deleted as soon as the phone
+   has it. This is the same move as `week_blocks` having no label column: the
+   cheapest way to keep a promise is to have nowhere to break it.
+2. **It is opt-in twice.** Once by messaging the bot a code read off your own
+   screen, and again every time you choose to forward something. Nothing is
+   read from anybody's chats; a message arrives only because somebody sent it.
+3. **It is off entirely by default.** No number configured, no card. Same
+   posture as `SupabaseClient.configured`.
+
+### The bot proposes; the phone decides
+
+Parsed blocks land in `schedule_inbox`, never in `week_blocks`.
+
+The device is authoritative for its own week (ADR-003), and `putWeek` replaces
+rather than merges for that reason — a server writing into `week_blocks` would
+be erased by the next upload. More to the point, a week with two authors is a
+week nobody owns. So the function fills a queue and `WhatsAppInbox.drain`
+empties it through the same `Windows.place` a finger goes through, which makes
+a block that arrived by message indistinguishable afterwards from one that was
+drawn, and removable by the same drag.
+
+Draining on resume rather than on opening the schedule screen, because a class
+that moved should already be suppressing cues before anyone thinks to look at
+the grid — and because not having to open that screen was the point.
+
+### It only ever adds busy time
+
+A cancelled class is read and deliberately dropped rather than clearing the
+block it names. Two reasons: a busy block is what *stops* a cue, so a
+misparsed "no class Monday 9-11" that booked the hour would be wrong in the
+worst available direction; and marking the freed hour `FREE` would be worse
+still, because a flower means *this is when I would welcome a call* (ADR-011),
+which a cancelled lecture does not say. Removing time stays a gesture on the
+grid.
+
+### Rejected
+
+- **Reading chats on the device.** A notification listener over WhatsApp would
+  need no forwarding at all, and would be Harbor reading every message a
+  participant receives. Not for a timetable, not for anything.
+- **The bot writing `week_blocks` directly.** Above.
+- **Keeping the message to improve the parser.** Tempting and refused: a
+  corpus of participants' group chats is the single most sensitive thing this
+  project could hold, and the parser is testable without one.
+
+### Open
+
+- The parser resolves "today" and "tomorrow" in Asia/Kolkata, hard-coded. Fine
+  for a BITSoM study, wrong the moment it is not one.
+- WhatsApp's 24-hour customer service window: outside it, free-form replies
+  are refused and only a template will send. A participant who forwards
+  something after a day of silence may get no confirmation. The blocks are
+  still filed.
+- Nothing tells the participant in-app that blocks arrived; they simply appear
+  on the grid. Whether that wants a mark of its own is a question for the
+  study, not for now.
+
+---
+
+## ADR-015 — A week can be pulled from the phone's calendar
+
+**Status:** accepted (2026-09-23)
+
+ADR-011 listed `READ_CALENDAR` second among the places a timetable could come
+from. Participants asked for it: a lot of them already keep lectures in Google
+Calendar, and drawing the same week a second time is the tedium the schedule
+screen exists to remove.
+
+### What it does
+
+A "From calendar" button at the foot of the week view. Pressing it asks for
+`READ_CALENDAR` if Harbor does not have it, reads the seven days from the start
+of today (instances, so recurring events arrive expanded), and places each
+timed event on its weekday as a busy block, labelled with its title. It is
+placed like a drawn block, so it cuts whatever it lands on. An undo follows.
+
+All-day events and events the calendar marks *free* are skipped: a birthday
+is not a busy day, and an event its owner said does not block time should not
+block a cue.
+
+### Why the permission is acceptable here
+
+- **Asked at the press, never at onboarding.** Activity recognition is the
+  funnel's biggest risk (CLAUDE.md, ADR-002). A calendar prompt beside it
+  would spend trust in the worst place; a prompt that appears because the
+  person just asked for their calendar spends almost none.
+- **Read once per press.** No sync adapter, no observer, no background read.
+  The calendar is not touched again until the button is pressed again.
+- **Nothing leaves the device.** Titles become `WeekBlock.label`, which never
+  syncs. The pull adds nothing to what the explainer screen promises about.
+- **Refusing costs nothing.** Denied, the button says so and the week is
+  unchanged; drawing and the WhatsApp bot (ADR-014) still work.
+
+### Dated events on a weekly week
+
+The calendar is dated and the week is weekly (ADR-011), so next Tuesday's
+lecture becomes every Tuesday's. That is the right reading for a timetable,
+and a one-off that lands for a week is cheap: the cue is capped and
+dismissible, and the block drags off.
+
+### Rejected
+
+- **Keeping it in sync.** A calendar observer would keep the week current
+  without a press, at the cost of Harbor reading the calendar indefinitely.
+  The WhatsApp bot already covers "stays current" without a standing read.

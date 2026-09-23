@@ -6,86 +6,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import app.harbor.domain.Weather
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.sin
 
 /**
- * The sky behind the garden, hand-translated from `sky-wheel.tsx`.
+ * The five weathers, drawn.
  *
- * Five weathers sit on a wheel whose centre is below the frame, so only the
- * top of the arc is visible. Choosing a weather turns the wheel until that
- * emblem is overhead — the sky changes rather than a setting changing.
+ * Hand-translated from the prototype's `sky-wheel.tsx`, whose emblem
+ * geometry is a 100x110 viewBox: sun and rays, clouds as three circles over
+ * a rounded bar, rain as three falling strokes, storm as a bolt.
  *
- * The emblem geometry is the prototype's 100x110 viewBox, scaled: sun and
- * rays, clouds as three circles over a rounded bar, rain as three falling
- * strokes, storm as a bolt.
+ * ## What used to be here
+ *
+ * A wheel. Five weathers rode an arc whose centre sat below the frame, and
+ * choosing one turned it until that emblem was overhead — the sky changing
+ * rather than a setting changing. It was drawn by `GardenCanvas`, the plot
+ * view, which stopped being called when the garden screen moved to the
+ * field and was deleted with it. `gradient`, `veil`, `drawWheel` and
+ * `drawRing` went at the same time; they are in the history if the plot
+ * view ever comes back.
+ *
+ * The emblems outlived it. They are what the mood slider's thumb wears in
+ * the garden arm — see `WeatherBar` — which is the one place the five
+ * weathers are still drawn for anybody.
  */
 internal object Sky {
 
     /**
-     * `.garden-frame[data-weather]` — the ground the whole scene sits on.
+     * One weather, drawn in the prototype's 100x110 space.
      *
-     * The same five dusks `FieldSky` draws, and they have to stay the same
-     * five: this paints the garden screen and that paints the field inside
-     * home, so a phone showing both at once shows the same evening twice.
+     * Internal rather than private since the slider thumb carries one. These
+     * were drawn for a wheel of skies that no longer turns anywhere -- the
+     * only caller of [drawWheel] is `GardenCanvas`, which nothing calls --
+     * and they are the app's weather, already measured off the prototype.
+     * Better reused than redrawn.
      */
-    fun gradient(weather: Weather): Pair<Color, Color> = when (weather) {
-        Weather.CLEAR -> Color(0xFF2B4F6B) to Color(0xFF3A2018)
-        Weather.BRIGHT -> Color(0xFF2F5A7D) to Color(0xFF7B4226)
-        Weather.CLOUDY -> Color(0xFF2A3F52) to Color(0xFF33262A)
-        Weather.RAIN -> Color(0xFF24374A) to Color(0xFF262126)
-        Weather.STORM -> Color(0xFF1D2C3C) to Color(0xFF1E1B20)
-    }
-
-    /** `.garden-frame::after` — heavier weather dims the whole scene. */
-    fun veil(weather: Weather): Color = when (weather) {
-        Weather.CLEAR, Weather.BRIGHT -> Color.Transparent
-        Weather.CLOUDY -> Color(0x123C4850)
-        Weather.RAIN -> Color(0x212D3E50)
-        Weather.STORM -> Color(0x3D1E2C3C)
-    }
-
-    /**
-     * Draws the wheel.
-     *
-     * @param turn 0f when the chosen weather is exactly overhead. Callers
-     *   animate it so the sky turns rather than jumps.
-     */
-    fun DrawScope.drawWheel(weather: Weather, turn: Float) {
-        val steps = Weather.entries
-        val step = 360f / steps.size
-        val radius = max(size.width, 300f) * 1.06f
-        val centre = Offset(size.width / 2f, size.height + 26f)
-        val orbit = radius * 0.75f
-        val index = steps.indexOf(weather).coerceAtLeast(0)
-
-        steps.forEachIndexed { i, candidate ->
-            // Where this emblem sits once the wheel has turned.
-            val angle = Math.toRadians(((i - index) * step + turn - 90f).toDouble())
-            val at = Offset(
-                centre.x + (cos(angle) * orbit).toFloat(),
-                centre.y + (sin(angle) * orbit).toFloat(),
-            )
-
-            // Only the arc above the frame is worth drawing.
-            if (at.y > size.height + 40f) return@forEachIndexed
-
-            translate(at.x - 75f, at.y - 82f) {
-                scale(1.5f, pivot = Offset.Zero) {
-                    drawEmblem(candidate)
-                }
-            }
-        }
-    }
-
-    /** One weather, drawn in the prototype's 100x110 space. */
-    private fun DrawScope.drawEmblem(weather: Weather) {
+    internal fun DrawScope.drawEmblem(weather: Weather) {
         when (weather) {
             Weather.CLEAR -> drawSun()
 
@@ -154,23 +112,6 @@ internal object Sky {
             topLeft = Offset(28f, 58f),
             size = Size(52f, 17f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.5f, 8.5f),
-        )
-    }
-
-    /**
-     * The dashed ring the emblems ride on. Faint, and mostly off-frame.
-     *
-     * White rather than the dark green it was. A faint *dark* line on a dusk
-     * sky is not faint, it is absent.
-     */
-    fun DrawScope.drawRing() {
-        val radius = max(size.width, 300f) * 1.06f
-        val centre = Offset(size.width / 2f, size.height + 26f)
-        drawCircle(
-            color = Color(0x1AFFFFFF),
-            radius = radius * 0.75f,
-            center = centre,
-            style = Stroke(width = 1.5f),
         )
     }
 }

@@ -144,7 +144,7 @@ fun NotesScreen(
             // that gradient -- which is what made every screen read flat.
             .verticalScroll(rememberScrollState()),
     ) {
-        Box(Modifier.padding(horizontal = 28.dp)) {
+        Box(Modifier.padding(horizontal = 32.dp)) {
             PageIntro(
                 eyebrow = "Small enough that nobody owes a reply",
                 title = "Send a petal.",
@@ -169,7 +169,17 @@ fun NotesScreen(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Pill(text = "Send it", selected = true) {
+                        // Dim until there is something to send.
+                        //
+                        // It was always the amber pill, and pressing it with an
+                        // empty field did nothing at all -- the guard below was
+                        // already there, silently. A button that looks ready and
+                        // then ignores you is worse than one that waits.
+                        Pill(
+                            text = "Send it",
+                            selected = line.isNotBlank(),
+                            enabled = line.isNotBlank(),
+                        ) {
                             val text = line.trim()
                             if (text.isNotEmpty() && who != null) {
                                 record()
@@ -229,7 +239,9 @@ fun NotesScreen(
                 }
             }
 
-            TextLink("Back", onDone)
+            // No second "Back". The bar at the top of the screen already
+            // has one, and two of them a screen apart invites the question of
+            // whether they go to different places.
         }
     }
 }

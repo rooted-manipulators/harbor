@@ -1,6 +1,6 @@
 package app.harbor.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,23 +25,19 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
+import app.harbor.R
+import app.harbor.domain.StudyArm
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.domain.FlowerKind
-import app.harbor.domain.Flowers
 import app.harbor.domain.Tone
 import app.harbor.ui.theme.CardEdge
 import app.harbor.ui.theme.Eyebrow
-import app.harbor.ui.theme.Forest
 import app.harbor.ui.theme.Hairline
-import app.harbor.ui.theme.LeafLight
 import app.harbor.ui.theme.SmallCopy
-import app.harbor.ui.theme.Stem
 import app.harbor.ui.theme.mark
 
 /**
@@ -98,8 +94,64 @@ fun Specimen(
                 .padding(horizontal = 4.dp)
                 .border(1.dp, Hairline, ArchShape),
         ) {
-            if (flower != null) {
-                Canvas(Modifier.fillMaxSize()) { drawSpecimen(flower) }
+            val bees = LocalStudyArm.current == StudyArm.BEES
+            if (flower != null && bees) {
+                // The bee holding the flower, in the mood the flower names.
+                // One picture for both, so it replaces the plant rather than
+                // standing beside it -- see MoodBee.
+                MoodBee(
+                    flower,
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            } else if (flower != null) {
+                Image(
+                    painter = painterResource(plantOf(flower)),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    alignment = Alignment.BottomCenter,
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                // An empty arch is a third of the screen of nothing, and it is
+                // the most prominent thing on home for somebody who has just
+                // finished onboarding -- the one moment the app has to say what
+                // it is for. A bordered void says only that something failed to
+                // load.
+                //
+                // So the frame holds the invitation instead. Not an error and
+                // not a placeholder: the true sentence about what happens next,
+                // in the shape the flower will eventually fill.
+                //
+                // In the bees arm the standing bee waits under the sentence:
+                // there is no flower yet, so no mood to show.
+                Column(
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Their first flower\nopens after your\nfirst call",
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign = TextAlign.Center,
+                    )
+                    if (bees) {
+                        Spacer(Modifier.height(8.dp))
+                        Image(
+                            painter = painterResource(R.drawable.bee_standing),
+                            contentDescription = null,
+                            modifier = Modifier.size(38.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -109,7 +161,7 @@ fun Specimen(
                 .clip(PlinthShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .border(1.dp, CardEdge, PlinthShape)
-                .padding(horizontal = 9.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -139,66 +191,11 @@ fun Specimen(
     }
 }
 
-/**
- * One stem, from the foot of the arch to the bloom.
- *
- * Drawn rather than shipped as art for the same reason [FlowerMark] is: the
- * shape is a function of the flower's spec, so adding a flower to the library
- * stays a data change.
+/*
+ * The stem and the two leaves used to be drawn here, under a flower head that
+ * was also drawn. Both are in the artwork now -- each file is a whole plant --
+ * so drawing a second stem under it would have given every specimen two.
  */
-internal fun DrawScope.drawSpecimen(kind: FlowerKind, bloom: Float = 0.30f) {
-    val cx = size.width / 2f
-    val foot = size.height * 0.97f
-    val bloomY = size.height * 0.30f
-    val unit = size.minDimension
-
-    drawPath(
-        Path().apply {
-            moveTo(cx, foot)
-            cubicTo(
-                cx - unit * 0.04f, foot - unit * 0.22f,
-                cx + unit * 0.03f, bloomY + unit * 0.24f,
-                cx, bloomY,
-            )
-        },
-        color = Stem,
-        style = Stroke(width = unit * 0.045f, cap = StrokeCap.Round),
-    )
-
-    // Broader leaves and a bigger bloom, to the sheet's proportions.
-    //
-    // The flower was drawn at 0.17 of the tile with thin leaves, which on a
-    // bone page read as a delicate botanical plate. The sheet's flowers are
-    // the opposite -- a big saturated head on a sturdy stem with two wide
-    // leaves, filling most of the arch -- and at the old size, on this ground,
-    // a specimen read as a bare stalk with a bud on it.
-    drawLeaf(cx, foot - unit * 0.20f, -1f, unit * 0.38f, Forest)
-    drawLeaf(cx, foot - unit * 0.40f, 1f, unit * 0.33f, LeafLight)
-
-    translate(left = cx, top = bloomY) {
-        drawFlower(Flowers.spec(kind), unit * bloom)
-    }
-}
-
-/** A leaf: out from the stem, and back to it. */
-private fun DrawScope.drawLeaf(x: Float, y: Float, dir: Float, len: Float, colour: Color) {
-    drawPath(
-        Path().apply {
-            moveTo(x, y)
-            cubicTo(
-                x + dir * len * 0.50f, y - len * 0.45f,
-                x + dir * len * 0.95f, y - len * 0.30f,
-                x + dir * len, y - len * 0.02f,
-            )
-            cubicTo(
-                x + dir * len * 0.62f, y + len * 0.18f,
-                x + dir * len * 0.22f, y + len * 0.14f,
-                x, y,
-            )
-        },
-        color = colour,
-    )
-}
 
 /** The card's one action, as the sheet draws it: an ink pill. */
 private val ActionPill = RoundedCornerShape(99.dp)
@@ -249,30 +246,30 @@ fun LittleWindow(
             .background(container.takeOrElse { MaterialTheme.colorScheme.surface })
             .border(1.dp, edge.takeOrElse { CardEdge }, WindowShape),
     ) {
-        Canvas(
-            Modifier
+        Image(
+            painter = painterResource(plantOf(flower)),
+            contentDescription = null,
+            modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .size(132.dp)
                 .offset(x = 20.dp, y = 18.dp)
                 .alpha(0.9f),
-        ) {
-            // Larger here than in a patch: this card has one flower in it and
-            // room for it, where a patch has the arch to fill.
-            drawSpecimen(flower, bloom = 0.22f)
-        }
+            alignment = Alignment.BottomCenter,
+            contentScale = ContentScale.Fit,
+        )
 
         Column(
             Modifier
                 .fillMaxWidth(0.74f)
-                .padding(start = 18.dp, top = 20.dp, end = 12.dp, bottom = 18.dp),
+                .padding(start = 16.dp, top = 20.dp, end = 12.dp, bottom = 16.dp),
         ) {
             Eyebrow("A little window")
-            Spacer(Modifier.size(10.dp))
+            Spacer(Modifier.size(8.dp))
             Text(
                 headline,
                 style = MaterialTheme.typography.headlineMedium.copy(fontSize = 27.sp),
             )
-            Spacer(Modifier.size(5.dp))
+            Spacer(Modifier.size(4.dp))
             SmallCopy(caption, size = 12)
 
             // The sheet ends this card with a pill reading "Make a little
@@ -281,13 +278,13 @@ fun LittleWindow(
             // hands you to the dialer must not describe itself as anything
             // gentler than that.
             if (action != null && onAction != null) {
-                Spacer(Modifier.size(14.dp))
+                Spacer(Modifier.size(16.dp))
                 Box(
                     Modifier
                         .clip(ActionPill)
                         .background(MaterialTheme.colorScheme.primary)
                         .clickable(onClick = onAction)
-                        .padding(horizontal = 15.dp, vertical = 9.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         action,

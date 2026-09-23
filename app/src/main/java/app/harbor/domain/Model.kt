@@ -232,9 +232,35 @@ enum class CueSound { CHIME, SOFT, SILENT }
 data class Thresholds(
     val walkingMinutes: Int,
     val sessionMinutes: Int,
-    /** Hard ceiling on cues per day. */
+    /** Hard ceiling on cues per day, across every trigger. */
     val dailyCap: Int,
-    /** Minimum gap between two cues. */
+
+    /**
+     * The most any one trigger may produce in a day.
+     *
+     * Exists because two triggers running at once do not share a cap fairly.
+     * A walking stop happens once or twice; a phone-in-hand session ends
+     * dozens of times. Against a single ceiling of two, the frequent trigger
+     * takes both slots most mornings and the rare one is never seen — so a
+     * study comparing them would end the week with a hundred of one and four
+     * of the other, and no comparison at all.
+     *
+     * Null means "the same as [dailyCap]", which makes it invisible while
+     * there is only one sensed trigger: one source cannot out-compete itself.
+     * It starts mattering the day a second one is switched on, and then it
+     * should be set with the total — four a day, two from each, rather than
+     * two that one trigger eats.
+     *
+     * Null rather than defaulting to [dailyCap] directly, because a default
+     * that reads another field is a trap on `copy`: `copy(dailyCap = 1)` would
+     * keep the old source cap and produce a Thresholds that fails its own
+     * requirement. Deriving it on read cannot drift.
+     *
+     * Not a study knob dressed as a setting: a person with both triggers on
+     * wants the same fairness for the same reason, study or no study.
+     */
+    val sourceCap: Int? = null,
+    /** Minimum gap between two cues. Zero turns the gap off entirely. */
     val cooldownMinutes: Int,
 ) {
     init {
@@ -244,8 +270,19 @@ data class Thresholds(
         require(walkingMinutes in 1..120) { "walkingMinutes out of range: $walkingMinutes" }
         require(sessionMinutes in 1..180) { "sessionMinutes out of range: $sessionMinutes" }
         require(dailyCap in 1..10) { "dailyCap out of range: $dailyCap" }
-        require(cooldownMinutes in 1..1440) { "cooldownMinutes out of range: $cooldownMinutes" }
+        // Zero is a real setting, not a missing one: no enforced gap, with
+        // the daily cap left as the only limit. 0001_init.sql's CHECK was
+        // `between 1 and 1440` and would have rejected it, so 0012 widens it
+        // -- this comment's promise that one layer never rejects what another
+        // accepts is only kept if both move together.
+        require(cooldownMinutes in 0..1440) { "cooldownMinutes out of range: $cooldownMinutes" }
+        require(sourceCap == null || sourceCap in 1..dailyCap) {
+            "sourceCap must be between 1 and dailyCap: $sourceCap of $dailyCap"
+        }
     }
+
+    /** The per-trigger ceiling actually in force. See [sourceCap]. */
+    val perSourceCap: Int get() = sourceCap ?: dailyCap
 
     companion object {
         /**
@@ -256,10 +293,33 @@ data class Thresholds(
          * Study question 3 is how far people move away from this.
          */
         val SUGGESTED = Thresholds(
-            walkingMinutes = 10,
+            // Three, not ten.
+            //
+            // Ten minutes of *continuous* walking followed by a stop is a
+            // deliberate walk, and it is the right shape for the real study.
+            // It is also a threshold almost nobody crosses while somebody is
+            // watching them use the app, which meant every test session only
+            // ever saw the preview reminder and never the real one -- the one
+            // piece of behaviour most worth watching a stranger meet.
+            //
+            // Three is still a walk rather than a step to the kettle, and it
+            // is reachable inside a session. The stepper on the same screen
+            // moves it, and the study build should raise it again.
+            walkingMinutes = 3,
             sessionMinutes = 20,
-            dailyCap = 2,
-            cooldownMinutes = 120,
+            // Four a day, two from each trigger, rather than two that one
+            // trigger eats. See sourceCap above: this is the day it starts
+            // mattering, because it is the day a second sensed trigger
+            // exists. Somebody with only the walk switched on is unchanged in
+            // practice -- its own share is two, exactly what the cap was.
+            dailyCap = 4,
+            sourceCap = 2,
+            // No enforced gap. It was two hours, which is a long time to be
+            // unable to see the feature work and, as a suggestion nobody could
+            // reach, was closer to a rule than a suggestion. The daily cap is
+            // the limit that remains, and this one is now on the settings
+            // screen for anybody who wants the quiet back.
+            cooldownMinutes = 0,
         )
     }
 }
@@ -282,12 +342,54 @@ data class UserSettings(
     val sound: CueSound = CueSound.CHIME,
 
     /**
-     * How life feels at the moment. The user sets it; nothing infers it.
+     * Whether a scrolling session may offer a reminder, as well as a walk.
+     *
+     * Off until somebody turns it on, and turning it on is a separate consent
+     * from the one that covers walking: reading which app is in front is a
+     * different thing from reading whether the phone is moving, and
+     * `PACKAGE_USAGE_STATS` is a different grant. See ADR-005, which named
+     * `UsageStatsManager` for this and put it after the walk.
+     *
+     * Kept beside [cuesEnabled] rather than folded into it, because the study
+     * needs to tell three states apart: never offered it, offered and
+     * declined, offered and later switched off. The first is a participant
+     * the trigger never reached; the other two are findings.
+     */
+    val scrollCues: Boolean = false,
+
+    /**
+     * How life feels at the moment.
      *
      * Weather rather than a rating, because weather happens to you and
      * passes — a kinder frame for a hard week than a number would be.
+     *
+     * **This used to say "the user sets it; nothing infers it", and that is no
+     * longer true.** Harbor now opens each day on a guess read off the week
+     * the person typed in — see [Windows.weatherFor] — because a control that
+     * starts blank every morning asks somebody to do the work of noticing
+     * before they have properly opened the app. The guess is written here so
+     * that the sky, the bee, the ledger and the export all agree about what
+     * was actually on screen.
+     *
+     * What protects the old principle is [weatherSetOn]: a guess is always
+     * marked as a guess, always overridable, and never mistaken afterwards for
+     * something the person said.
      */
     val weather: Weather = Weather.CLEAR,
+
+    /**
+     * The day the person last moved the slider themselves, or null.
+     *
+     * The difference between "they told us" and "we guessed", and the reason
+     * the guess can be written to [weather] without lying. When this is not
+     * today, what is on screen is inferred and is drawn as provisional; the
+     * first touch of the slider sets it to today and the value becomes theirs.
+     *
+     * A date rather than a flag, because the guess should come back tomorrow.
+     * Yesterday's mood is not today's, and a stale answer left standing is
+     * worse than an honest guess.
+     */
+    val weatherSetOn: LocalDate? = null,
 
     val reducedMotion: Boolean = false,
 )

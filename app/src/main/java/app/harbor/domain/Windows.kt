@@ -2,6 +2,7 @@ package app.harbor.domain
 
 import java.time.DayOfWeek
 import java.time.Duration
+import app.harbor.domain.BlockKind
 import java.time.LocalTime
 import java.time.ZonedDateTime
 
@@ -43,6 +44,128 @@ object Windows {
 
     /** After this, neither does anybody else. */
     val DAY_END: LocalTime = LocalTime.of(22, 0)
+
+    /**
+     * The week somebody starts with: every night marked busy.
+     *
+     * ## Why this exists
+     *
+     * Harbor has no quiet hours. [CuePolicy] has no notion of night at all --
+     * these two constants are used to weigh a day and to find free stretches,
+     * and neither of them has ever gated a cue. So a participant who walked
+     * for three minutes at two in the morning and stopped would be rung, at
+     * full ringtone volume, at two in the morning.
+     *
+     * ## Why it is blocks rather than a rule
+     *
+     * A hidden "no cues at night" in the policy would work and would be
+     * invisible: nobody could see it, question it, or move it. These are
+     * ordinary busy blocks. They appear on the week the first time it is
+     * opened, they are drawn like anything else, and somebody who works nights
+     * can drag them off. The rule and the thing you can see are the same
+     * object, which is the whole argument.
+     *
+     * Two blocks a night because [WeekBlock] requires `start < end` and so
+     * cannot cross midnight. `LocalTime.MAX` rather than 23:59 so the late
+     * block runs to the very end of the day -- `covers` is exclusive at the
+     * end, and 23:59 would leave a minute of the night open.
+     */
+    fun quietNights(): List<WeekBlock> = DayOfWeek.entries.flatMap { day ->
+        listOf(
+            WeekBlock(day, LocalTime.MIDNIGHT, DAY_START, BlockKind.BUSY, QUIET),
+            WeekBlock(day, DAY_END, LocalTime.MAX, BlockKind.BUSY, QUIET),
+        )
+    }
+
+    // --- do not disturb ----------------------------------------------------
+    //
+    // The nights above, given a name and a setting. One period a day, the same
+    // every day, stamped onto the week as ordinary busy blocks -- so it is
+    // still the thing you can see and drag, and a single day's can be moved
+    // without touching the rest. Changing the setting re-stamps every day,
+    // which is the point of having one.
+
+    /** The label every do-not-disturb block carries. */
+    const val QUIET = "Do not disturb"
+
+    /** What the seeded nights were called before they had a setting. */
+    private const val LEGACY_QUIET = "Night"
+
+    private fun isQuiet(block: WeekBlock): Boolean =
+        block.kind == BlockKind.BUSY && (block.label == QUIET || block.label == LEGACY_QUIET)
+
+    /**
+     * The do-not-disturb period the week currently carries, or null if none.
+     *
+     * Read back off the blocks rather than stored separately, so there is one
+     * truth and it is the one on screen. Monday's is taken as the setting --
+     * any day would do while nobody has moved one by hand, and after they have
+     * the setting is only ever a starting point anyway.
+     *
+     * A period over midnight is two blocks, one to the end of the day and one
+     * from its start, and reads back as one: 22:00 to 08:00.
+     */
+    fun quietPeriod(blocks: List<WeekBlock>): Pair<LocalTime, LocalTime>? {
+        val mine = blocks.filter { isQuiet(it) }
+        val day = mine.map { it.day }.let { days ->
+            if (DayOfWeek.MONDAY in days) DayOfWeek.MONDAY else days.minOrNull()
+        } ?: return null
+        val today = mine.filter { it.day == day }.sortedBy { it.start }
+        val late = today.firstOrNull { it.end == LocalTime.MAX && it.start != LocalTime.MIDNIGHT }
+        val early = today.firstOrNull { it.start == LocalTime.MIDNIGHT && it.end != LocalTime.MAX }
+        val (from, to) = when {
+            late != null && early != null -> late.start to early.end
+            else -> today.first().start to today.first().end
+        }
+        // The end of the day reads back as midnight, which is what setQuiet
+        // takes to mean it.
+        return from to if (to == LocalTime.MAX) LocalTime.MIDNIGHT else to
+    }
+
+    /**
+     * The week with do-not-disturb set to [from]–[to] on every day, or taken
+     * off altogether when [from] is null.
+     *
+     * [to] earlier than [from] means over midnight. Equal means nothing: a
+     * period of no length would be a switch that looks on and does nothing.
+     *
+     * Every quiet block is removed first, including one somebody moved by
+     * hand -- changing the setting is saying what the setting is, on every
+     * day. What sits under the new period is cut away by [place], exactly as
+     * if it had been drawn.
+     */
+    fun setQuiet(blocks: List<WeekBlock>, from: LocalTime?, to: LocalTime?): List<WeekBlock> {
+        var next = blocks.filterNot { isQuiet(it) }
+        if (from == null || to == null || from == to) return next
+        DayOfWeek.entries.forEach { day ->
+            val pieces = if (from < to) {
+                listOf(from to to)
+            } else {
+                buildList {
+                    if (to > LocalTime.MIDNIGHT) add(LocalTime.MIDNIGHT to to)
+                    add(from to LocalTime.MAX)
+                }
+            }
+            pieces.forEach { (a, b) -> next = place(next, WeekBlock(day, a, b, BlockKind.BUSY, QUIET)) }
+        }
+        return next
+    }
+
+    // --- copying a day -----------------------------------------------------
+
+    /**
+     * [from]'s blocks, laid on [to] in place of whatever [to] had.
+     *
+     * Replacing rather than merging: "copy Monday to Tuesday" should leave
+     * Tuesday looking like Monday, and a merge that kept half of Tuesday's
+     * afternoon would be a third schedule nobody drew. The screen offers an
+     * undo because of exactly that.
+     */
+    fun copyDay(blocks: List<WeekBlock>, from: DayOfWeek, to: DayOfWeek): List<WeekBlock> {
+        if (from == to) return blocks
+        return blocks.filterNot { it.day == to } +
+            blocks.filter { it.day == from }.map { it.copy(day = to) }
+    }
 
     /** Shorter than this is a gap between classes, not room for a call. */
     val LEAST: Duration = Duration.ofMinutes(20)
@@ -89,21 +212,7 @@ object Windows {
     ): List<Window> {
         if (from >= to) return emptyList()
 
-        val clamped = blocks
-            .filter { it.day == day && it.kind == BlockKind.BUSY }
-            .map { maxOf(it.start, from) to minOf(it.end, to) }
-            .filter { it.first < it.second }
-            .sortedBy { it.first }
-
-        val merged = mutableListOf<Pair<LocalTime, LocalTime>>()
-        for ((start, end) in clamped) {
-            val last = merged.lastOrNull()
-            if (last != null && start <= last.second) {
-                merged[merged.lastIndex] = last.first to maxOf(last.second, end)
-            } else {
-                merged.add(start to end)
-            }
-        }
+        val merged = busyRuns(blocks, day, from, to)
 
         val out = mutableListOf<Window>()
         var cursor = from
@@ -165,6 +274,82 @@ object Windows {
         to: LocalTime = DAY_END,
     ): Window? = planted(blocks, day, from = now).maxByOrNull { it.minutes }
         ?: free(blocks, day, maxOf(now, from), to).maxByOrNull { it.minutes }
+
+    /**
+     * How full [day] is, from nought to one.
+     *
+     * Busy time only. A flower is somebody saying *this is room I have kept*,
+     * which is the opposite of a day filling up, and counting it would make
+     * marking your good evenings look like work.
+     *
+     * Measured against the waking window rather than the whole twenty-four
+     * hours, because eight hours of lectures is most of a day and a third of a
+     * clock, and the number is meant to answer "how full does this feel".
+     */
+    fun load(blocks: List<WeekBlock>, day: DayOfWeek): Double {
+        val span = DAY_END.toSecondOfDay() - DAY_START.toSecondOfDay()
+        if (span <= 0) return 0.0
+        val busy = busyRuns(blocks, day, DAY_START, DAY_END)
+            .sumOf { (start, end) -> end.toSecondOfDay() - start.toSecondOfDay() }
+        return (busy.toDouble() / span).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * The weather a day this full looks like, as a place to start.
+     *
+     * The mood picker opened on [Weather.CLEAR] for everybody, every day,
+     * which is a question disguised as an answer: a blank control asks the
+     * user to do the work of noticing before they have opened the app
+     * properly. The week they typed in already knows whether today is packed,
+     * so the picker can arrive at a guess and be corrected.
+     *
+     * A guess, and nothing more. It is never written to settings by itself --
+     * how a day *feels* is the user's to say, and a timetable cannot know that
+     * a light day is the hard one. See the caller.
+     *
+     * The bands are deliberately not even. Most of the difference people feel
+     * is at the bottom -- an empty day and a third-full day are not the same
+     * day -- while everything past about two thirds booked is simply a lot.
+     */
+    fun weatherFor(blocks: List<WeekBlock>, day: DayOfWeek): Weather =
+        when (load(blocks, day)) {
+            in 0.0..0.12 -> Weather.CLEAR
+            in 0.12..0.30 -> Weather.BRIGHT
+            in 0.30..0.52 -> Weather.CLOUDY
+            in 0.52..0.72 -> Weather.RAIN
+            else -> Weather.STORM
+        }
+
+    /**
+     * The busy stretches of [day], clamped and merged, in order.
+     *
+     * Merging first is what stops two classes that run into each other
+     * producing a phantom gap between them, and stops an overlap being counted
+     * twice when the day is weighed.
+     */
+    private fun busyRuns(
+        blocks: List<WeekBlock>,
+        day: DayOfWeek,
+        from: LocalTime,
+        to: LocalTime,
+    ): List<Pair<LocalTime, LocalTime>> {
+        val clamped = blocks
+            .filter { it.day == day && it.kind == BlockKind.BUSY }
+            .map { maxOf(it.start, from) to minOf(it.end, to) }
+            .filter { it.first < it.second }
+            .sortedBy { it.first }
+
+        val merged = mutableListOf<Pair<LocalTime, LocalTime>>()
+        for ((start, end) in clamped) {
+            val last = merged.lastOrNull()
+            if (last != null && start <= last.second) {
+                merged[merged.lastIndex] = last.first to maxOf(last.second, end)
+            } else {
+                merged.add(start to end)
+            }
+        }
+        return merged
+    }
 
     /**
      * Put [block] on the week, clearing whatever it lands on.

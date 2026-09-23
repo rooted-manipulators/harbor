@@ -57,18 +57,26 @@ internal object LedgerJson {
 
     fun settings(s: UserSettings): JSONObject = thresholds(s.thresholds)
         .put("cues_enabled", s.cuesEnabled)
+        .put("scroll_cues", s.scrollCues)
         .put("sound", s.sound.wire)
         .put("weather", s.weather.wire)
+        .put("weather_set_on", s.weatherSetOn?.toString())
         .put("name", s.name)
         .put("reduced_motion", s.reducedMotion)
 
     fun settings(o: JSONObject): UserSettings = UserSettings(
         thresholds = thresholds(o),
         cuesEnabled = o.optBoolean("cues_enabled", false),
+        scrollCues = o.optBoolean("scroll_cues", false),
         sound = o.optStringOrNull("sound")
             ?.let { CueSound.entries.fromWire(it) } ?: CueSound.CHIME,
         weather = o.optStringOrNull("weather")
             ?.let { Weather.entries.fromWire(it) } ?: Weather.CLEAR,
+        // Absent on anything written before the guess existed, which reads as
+        // "never set by hand" -- so an existing install gets a guess tomorrow
+        // rather than keeping whatever it happened to be left on.
+        weatherSetOn = o.optStringOrNull("weather_set_on")
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
         name = o.optStringOrNull("name").orEmpty(),
         reducedMotion = o.optBoolean("reduced_motion", false),
     )
