@@ -7,6 +7,11 @@ import android.graphics.Paint
 import android.graphics.Path as NativePath
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +71,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * The field.
@@ -372,6 +378,25 @@ fun FieldCanvas(
     // Held across frames so drawing allocates nothing.
     val kit = remember(palette.size) { DrawKit(palette.size) }
 
+    // The wind.
+    //
+    // One phase, climbing for ever, which [addTuft] turns into a gust that
+    // crosses the field. Twelve seconds a turn is slow enough to read as
+    // weather rather than as a wobble, and because every blade takes the same
+    // phase with a different offset it costs one animated float for the whole
+    // meadow.
+    //
+    // Held at nought for anybody who asked for less movement: a field that
+    // will not keep still is exactly what that setting is for.
+    val breeze = rememberInfiniteTransition(label = "wind")
+    val blowing by breeze.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * Math.PI).toFloat(),
+        animationSpec = infiniteRepeatable(tween(12_000, easing = LinearEasing)),
+        label = "gust",
+    )
+    val wind = if (settings.reducedMotion) 0f else blowing
+
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
 
@@ -435,7 +460,7 @@ fun FieldCanvas(
                 },
         ) {
             if (cells.isEmpty() || base <= 0) return@Canvas
-            drawField(cells, patches, palette, cam, base, kit, tagInk, newest, art)
+            drawField(cells, patches, palette, cam, base, kit, tagInk, newest, art, wind)
         }
 
         if (controls) {
@@ -585,6 +610,14 @@ private fun PatchCard(
 /** Paths and paints reused every frame. */
 private class DrawKit(buckets: Int) {
     val paths = Array(buckets) { NativePath() }
+
+    /**
+     * The continuous surface the dots sit on, one path per colour bucket.
+     *
+     * See [Field.GROUND_WASH]. Filled before [paths] and in the same colours,
+     * which is what turned the field from specks on black into a meadow.
+     */
+    val ground = Array(buckets) { NativePath() }
     val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     // Rock and the patch outlines went up with the ground under them. Both
     // were pitched against a land that has since been lifted off the page,
@@ -633,6 +666,8 @@ private fun DrawScope.drawField(
     mark: Field.Cell?,
     /** The bloom artwork, by kind. Empty until it has finished decoding. */
     art: Map<FlowerKind, Bitmap>,
+    /** Where the wind has got to, in radians. Held at zero for reduced motion. */
+    wind: Float,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -650,6 +685,7 @@ private fun DrawScope.drawField(
     val p = kit.point
 
     for (path in kit.paths) path.rewind()
+    for (path in kit.ground) path.rewind()
     kit.stem.rewind()
 
     // Flowers and rock are drawn after the bulk, so they sit on top of it.
@@ -710,6 +746,15 @@ private fun DrawScope.drawField(
 
             Field.Kind.DOT -> {
                 if (r < 0.75) r = 0.75
+                // The surface, before the speck. Sized off the cell step
+                // rather than off the dot, because what has to close is the
+                // gap to the next cell and the dot knows nothing about that.
+                val reach = (Terrain.CELL * p.s * Field.GROUND_WASH).toFloat()
+                if (reach > 0.6f) {
+                    kit.ground[c.paint].addCircle(
+                        p.x.toFloat(), p.y.toFloat(), reach, NativePath.Direction.CW,
+                    )
+                }
                 // Close enough in, and only on ground the view is actually
                 // looking at, a tuft grows the grass it stands for. The dot
                 // stays underneath as the root of the clump, shrinking as the
@@ -724,12 +769,23 @@ private fun DrawScope.drawField(
                 ) {
                     tufts++
                     val g = ((r - Field.GRASS_AT) / Field.GRASS_AT).coerceIn(0.0, 1.0).toFloat()
-                    addTuft(kit, c.paint, c.tone, p.x.toFloat(), p.y.toFloat(), r.toFloat(), g, stand.toFloat())
+                    addTuft(
+                        kit, c.paint, c.tone, p.x.toFloat(), p.y.toFloat(),
+                        r.toFloat(), g, stand.toFloat(), wind,
+                    )
                     r *= 1.0 - 0.35 * g * stand
                 }
                 kit.paths[c.paint].addCircle(p.x.toFloat(), p.y.toFloat(), r.toFloat(), NativePath.Direction.CW)
             }
         }
+    }
+
+    for (bucket in kit.ground.indices) {
+        if (kit.ground[bucket].isEmpty) continue
+        kit.fill.color = palette[bucket].toInt()
+        kit.fill.alpha =
+            (Field.alphaFor(bucket) * Field.GROUND_WASH_ALPHA * 255).toInt()
+        canvas.drawPath(kit.ground[bucket], kit.fill)
     }
 
     for (bucket in kit.paths.indices) {
@@ -829,10 +885,20 @@ private fun addTuft(
     grown: Float,
     /** How far the blades are out of the ground. See [Field.grassStand]. */
     stand: Float,
+    /** The wind's phase, in radians. See the gust below. */
+    wind: Float,
 ) {
     val blades = 4 + (tone * 3).toInt()
     val reach = r * (1f + 2.2f * grown) * stand
     val half = r * 0.28f
+    // A gust, travelling.
+    //
+    // The phase is taken from the clump's own position, so the lean arrives at
+    // one side of the field before the other and the whole meadow moves as a
+    // sheet rather than shivering in place. Fed through the blade height, so a
+    // long blade bends further than a short one — which is the difference
+    // between grass in wind and grass being translated sideways.
+    val gust = sin((wind + (x + y) * 0.0065f).toDouble()).toFloat()
     // One step up the vegetation ladder is the lighter green. A blade or two
     // in it catches the light and gives the clump some depth, and because it
     // is a bucket that is already being filled it is free.
@@ -844,7 +910,9 @@ private fun addTuft(
         // in a row. A row is a comb; a fan is a tuft.
         val bx = x + (a - 0.5f) * r * 0.9f
         val h = reach * (0.6f + a * 0.6f)
-        val lean = (c - 0.5f) * h * 0.85f
+        // Each blade keeps its own resting lean and takes the gust on top,
+        // varied a little per blade so the clump bends rather than hinges.
+        val lean = (c - 0.5f) * h * 0.85f + gust * h * (0.18f + a * 0.14f)
         val path = kit.paths[if (c > 0.62f) lit else paint]
         path.moveTo(bx - half, y)
         path.quadTo(bx - half * 0.3f + lean * 0.3f, y - h * 0.55f, bx + lean, y - h)
