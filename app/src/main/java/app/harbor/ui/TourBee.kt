@@ -161,12 +161,14 @@ fun TourCard(
                     .border(1.dp, Hairline, CardShape)
                     .padding(Space.two),
             ) {
+                // Built out here, not inside transitionSpec: Motion.normal()
+                // and Motion.fast() read reduced motion, which needs a
+                // composable context, and transitionSpec is not one.
+                val enter = fadeIn(Motion.normal()) + slideInVertically(Motion.normal()) { it / 4 }
+                val exit = fadeOut(Motion.fast())
                 AnimatedContent(
                     stop,
-                    transitionSpec = {
-                        (fadeIn(Motion.normal()) + slideInVertically(Motion.normal()) { it / 4 }) togetherWith
-                            fadeOut(Motion.fast())
-                    },
+                    transitionSpec = { enter togetherWith exit },
                     label = "tour stop",
                 ) { shown ->
                     val line = lineFor(shown)
