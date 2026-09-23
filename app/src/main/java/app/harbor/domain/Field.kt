@@ -154,6 +154,40 @@ object Field {
      * Above 0.71 the discs are guaranteed to meet on the diagonal, which is
      * what closes the last gaps.
      */
+    /**
+     * How long a flower takes to open once it has been planted, in seconds.
+     *
+     * Until now the drawing said, in as many words, that nothing was animated
+     * and a bloom "simply got big" — so the one moment the garden exists to
+     * mark, a call you had just made arriving in it, happened between two
+     * frames.
+     */
+    const val BLOOM_SECONDS = 1.35
+
+    /**
+     * How far a flower opens past its full size before settling back.
+     *
+     * A bloom is the app's only congratulation and it is allowed one small
+     * overshoot. More than this and it reads as a notification badge.
+     */
+    const val BLOOM_OVERSHOOT = 0.16
+
+    /**
+     * How open a flower planted [since] seconds ago is, from nought to one.
+     *
+     * Eased out and overshot: fast at first, past its size, then back. A
+     * linear open looks like a window being resized. Pure, so the shape of the
+     * gesture can be argued about in a test rather than on a phone.
+     */
+    fun bloomOpen(since: Double): Double {
+        if (since <= 0.0) return 0.0
+        if (since >= BLOOM_SECONDS) return 1.0
+        val t = since / BLOOM_SECONDS
+        val eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
+        val swell = kotlin.math.sin(t * kotlin.math.PI) * BLOOM_OVERSHOOT
+        return eased + swell
+    }
+
     const val GROUND_WASH = 0.78
 
     /**

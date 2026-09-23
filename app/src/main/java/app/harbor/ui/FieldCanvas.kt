@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path as NativePath
 import android.graphics.RectF
 import android.graphics.Typeface
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -492,6 +493,26 @@ fun FieldCanvas(
     )
     val wind = if (settings.reducedMotion) 0f else blowing
 
+    // The newest flower opening.
+    //
+    // A plain linear clock, with the shape read off [Field.bloomOpen] -- which
+    // keeps the gesture somewhere it can be argued about in a test rather than
+    // on a phone. Restarted whenever the newest flower changes, so arriving at
+    // the garden with a call already in it does not replay an old one.
+    val opening = remember { Animatable(1f) }
+    LaunchedEffect(newest, reducedMotion) {
+        if (newest == null || reducedMotion) {
+            opening.snapTo(1f)
+            return@LaunchedEffect
+        }
+        opening.snapTo(0f)
+        opening.animateTo(
+            1f,
+            tween((Field.BLOOM_SECONDS * 1000).toInt(), easing = LinearEasing),
+        )
+    }
+    val bloom = Field.bloomOpen(opening.value * Field.BLOOM_SECONDS).toFloat()
+
     // The corner belongs to a panel, and on home this is not a panel.
     Box(if (sky) modifier.clip(RoundedCornerShape(30.dp)) else modifier) {
 
@@ -596,7 +617,7 @@ fun FieldCanvas(
             drawField(
                 built, patches, palette, cam, base, kit, tagInk, newest, art,
                 stir, stirring.headingX, stirring.headingY, flatten.floorAt(cam.zoom),
-                wind,
+                wind, bloom,
             )
         }
 
@@ -922,6 +943,11 @@ private fun DrawScope.drawField(
      * ground answering the camera. A still field still has weather in it.
      */
     wind: Float,
+    /**
+     * How far open the newest flower is, nought to one. One for every other
+     * flower, and one for everybody who asked for less movement.
+     */
+    bloom: Float,
 ) {
     val unit = 1.dp.toPx()
     // A bloom is never drawn smaller than this, however far off it is.
@@ -1016,8 +1042,17 @@ private fun DrawScope.drawField(
             }
 
             Field.Kind.FLOWER -> {
-                // Close enough in, a planted dot opens into the flower it
-                // was standing for. Nothing is animated; it simply got big.
+                // Close enough in, a planted dot opens into the flower it was
+                // standing for. That much is zoom rather than time.
+                //
+                // What *is* time is the newest one. This comment used to say
+                // "nothing is animated; it simply got big", which meant the
+                // one moment the garden exists to mark -- a call you have just
+                // made arriving in it -- happened between two frames. It now
+                // grows into its place over about a second and a third, with
+                // one small overshoot. Identity and not equality, the same as
+                // the mark below and for the same reason.
+                if (c === mark && bloom < 1f) r *= bloom
                 if (r > Field.FLOWER_AT) {
                     blooms += floatArrayOf(
                         p.x.toFloat(), p.y.toFloat(), r.toFloat(),

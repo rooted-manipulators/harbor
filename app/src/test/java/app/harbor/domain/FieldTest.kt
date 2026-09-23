@@ -822,3 +822,65 @@ class FieldTest {
         assertEquals(1740.0, Terrain.FIELD_H, 1e-9)
     }
 }
+
+/**
+ * A flower opening.
+ *
+ * The drawing used to say, in as many words, that nothing was animated and a
+ * bloom "simply got big" — so the one moment the garden exists to mark
+ * happened between two frames. These are about the gesture it makes instead,
+ * which is a different question from where the ground is.
+ */
+class BloomOpenTest {
+
+    @org.junit.Test
+    fun `a flower that has not been planted is not open`() {
+        org.junit.Assert.assertEquals(0.0, Field.bloomOpen(0.0), 0.0001)
+        org.junit.Assert.assertEquals(0.0, Field.bloomOpen(-1.0), 0.0001)
+    }
+
+    @org.junit.Test
+    fun `it is fully open once its time is up, and stays there`() {
+        org.junit.Assert.assertEquals(1.0, Field.bloomOpen(Field.BLOOM_SECONDS), 0.0001)
+        org.junit.Assert.assertEquals(1.0, Field.bloomOpen(99.0), 0.0001)
+    }
+
+    @org.junit.Test
+    fun `it opens fast and then slows`() {
+        val first = Field.bloomOpen(Field.BLOOM_SECONDS / 3) - Field.bloomOpen(0.0)
+        val last = Field.bloomOpen(Field.BLOOM_SECONDS) -
+            Field.bloomOpen(Field.BLOOM_SECONDS * 2 / 3)
+        org.junit.Assert.assertTrue("first $first, last $last", first > last * 2)
+    }
+
+    @org.junit.Test
+    fun `it overshoots its full size somewhere in the middle`() {
+        var most = 0.0
+        var t = 0.0
+        while (t <= Field.BLOOM_SECONDS) {
+            most = maxOf(most, Field.bloomOpen(t)); t += 0.01
+        }
+        org.junit.Assert.assertTrue("only reached $most", most > 1.0)
+    }
+
+    @org.junit.Test
+    fun `the overshoot stays small enough to read as a flower`() {
+        var most = 0.0
+        var t = 0.0
+        while (t <= Field.BLOOM_SECONDS) {
+            most = maxOf(most, Field.bloomOpen(t)); t += 0.01
+        }
+        org.junit.Assert.assertTrue("swelled to $most", most < 1.0 + Field.BLOOM_OVERSHOOT * 1.1)
+    }
+
+    @org.junit.Test
+    fun `it never goes backwards early on`() {
+        var t = 0.0
+        var last = 0.0
+        while (t < Field.BLOOM_SECONDS * 0.5) {
+            val now = Field.bloomOpen(t)
+            org.junit.Assert.assertTrue("dipped at $t", now >= last - 0.0001)
+            last = now; t += 0.01
+        }
+    }
+}
