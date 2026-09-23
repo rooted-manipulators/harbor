@@ -1,5 +1,6 @@
 package app.harbor.ui
 
+import app.harbor.domain.TourStop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -100,7 +101,9 @@ fun GardenScreen(store: HarborRepository, modifier: Modifier = Modifier) {
         // it is also pannable and zoomable, so somebody who wants more of it
         // has a way to get more of it; the deck does not, and a card you
         // cannot see the bottom of is a card you do not know is swipeable.
-        Box {
+        Box(
+            Modifier.tourAnchor(TourStop.GARDEN_FIELD, TourStop.GARDEN_FLOWER, TourStop.GARDEN_BEE),
+        ) {
             // The garden opens standing close, so the bee starts in view; it
             // leaves as soon as somebody pulls back to the map.
             var closeUp by remember { mutableStateOf(true) }

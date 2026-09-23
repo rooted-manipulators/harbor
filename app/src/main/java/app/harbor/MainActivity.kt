@@ -1,5 +1,7 @@
 package app.harbor
 
+import androidx.compose.runtime.SideEffect
+import androidx.compose.animation.AnimatedVisibility
 import app.harbor.ui.theme.Space
 import app.harbor.ui.theme.Motion
 import androidx.compose.ui.platform.LocalDensity
@@ -22,7 +24,10 @@ import app.harbor.domain.TourScreen
 import app.harbor.domain.TourStop
 import app.harbor.domain.Walkthrough
 import app.harbor.ui.LocalStudyArm
-import app.harbor.ui.TourCard
+import app.harbor.ui.LocalTourAnchors
+import app.harbor.ui.LocalTourStop
+import app.harbor.ui.TourAnchors
+import app.harbor.ui.TourOverlay
 import app.harbor.ui.theme.LocalReducedMotion
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.tween
@@ -256,7 +261,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { onboarded = store.hasOnboarded() }
 
                 // The tour (ADR-016). An empty list means it is not running;
-                // TourCard, drawn last, speaks whatever `tourStop` is, and the
+                // TourOverlay, drawn last, speaks whatever `tourStop` is, and the
                 // LaunchedEffect beside `arm` below moves `screen` (and
                 // `showing`, for the two stops about a person) to match it.
                 var tourStops by remember { mutableStateOf<List<TourStop>>(emptyList()) }
@@ -395,9 +400,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Where each thing the tour points at is (ADR-016). One per
+                // activity; screens write into it, the overlay reads it.
+                val tourAnchors = remember { TourAnchors() }
+
                 CompositionLocalProvider(
                     LocalReducedMotion provides reduceMotion,
                     LocalStudyArm provides arm,
+                    LocalTourAnchors provides tourAnchors,
+                    LocalTourStop provides tourStop,
                 ) {
                 Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
                     // imePadding here rather than on each screen: the app is
@@ -688,22 +699,28 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Same layer as the flower above, and drawn after it so
-                    // the card sits on top rather than under it -- the two
-                    // should not overlap in practice (the tour runs before
-                    // any call has been made), but this is the order that
-                    // stays right if they ever do.
-                    tourStop?.let { stop ->
-                        TourCard(
-                            stop = stop,
-                            index = tourIndex,
-                            count = tourStops.size,
-                            onNext = {
-                                if (tourIndex + 1 < tourStops.size) tourIndex++ else endTour()
-                            },
-                            onSkip = { endTour() },
-                            modifier = inset,
-                        )
+                    // Same layer as the flower above, and over the shell's nav
+                    // pill: the veil covers the whole window. Faded in and out
+                    // rather than cut, and it keeps showing the last stop while
+                    // it fades so the bee does not vanish mid-sentence.
+                    val lastStop = remember { mutableStateOf<TourStop?>(null) }
+                    SideEffect { if (tourStop != null) lastStop.value = tourStop }
+                    AnimatedVisibility(
+                        visible = touring,
+                        enter = fadeIn(Motion.slow()),
+                        exit = fadeOut(Motion.normal()),
+                    ) {
+                        (tourStop ?: lastStop.value)?.let { stop ->
+                            TourOverlay(
+                                stop = stop,
+                                index = tourIndex,
+                                count = tourStops.size.coerceAtLeast(1),
+                                onNext = {
+                                    if (tourIndex + 1 < tourStops.size) tourIndex++ else endTour()
+                                },
+                                onSkip = { endTour() },
+                            )
+                        }
                     }
                 }
                 }

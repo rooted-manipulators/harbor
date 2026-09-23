@@ -52,16 +52,16 @@ class WalkthroughTest {
     }
 
     @Test
-    fun `schedule stops stay together and in the reading order of that screen`() {
+    fun `schedule stops stay together, week first and the day last`() {
         val stops = Walkthrough.stops(StudyArm.GARDEN, hasPerson = true)
         val schedule = stops.filter { Walkthrough.screenFor(it) == TourScreen.SCHEDULE }
         assertEquals(
             listOf(
                 TourStop.SCHEDULE_VIEWS,
                 TourStop.SCHEDULE_PALETTE,
-                TourStop.SCHEDULE_QUIET,
                 TourStop.SCHEDULE_COPY,
                 TourStop.SCHEDULE_CALENDAR,
+                TourStop.SCHEDULE_QUIET,
             ),
             schedule,
         )
