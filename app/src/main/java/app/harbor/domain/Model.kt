@@ -410,6 +410,17 @@ data class UserSettings(
 enum class BlockKind { BUSY, FREE }
 
 /**
+ * Where a [WeekBlock] came from.
+ *
+ * Rendering only -- `Windows.busyAt` and everything else that decides whether
+ * a block suppresses a cue reads [WeekBlock.kind] and never this. A block
+ * planted by a finger, one filed by the WhatsApp bot (ADR-014), and one
+ * pulled from a calendar (ADR-015) suppress a reminder identically; the only
+ * thing this changes is which colour the schedule draws it in.
+ */
+enum class BlockOrigin { PERSON, WHATSAPP, CALENDAR }
+
+/**
  * A recurring stretch of the week the user has said something about.
  *
  * Weekly rather than dated, because that is the shape a timetable actually
@@ -436,6 +447,18 @@ data class WeekBlock(
     val kind: BlockKind = BlockKind.BUSY,
     /** "Marketing 101", or null. Never leaves the device. */
     val label: String? = null,
+    /**
+     * Where this block came from. Default [BlockOrigin.PERSON], because that
+     * is what a block was before there was anything else it could be.
+     *
+     * Local only, same treatment as [label] and for the same reason: a week
+     * goes out as its shape, never its content, and *how somebody's calendar
+     * fills up* is content. [app.harbor.domain.Sharing.SharedBlock] has no
+     * field for it, `week_blocks` has no column for it, and nothing here
+     * should ever add one without rereading why `label` does not have one
+     * either.
+     */
+    val origin: BlockOrigin = BlockOrigin.PERSON,
 ) {
     init {
         require(start < end) { "a block must end after it starts" }

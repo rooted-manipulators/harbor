@@ -327,6 +327,13 @@ class HarborStore(context: Context) : HarborRepository {
         write { putBoolean(KEY_ONBOARDED, true) }
     }
 
+    override suspend fun hasSeenTour(): Boolean =
+        withContext(Dispatchers.IO) { prefs.getBoolean(KEY_TOUR_SEEN, false) }
+
+    override suspend fun setTourSeen() {
+        write { putBoolean(KEY_TOUR_SEEN, true) }
+    }
+
     private val _arm = MutableStateFlow(StudyArm.of(prefs.getString(KEY_ARM, null)))
     override val armFlow: StateFlow<StudyArm> = _arm.asStateFlow()
 
@@ -474,6 +481,7 @@ class HarborStore(context: Context) : HarborRepository {
         const val KEY_LEDGER = "ledger"
         const val KEY_CUES = "cues"
         const val KEY_ONBOARDED = "onboarded"
+        const val KEY_TOUR_SEEN = "tour_seen"
 
         /**
          * Written once, never rewritten. Stored as the wire name rather than

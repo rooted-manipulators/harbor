@@ -52,6 +52,40 @@ class CopyDayTest {
     }
 }
 
+class ClearDayTest {
+
+    @Test
+    fun `every block on that day goes, thorns and blooms both`() {
+        val week = listOf(
+            WeekBlock(MONDAY, t(9), t(11), BlockKind.BUSY, "Stats"),
+            WeekBlock(MONDAY, t(18), t(19), BlockKind.FREE),
+            WeekBlock(TUESDAY, t(9), t(10)),
+        )
+        val cleared = Windows.clearDay(week, MONDAY)
+        assertEquals(listOf(week[2]), cleared)
+    }
+
+    @Test
+    fun `quiet hours go with the rest`() {
+        val cleared = Windows.clearDay(Windows.quietNights(), MONDAY)
+        assertTrue(cleared.none { it.day == MONDAY })
+        assertEquals(12, cleared.size)
+    }
+
+    @Test
+    fun `an empty day is a no-op`() {
+        val week = listOf(WeekBlock(TUESDAY, t(9), t(10)))
+        assertEquals(week, Windows.clearDay(week, MONDAY))
+    }
+
+    @Test
+    fun `other days are untouched`() {
+        val week = Windows.quietNights()
+        val cleared = Windows.clearDay(week, MONDAY)
+        assertEquals(week.filter { it.day != MONDAY }, cleared)
+    }
+}
+
 class QuietTest {
 
     @Test
@@ -140,7 +174,7 @@ class CalendarPullTest {
     @Test
     fun `an event lands on its weekday`() {
         val b = CalendarPull.blocks(listOf(CalendarPull.Event(at(24, 10), at(24, 11, 30), "Finance")), today)
-        assertEquals(listOf(WeekBlock(DayOfWeek.THURSDAY, t(10), t(11, 30), BlockKind.BUSY, "Finance")), b)
+        assertEquals(listOf(WeekBlock(DayOfWeek.THURSDAY, t(10), t(11, 30), BlockKind.BUSY, "Finance", BlockOrigin.CALENDAR)), b)
     }
 
     @Test
@@ -160,8 +194,8 @@ class CalendarPullTest {
         val b = CalendarPull.blocks(listOf(CalendarPull.Event(at(25, 22), at(26, 2), "Trip")), today)
         assertEquals(
             listOf(
-                WeekBlock(DayOfWeek.FRIDAY, t(22), LocalTime.MAX, BlockKind.BUSY, "Trip"),
-                WeekBlock(DayOfWeek.SATURDAY, LocalTime.MIDNIGHT, t(2), BlockKind.BUSY, "Trip"),
+                WeekBlock(DayOfWeek.FRIDAY, t(22), LocalTime.MAX, BlockKind.BUSY, "Trip", BlockOrigin.CALENDAR),
+                WeekBlock(DayOfWeek.SATURDAY, LocalTime.MIDNIGHT, t(2), BlockKind.BUSY, "Trip", BlockOrigin.CALENDAR),
             ),
             b,
         )

@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.harbor.data.HarborRepository
 import app.harbor.domain.BlockKind
+import app.harbor.domain.BlockOrigin
 import app.harbor.domain.Moment
 import app.harbor.domain.WeekBlock
 import app.harbor.domain.Windows
@@ -733,6 +734,23 @@ private fun WeekEditor(
                             cardBottom = it.positionInRoot().y + it.size.height
                         },
                     )
+
+                    // At the day's own foot, the way the week's tools sit at
+                    // the week's. Thorns and blooms both go -- a blank day
+                    // to start over on, not one half-cleared.
+                    ToolPill(
+                        "Clear ${dayName(showing.dayOfWeek)}",
+                        skin,
+                        icon = { ClearMark(skin.ink) },
+                    ) {
+                        val cleared = Windows.clearDay(blocks, showing.dayOfWeek)
+                        if (cleared.size != blocks.size) {
+                            val before = blocks
+                            selected = null
+                            commit(cleared, why = "cleared")
+                            undo = "${dayName(showing.dayOfWeek)} cleared" to before
+                        }
+                    }
                 }
 
                 // One line each. The gestures teach themselves after the
@@ -1509,7 +1527,7 @@ private fun DrawScope.drawDay(
     blocks.forEach { b ->
         val box = blockBox(b, size.width, top, hourPx, inset, gutter)
         when (b.kind) {
-            BlockKind.BUSY -> drawThorn(box)
+            BlockKind.BUSY -> drawThorn(box, whatsapp = b.origin == BlockOrigin.WHATSAPP)
             BlockKind.FREE -> drawFlowerBlock(box)
         }
     }
@@ -2094,7 +2112,7 @@ private fun WeekGrid(
                 blocks.forEach { b ->
                     val box = boxOf(b)
                     when (b.kind) {
-                        BlockKind.BUSY -> drawThorn(box)
+                        BlockKind.BUSY -> drawThorn(box, whatsapp = b.origin == BlockOrigin.WHATSAPP)
                         BlockKind.FREE -> drawFlowerBlock(box)
                     }
                 }

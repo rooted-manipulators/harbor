@@ -167,6 +167,14 @@ object Windows {
             blocks.filter { it.day == from }.map { it.copy(day = to) }
     }
 
+    /**
+     * [blocks] with every one of [day]'s taken off -- thorns and blooms
+     * both, quiet hours included. A blank day to start over on, the same
+     * as dragging every block on it into the bin one at a time.
+     */
+    fun clearDay(blocks: List<WeekBlock>, day: DayOfWeek): List<WeekBlock> =
+        blocks.filterNot { it.day == day }
+
     /** Shorter than this is a gap between classes, not room for a call. */
     val LEAST: Duration = Duration.ofMinutes(20)
 

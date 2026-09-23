@@ -142,6 +142,20 @@ internal fun CalendarMark(tint: Color) = Canvas(Modifier.size(Space.two)) {
     drawLine(tint, Offset(s * 0.7f, 0f), Offset(s * 0.7f, s * 0.28f), w)
 }
 
+/** A rounded square, struck through once: "clear". */
+@Composable
+internal fun ClearMark(tint: Color) = Canvas(Modifier.size(Space.two)) {
+    val w = 1.6.dp.toPx()
+    drawRoundRect(
+        tint,
+        topLeft = Offset(w, w),
+        size = androidx.compose.ui.geometry.Size(size.width - 2 * w, size.height - 2 * w),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+        style = Stroke(w),
+    )
+    drawLine(tint, Offset(w * 1.6f, w * 1.6f), Offset(size.width - w * 1.6f, size.height - w * 1.6f), w)
+}
+
 /** A crescent, for do not disturb. */
 @Composable
 private fun MoonMark(tint: Color) = Canvas(Modifier.size(Space.two + Space.half)) {

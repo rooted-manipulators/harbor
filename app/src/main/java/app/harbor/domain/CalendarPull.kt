@@ -52,7 +52,7 @@ object CalendarPull {
                     while (day.atStartOfDay() < to) {
                         val a = if (day == from.toLocalDate()) from.toLocalTime() else LocalTime.MIDNIGHT
                         val b = if (day == to.toLocalDate()) to.toLocalTime() else LocalTime.MAX
-                        if (a < b) add(WeekBlock(day.dayOfWeek, a, b, BlockKind.BUSY, e.title?.trim()?.ifEmpty { null }))
+                        if (a < b) add(WeekBlock(day.dayOfWeek, a, b, BlockKind.BUSY, e.title?.trim()?.ifEmpty { null }, BlockOrigin.CALENDAR))
                         day = day.plusDays(1)
                     }
                 }

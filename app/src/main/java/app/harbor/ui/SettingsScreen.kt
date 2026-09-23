@@ -65,6 +65,7 @@ fun SettingsScreen(
     /** The account, which only matters for sharing a week with somebody. */
     onOpenAccount: () -> Unit,
     onOpenStudyCode: () -> Unit,
+    onReplayTour: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -246,6 +247,11 @@ fun SettingsScreen(
             // somewhere".
             Destination("When you are busy", onEditSchedule)
             Destination("Set up a daily reminder", onOpenCues)
+            // The tour offers itself once, unasked, right after onboarding
+            // (ADR-016) and is skippable at every stop -- this is the only
+            // other way back into it, for whoever skipped it, or wants the
+            // bee again.
+            Destination("Show me around again", onReplayTour)
             // Last of the three, because it is the only one that is optional.
             // Harbor works signed out; an account is what lets you ask
             // somebody whether you may see when they are free.
